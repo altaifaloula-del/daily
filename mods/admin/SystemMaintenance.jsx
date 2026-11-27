@@ -20,6 +20,7 @@ import { ctlBarOn } from '../../App.jsx';
 import { DS_BLOCKED, dsRanges, dsRouteOpen, dsLive, dsMapOf, dsAccOk } from '../../App.jsx';
 import { cvApprRanges } from '../../App.jsx';
 import { mktCtlOn } from '../../App.jsx';   // v56.35 ضوابط التسويق   // v56.32 اعتماد سندات الصرف   // v56.29 أوامر الصرف   // v56.23 (G2) شريط التحكم   // v56.18 (POS 6a) أثر فواتير نقطة البيع في قيد الإغلاق   // v56.17 (GROWTH 2) سجلات الموافقة والولاء المحمية   // v56.12 (GROWTH G1) سجلات التسويق في الفروع
+import { DsPreCard, DsDupCard } from '../acct/DsBatch11.jsx';   // v56.45 الدفعة 11
 import { WorkflowsCard } from './Workflows.jsx';   // v49.5 MQ-059
 import { FL_START, flOn, flScope, flCompare, flLoad, flPost, FL_GROUPS, flLvl, flUnclassified, flCorrect, flReadOn } from '../../App.jsx';   // v56.9 D1 دفتر القيود المخزّن
 import { fjCompare, fjLoad, fjOn, fjState, fpLockedTo, fpLoad, fmLoad, fmSet, fjSeed, FD_KINDS, fdCompare, fdLoad, fdSeed } from '../../App.jsx';   // v49.0 المرحلة 01
@@ -334,6 +335,8 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
       <ImpairCfgCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <LateRetCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <DsRouteCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
+      <DsPreCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
+      <DsDupCard org={org} ops={ops} me={me} commit={commit} say={say} canPost={jeOwner(me) || ['accountant', 'finance_department'].includes(me && me.role)} />
       <CvApprCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <MktCtlCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <FinStrictCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
@@ -797,7 +800,8 @@ function DsMapEditor({ org, commitOrg, say, isAdm }) {
       <select className="sel" style={{ minWidth: 240 }} aria-label={'حساب بند ' + it} data-dsmap-item={it} disabled={!isAdm} value={M[it] || ''} onChange={e => set(it, e.target.value)}>
         <option value="">5901 — مصروفات الخزينة (عام)</option>
         {accs.filter(a => a.code !== '5901').map(a => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}
-      </select></div>)}
+      </select>
+      {it === 'توريد مواد خام مركزي' && !/^16/.test(String(M[it] || '')) && <span className="hint" data-dsmap-raw style={{ color: 'var(--amber)' }}>بإجابتك (توجد مشتريات نقدية بلا فاتورة) يوصي المجلس بحساب المستودع 16xx</span>}</div>)}
   </div>);
 }
 

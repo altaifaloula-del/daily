@@ -2301,6 +2301,47 @@ const dsFundOf = (org, x, accIx) => { const c = x && x.fundAcc ? String(x.fundAc
   return (c && dsRouteAt(org, x.date) && dsBankOk(org, c) && (accIx ? !!accIx[c] : true)) ? c : '1101'; };
 const dsCashOut = (org, x) => dsFundOf(org, x, null) === '1101';   // يخص نقد الخزينة 1101 (رصيد الشاشة) — نفس شرط الدفتر
 const dsOpenFrom = (org) => (dsRanges(org).find(r => !r.to) || {}).from || '';
+/* v56.45 (الدفعة 11 — T1، إجابة المالك: «يُسلَّم النقد فعلًا قبل اعتماد أمر الصرف كثيرًا»): بقرار المجلس لا يُمنع الواقع بل يُسجَّل.
+   org.dsPre = { ranges: [{ from, to?, at }] } — معطّل افتراضيًا، ويعمل داخل نطاق ضوابط أوامر الصرف فقط.
+   الأمر المعلّق الذي سُلِّم نقده (x.cashAt): مدين 1402 «مبالغ صُرفت بانتظار اعتماد أمر الصرف» / دائن الخزينة أو البنك بتاريخ التسليم؛
+   عند الاعتماد: مدين حساب البند / دائن 1402 (لا يتحرك النقد مرة ثانية)؛ عند الرفض أو السحب يبقى المبلغ على 1402 حتى يُسترد (x.recAt): مدين الخزينة / دائن 1402.
+   ما لم يُسلَّم نقده قبل الاعتماد كما كان حرفيًا. */
+const DS_PRE_ACC = '1402';
+const dsPreRanges = (org) => ((org && org.dsPre && org.dsPre.ranges) || []);
+const dsPreAt = (org, d) => dsPreRanges(org).some(r => String(d || '') >= r.from && (!r.to || String(d || '') <= r.to));
+const dsPreOpen = (org) => dsPreRanges(org).some(r => !r.to);
+const dsPreFrom = (org) => (dsPreRanges(org).find(r => !r.to) || {}).from || '';
+const dsHanded = (org, x) => !!(x && /^\d{4}-\d{2}-\d{2}$/.test(String(x.cashAt || '')) && dsPreAt(org, x.cashAt) && dsRouteAt(org, x.date));
+const dsPreOpenItem = (org, x) => dsHanded(org, x) && x.status !== 'posted' && !x.recAt;   // نقد خرج ولم يُعتمد أمره ولم يُسترد
+/** حركات نقد الخزينة 1101 لأمر صرف (للشاشة والكشف): التسليم قبل الاعتماد يُخرج النقد بتاريخه، والاسترداد يُعيده، والاعتماد بعدها لا يحرّكه */
+const dsCashMoves = (org, x) => { if (!x || !(x.amount > 0) || !dsCashOut(org, x)) return [];
+  if (dsHanded(org, x)) return [{ date: x.cashAt, amt: -x.amount, k: 'out' }, ...(x.recAt && x.status !== 'posted' ? [{ date: x.recAt, amt: x.amount, k: 'rec' }] : [])];
+  return dsLive(x) ? [{ date: dsPostDate(org, x), amt: -x.amount, k: 'out' }] : []; };
+/** التحقق من تسجيل تسليم النقد على أمر معلّق — نص الخطأ أو '' */
+function dsHandCheck(org, x, cashAt, td) {
+  if (!x || x.status !== 'pending') return 'التسليم يُسجَّل على أمر بانتظار الاعتماد فقط';
+  if (x.cashAt) return 'سُجّل تسليم نقد هذا الأمر سابقًا';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(cashAt || ''))) return 'اختر تاريخ التسليم';
+  if (cashAt > td) return 'تاريخ التسليم لا يكون في المستقبل';
+  if (!dsPreAt(org, cashAt)) return 'تاريخ التسليم خارج نطاق «تسجيل النقد المسلَّم قبل الاعتماد»';
+  if (!dsRouteAt(org, x.date)) return 'الأمر خارج نطاق ضوابط أوامر الصرف';
+  if (periodLocked(org, cashAt)) return LOCK_MSG(cashAt);
+  return ''; }
+/* v56.45 (الدفعة 11 — T7، إجابة المالك: مدفوعات الموردين والضريبة والرواتب التي صُرفت بأوامر صرف سُجّلت أيضًا في شاشاتها) — قراءة فقط:
+   لكل أمر مرحّل على 5901 من البنود الثلاثة: المطابقات المحتملة في شاشتها (قيد يُنقص الالتزام نفسه بالمبلغ نفسه ±1 ر.س خلال ±31 يومًا).
+   التصحيح قيد يدوي بانتظار الاعتماد (x.dsDup) يعتمده غير منشئه — المالك قيدًا قيدًا. القيد الواحد قد يطابق أكثر من أمر — المراجعة بشرية.
+   (قرار المجلس) تاريخ التسليم قد يسبق تاريخ الأمر — النقد يُسلَّم قبل إصدار الأمر أحيانًا، والقيد بتاريخ التسليم الفعلي (الاستحقاق). لا يُعدَّل قيد سابق ولا يُفتح شهر مقفل. */
+const DS_DUP_LIAB = { 'سداد موردين': '2101', 'ضريبة القيمة المضافة': '2302', 'صرف رواتب': '2201' };
+function dsDupScan(A, ops, org) {
+  const dd = (a, b) => Math.abs((Date.parse(a) - Date.parse(b)) / 864e5);
+  const fixed = {}; (ops.journalManual || []).forEach(j => { if (j && j.dsDup && j.status !== 'rejected' && j.status !== 'withdrawn') fixed[j.dsDup] = j; });
+  const E = ((A && A.entries) || []).filter(e => !/^(dis|dsp|dsr|sal-set):/.test(String(e.id)));   // (التحقق المستقل) تسوية السلف والخصوم ليست سدادًا
+  return (ops.disbursements || []).filter(x => x && dsLive(x) && DS_DUP_LIAB[x.category] && x.amount > 0 && dsAccOf(org, x, null) === '5901')
+    .map(x => { const liab = DS_DUP_LIAB[x.category], d = dsPostDate(org, x);
+      const m = E.filter(e => dd(e.date, d) <= 31 && (e.lines || []).some(l => String(l.code) === liab && Math.abs((Number(l.debit) || 0) - x.amount) < 0.005))
+        .map(e => ({ id: e.id, date: e.date, title: e.title, cr: [...new Set((e.lines || []).filter(l => (Number(l.credit) || 0) > 0).map(l => String(l.code)))] }));   // المبلغ نفسه بالهللة؛ cr: حساب النقد الذي خُصم في الشاشة
+      return { x, liab, date: d, fund: dsFundOf(org, x, null), matches: m, fix: fixed[x.id] || null }; })
+    .sort((a, b) => a.date.localeCompare(b.date) || String(a.x.id).localeCompare(String(b.x.id))); }
 const dsBlockReason = (org, rec) => (rec && dsRouteAt(org, rec.date) && DS_BLOCKED[rec.category]) ? 'لا يُصرف «' + rec.category + '» من أوامر الصرف — استخدم: ' + DS_BLOCKED[rec.category] : '';
 const posGlOpen = (org) => posGlRanges(org).some(r => !r.to);
 const posGlAt = (org, date) => posGlRanges(org).some(r => String(date) >= r.from && (!r.to || String(date) <= r.to));
@@ -2486,6 +2527,7 @@ function buildAccounting(org, ops) {
   addAcc('1399', 'ذمم تطبيقات أخرى (غير معرّفة)', 'asset');
   addAcc('1380', 'ذمم العملاء — مبيعات آجلة', 'asset', { link: 'سجل فواتير المبيعات' });
   addAcc('1401', 'سلف الموظفين وعُهدهم', 'asset', { link: 'الرواتب والسلف' });
+  if (dsPreRanges(org).length) addAcc(DS_PRE_ACC, 'مبالغ صُرفت بانتظار اعتماد أمر الصرف', 'asset', { link: 'أوامر الصرف — النقد المسلَّم قبل الاعتماد' });   // v56.45 T1
   addAcc('1501', 'ضريبة القيمة المضافة — مدخلات', 'asset', { link: 'مدخلات الفترة الجارية — تُقفل في 2302 مع الإقرار' });
   addAcc('1601', 'المخزون — بضاعة آخر المدة', 'asset', { link: 'رسملة المخزون — من شاشة المخزون' });
   // v30.5 — الجرد المستمر (org.purchaseCfg.perpetualFrom = 'YYYY-MM'): حسابات تكلفة الاستهلاك والهدر والفروقات
@@ -2700,12 +2742,20 @@ function buildAccounting(org, ops) {
   });
   // 5) أوامر الصرف من الخزينة الرئيسية
   (ops.disbursements || []).forEach(x => {
-    if (!(x.amount > 0) || !dsLive(x)) return;   // v56.29: المعلّق والمرفوض لا يُرحَّلان (القديم بلا حالة = مرحّل)
+    if (!(x.amount > 0)) return;
+    const hd = dsHanded(org, x), fnd = dsFundOf(org, x, accIx);   // v56.45 T1: نقد سُلِّم قبل الاعتماد
+    if (hd) {
+      push({ id: 'dsp:' + x.id, date: x.cashAt, title: 'نقد سُلِّم قبل اعتماد أمر الصرف — ' + (x.category || 'منصرف') + (x.beneficiary ? ' · ' + x.beneficiary : ''),
+        src: 'الخزينة الرئيسية', ref: x.reference || x.id, lines: [L(DS_PRE_ACC, x.amount, 0), L(fnd, 0, x.amount)] });
+      if (x.recAt && x.status !== 'posted') push({ id: 'dsr:' + x.id, date: x.recAt, title: 'استرداد نقد أمر صرف لم يُعتمد — ' + (x.category || '') + (x.beneficiary ? ' · ' + x.beneficiary : ''),
+        src: 'الخزينة الرئيسية', ref: x.reference || x.id, lines: [L(fnd, x.amount, 0), L(DS_PRE_ACC, 0, x.amount)] });
+    }
+    if (!dsLive(x)) return;   // v56.29: المعلّق والمرفوض لا يُرحَّلان (القديم بلا حالة = مرحّل)
     push({
       id: 'dis:' + x.id, date: dsPostDate(org, x), ...(dsRouteAt(org, x.date) && DS_BLOCKED[x.category] ? { dsRoute: 'blocked' } : {}),
       title: 'أمر صرف — ' + (x.category || 'منصرف') + (x.beneficiary ? ' · ' + x.beneficiary : ''),
       src: 'الخزينة الرئيسية', ref: x.reference || x.id,
-      lines: [L(dsAccOf(org, x, accIx), x.amount, 0), L(dsFundOf(org, x, accIx), 0, x.amount)]   // v56.30: حساب البند المثبَّت على الأمر (قرار المالك) وإلا 5901
+      lines: [L(dsAccOf(org, x, accIx), x.amount, 0), L(hd ? DS_PRE_ACC : fnd, 0, x.amount)]   // v56.45: سُلِّم نقده قبل الاعتماد ⇒ يُقفل 1402 · v56.30: حساب البند المثبَّت على الأمر (قرار المالك) وإلا 5901
     });
   });
   // 6) فواتير التوريد الآجلة وسداداتها المركزية (سدادات الفروع تدخل من قيود الورديات)
@@ -3631,7 +3681,8 @@ function closeAutoChecks(A, ops, month, org) {
   const pcv = (ops.cashVouchers || []).filter(v => v.status === 'pending' && String(v.date || '') <= end);   // v56.32
   // v56.33 P2: غير المطابق وله فواتير، داخل نطاق «الإغلاق غير المطابق» فقط (معطّل افتراضيًا)، وبلا شرح
   const pmis = org ? (A.entries || []).filter(e => inM(e.date) && e.posGl === 'mismatch' && e.posInv && posMisLoyAt(org, e.date) && !posGlNote(org, String(e.id).replace(/^rev:/, ''))) : [];
-  const pds = (ops.disbursements || []).filter(x => x.status === 'pending' && String(x.date || '') <= end);   // v56.29
+  const pds = (ops.disbursements || []).filter(x => x.status === 'pending' && (String(x.date || '') <= end || (x.cashAt && String(x.cashAt) <= end)));   // v56.29 · v56.45 المسلَّم نقده
+  const dsUnrec = org ? (ops.disbursements || []).filter(x => dsPreOpenItem(org, x) && x.status !== 'pending' && String(x.cashAt) <= end) : [];   // v56.45: رُفض/سُحب بعد تسليم نقده ولم يُسترد
   const pecl = (ops.eclDocs || []).filter(x => x.status === 'pending' && String(x.date || '') <= end);
   const ppp = (ops.prepaids || []).filter(x => x.status === 'pending' && String(x.date || '') <= end);   // v56.41
   const pdp = org ? expDeptPending(org, ops, month + '-01', end) : [];   // v56.42 U3
@@ -3643,6 +3694,7 @@ function closeAutoChecks(A, ops, month, org) {
     { k: 'pj', ar: 'لا قيود يدوية بانتظار الاعتماد', n: pj.length },
     ...(pmis.length ? [{ k: 'posmis', ar: 'كل إغلاق لا يطابق فواتير نقطة البيع مصحَّح أو مشروح بمستند (صيانة النظام ← قيد الإيراد من نقطة البيع)', n: pmis.length }] : []),
     ...(pcv.length || pds.length ? [{ k: 'pdocs', ar: 'لا سندات صرف ولا أوامر صرف بانتظار الاعتماد (المعلّق في شهر مقفل لا يُعتمد)', n: pcv.length + pds.length }] : []),
+    ...(dsUnrec.length ? [{ k: 'dsunrec', ar: 'لا نقد سُلِّم على أمر صرف مرفوض أو مسحوب دون استرداده (الحساب 1402)', n: dsUnrec.length }] : []),
     ...(pecl.length || (org && eclOn(org)) ? [{ k: 'ecl', ar: 'مخصص الخسائر الائتمانية: رُوجعت ذمم العملاء المتأخرة ولا مستند مخصص أو شطب بانتظار الاعتماد', n: pecl.length }] : []),
     ...(ppp.length || (org && ppOn(org)) ? [{ k: 'ppd', ar: 'المصروفات المدفوعة مقدمًا: لا مستند بانتظار الاعتماد (الإطفاء الشهري آلي بعد الاعتماد)', n: ppp.length }] : []),
     ...(pimp.length || impYear ? [{ k: 'impair', ar: 'هبوط قيمة الأصول: سُجّل اختبار مؤشرات السنة ولا مستند هبوط بانتظار الاعتماد', n: pimp.length + (impYear ? 1 : 0) }] : []),
@@ -3881,7 +3933,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.44';
+const APP_VER = 'v56.45';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3944,6 +3996,7 @@ export { ctlBarOn };
 export { mktCtlOn, mktCanExport, mktCanExportAll, mktUndoPending };   // v56.35
 export { loyMonthAdj, posLoyOpening, posMisLoyRanges, posMisLoyFrom, posMisLoyAt, posGlNote };   // v56.33
 export { cvLive, cvApprRanges, cvApprAt, cvApprOpenFrom, cvNeedsAppr, cvApprove };   // v56.32
+export { DS_PRE_ACC, dsPreRanges, dsPreAt, dsPreOpen, dsPreFrom, dsHanded, dsPreOpenItem, dsCashMoves, dsHandCheck, dsDupScan };   // v56.45 T1/T7
 export { DS_BLOCKED, dsRanges, dsRouteAt, dsRouteOpen, dsLive, dsBlockReason, dsOpenFrom, dsMapOf, dsAccOk, dsAccOf, dsPostDate, dsFundOf, dsCashOut, dsBankOk, lockedLedgerSig };   // v56.29
 export { DEPT_SHARED, deptOn, deptList, deptPL };   // v56.27 E4   // v56.23 G2
 export { ledgerApi };   // v56.15 D5
@@ -9373,7 +9426,7 @@ function ppSchedule(x) {
   return out;
 }
 /** (التحقق المحاسبي) الأصل: متداول 14xx غير سلف الموظفين 1401؛ المصروف: 5xxx غير تسوية المخزون 5150 */
-const ppAssetOk = (c, A) => /^14\d{2,}$/.test(String(c || '')) && String(c) !== '1401' && (!A || (A.accounts || []).some(y => String(y.code) === String(c) && !y.cash));
+const ppAssetOk = (c, A) => /^14\d{2,}$/.test(String(c || '')) && String(c) !== '1401' && String(c) !== DS_PRE_ACC && (!A || (A.accounts || []).some(y => String(y.code) === String(c) && !y.cash));
 const ppExpOk = (c, A) => /^5\d+$/.test(String(c || '')) && String(c) !== '5150' && (!A || (A.accounts || []).some(y => String(y.code) === String(c)));
 function ppCheck(org, ops, x, A) {
   if (!(budR2(x.amount) > 0)) return 'أدخل المبلغ';
@@ -9794,7 +9847,11 @@ function DisbursementForm({ org, me, balance, commit, say, onClose }) {
     const mAcc = route ? String(dsMapOf(org)[f.category] || '') : '';   // v56.30: يُثبَّت حساب البند وقت الإنشاء
     const bank = route && f.method !== 'cash' ? String(f.fundAcc || '1201') : '';   // v56.31 T3
     if (bank && !dsBankOk(org, bank)) return say('البنك المختار غير معرّف — اختر البنك التجميعي أو بنك فرع', 'no');
-    const rec = { ...f, id: uid('ds'), by: me.name, byId: me.id || '', createdAt: nowISO(), ...(mAcc ? { acc: mAcc } : {}), ...(bank ? { fundAcc: bank } : { fundAcc: undefined }),
+    const hand = !!f.handed && route && !direct && dsPreOpen(org);   // v56.45 T1
+    if (hand) { const why = dsHandCheck(org, { ...f, cashAt: undefined, date: f.date || today(), status: 'pending' }, f.cashAt || today(), today());   // (التحقق المستقل) الأمر الجديد بلا تسليم سابق if (why) return say(why, 'no');
+      if (f.method === 'cash' && f.amount > balance) return say('المبلغ يتجاوز رصيد الخزينة المتاح', 'no'); }
+    const { handed: _h, cashAt: _c, ...f0 } = f;
+    const rec = { ...f0, ...(hand ? { cashAt: f.cashAt || today(), cashBy: me.name, cashById: me.id || '', cashRecAt: nowISO() } : {}), id: uid('ds'), by: me.name, byId: me.id || '', createdAt: nowISO(), ...(mAcc ? { acc: mAcc } : {}), ...(bank ? { fundAcc: bank } : { fundAcc: undefined }),
       ...(route ? { status: direct ? 'posted' : 'pending', ...(direct ? { approvedBy: me.name, approvedAt: nowISO(), postDate: today(), ...(jeOwner(me) ? { selfPosted: true } : {}) } : {}) } : {}) };
     if (!rec.fundAcc) delete rec.fundAcc;
     await commit(d => ({ ...d, disbursements: [rec, ...(d.disbursements || [])] }), {
@@ -9848,6 +9905,11 @@ function DisbursementForm({ org, me, balance, commit, say, onClose }) {
             onChange={e => set('reference', e.target.value)} />
         </Field>
       </div>
+      {dsRouteAt(org, f.date || today()) && !jeOwner(me) && dsPreOpen(org) && <div data-ds-pre style={{ marginTop: 8, fontSize: 12 }}>
+        <label className="row" style={{ gap: 6, alignItems: 'center' }}><input type="checkbox" data-ds-pre-chk checked={!!f.handed} onChange={e => set('handed', e.target.checked)} />سُلِّم النقد فعلًا قبل الاعتماد</label>
+        {f.handed && <label style={{ display: 'block', marginTop: 4 }}>تاريخ التسليم <input type="date" className="inp" data-ds-pre-date aria-label="تاريخ تسليم النقد" value={f.cashAt || today()} max={today()} onChange={e => set('cashAt', e.target.value)} /></label>}
+        <div className="hint" style={{ marginTop: 4 }}>يُقيَّد بتاريخ التسليم على 1402 «مبالغ صُرفت بانتظار الاعتماد» ويُخصم من الخزينة فورًا، ثم يُحمَّل على حساب البند عند اعتماده أو يُسترد إن رُفض.</div></div>}
+      {f.category === 'توريد مواد خام مركزي' && dsRouteAt(org, f.date || today()) && <div className="hint" data-ds-raw style={{ marginTop: 6 }}>هذا البند للمشتريات النقدية بلا فاتورة مورد (بلا ضريبة مدخلات). إن كان للشراء فاتورة مورد فسجّلها فاتورة مورد ثم سدّدها بسند صرف. {/^16/.test(String(dsMapOf(org)[f.category] || '')) ? '' : 'بقرار المجلس يُوجَّه إلى حساب المستودع (16xx) من خريطة البنود في صيانة النظام.'}</div>}
     </Modal>
   );
 }
@@ -15433,7 +15495,7 @@ function flOpening(A, start = FL_START) {
 /** v56.11 (D3): مجموعات المصادر بترتيب المالك المعتمد — النطاق يتسع مجموعةً مجموعة (org.ledger.lvl، الافتراضي 1).
  *  المجموعة تُعرف ببادئة معرّف القيد في المحرك. قيود الإغلاق غير المعتمد (المرفوع بانتظار التدقيق) لا تدخل في أي مستوى. */
 const FL_GROUPS = [
-  { id: 'closings', label: 'الإغلاقات اليومية والخزينة وتسويات التطبيقات', pre: ['rev:', 'cashvar:', 'exp:', 'spay:', 'tr:', 'trs:', 'trr:', 'dis:', 'astl:'] },
+  { id: 'closings', label: 'الإغلاقات اليومية والخزينة وتسويات التطبيقات', pre: ['rev:', 'cashvar:', 'exp:', 'spay:', 'tr:', 'trs:', 'trr:', 'dis:', 'dsp:', 'dsr:', 'astl:'] },
   { id: 'ap', label: 'فواتير الموردين والسداد والسندات وفواتير المبيعات', pre: ['inv:', 'invp:', 'cip:', 'cv:', 'si:', 'sir:', 'fxr:', 'ecl:'] },   // v56.40 مخصص الخسائر الائتمانية
   { id: 'payroll', label: 'الرواتب والتأمينات والسلف ونهاية الخدمة والإجازات', pre: ['sal-acc:', 'sal-pay:', 'sal-set:', 'gosi-er:', 'adv:', 'eos:', 'eos-pay:', 'lv:'] },
   { id: 'stock', label: 'المخزون وتكلفة المبيعات', pre: ['stk:', 'stk-open', 'stx:', 'srx:', 'invval'] },

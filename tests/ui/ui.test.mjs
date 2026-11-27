@@ -4235,3 +4235,40 @@ test('v56.44 الدفعة 9 (H1): غياب بلا أجر — يظهر لمُعد
   assert.equal(await p.locator('[data-lr-unpaid]').count(), 0, 'مدير فرع آخر لا يرى');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.45 الدفعة 11 (T1/T7): تسجيل تسليم النقد قبل الاعتماد ثم الاعتماد اللاحق، وبطاقتا الإعداد والمراجعة', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Hub/admin/finhub:treasury');
+  const td = await p.evaluate(() => new Date().toISOString().slice(0, 10));
+  await p.evaluate((td) => { window.setOrg(o => ({ ...o, dsRoute: { ranges: [{ from: td }] }, dsPre: { ranges: [{ from: td }] } }));
+    window.setOps(o => ({ ...o, transfers: [...(o.transfers || []), { id: 'tin', date: td, status: 'received', amount: 5000, branchName: 'العليا', referenceNo: 'T1' }],
+      disbursements: [{ id: 'dh1', date: td, category: 'صيانة وتشغيل', amount: 200, beneficiary: 'ورشة', method: 'cash', by: 'محاسب آخر', byId: 'someone-else', status: 'pending' }] })); }, td);
+  await p.locator('button:has-text("أوامر الصرف")').first().click(); await p.waitForSelector('[data-ds-hand]');
+  p.removeAllListeners('dialog'); p.on('dialog', d => d.accept(d.type() === 'prompt' ? td : undefined).catch(() => {}));
+  await p.click('[data-ds-hand]'); await p.waitForFunction((td) => (window.cur.disbursements.find(x => x.id === 'dh1') || {}).cashAt === td, td);
+  assert.equal(await p.locator('[data-ds-handed]').count(), 1);
+  assert.equal(await p.locator('[data-ds-ok]').count(), 0, 'من سجّل التسليم لا يعتمد (فصل المهام)');
+  await p.evaluate(() => window.setOps(o => ({ ...o, disbursements: o.disbursements.map(x => x.id === 'dh1' ? { ...x, cashBy: 'أمين الخزينة', cashById: 'treasurer-x' } : x) })));
+  await p.waitForSelector('[data-ds-ok]');
+  await p.click('[data-ds-ok]'); await p.waitForFunction(() => (window.cur.disbursements.find(x => x.id === 'dh1') || {}).status === 'posted');
+  const x = await p.evaluate(() => window.cur.disbursements.find(x => x.id === 'dh1'));
+  assert.equal(x.lateAppr, true); assert.equal(x.postDate, td);
+  assert.equal(await p.locator('[data-ds-late]').count(), 1);
+  // نموذج الأمر الجديد: خيار «سُلِّم النقد فعلًا» وتنبيه المواد الخام
+  await p.locator('button:has-text("أمر صرف جديد")').click();
+  assert.equal(await p.locator('[data-ds-pre-chk]').count(), 0, 'المالك يرحّل مباشرة — لا خيار تسليم له');
+  assert.equal(await p.locator('[data-ds-raw]').count(), 1);
+  assert.deepEqual(errs, []); await ctx.close();
+  { const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Admin/admin');
+    await p.evaluate(() => window.setOps(o => ({ ...o, disbursements: [{ id: 'old1', date: '2026-01-10', category: 'سداد موردين', amount: 1000, beneficiary: 'مورد', method: 'cash', by: 'أ' }] })));
+    await p.click('button:has-text("صيانة النظام")'); await p.waitForSelector('[data-dspre]');
+    await p.click('[data-dspre-toggle]'); await p.waitForFunction(() => /ضوابط أوامر الصرف/.test(window.lastSay || ''));
+    assert.equal(await p.evaluate(() => ((window.curOrg.dsPre || {}).ranges || []).length), 0, 'لا يُفعَّل قبل ضوابط أوامر الصرف');
+    assert.equal(await p.locator('[data-dsmap-raw]').count(), 1);
+    await p.click('[data-dsdup-open]'); await p.waitForSelector('[data-dsdup-row="old1"]');
+    await p.selectOption('[data-dsdup-row="old1"] [data-dsdup-dr]', '1101'); await p.selectOption('[data-dsdup-row="old1"] [data-dsdup-cr]', '5901'); await p.click('[data-dsdup-row="old1"] [data-dsdup-fix]');
+    await p.waitForFunction(() => (window.cur.journalManual || []).some(j => j.dsDup === 'old1'));
+    const j = await p.evaluate(() => window.cur.journalManual.find(j => j.dsDup === 'old1'));
+    assert.deepEqual(j.lines.map(l => l.code + ':' + l.debit + '/' + l.credit), ['1101:1000/0', '5901:0/1000']);
+    await p.waitForSelector('[data-dsdup-fixed]');
+    assert.deepEqual(errs, []); await ctx.close(); }
+});
