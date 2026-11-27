@@ -118,10 +118,11 @@ const SA = JSON.stringify({ client_email: 'ops@test-prod.iam.gserviceaccount.com
 const ENV = { FIREBASE_API_KEY: 'AIzaSy' + 'a'.repeat(33), FIREBASE_PROJECT_ID: 'test-prod', FIREBASE_SERVICE_ACCOUNT: SA };
 function harness({ env = ENV, orgV = { posCfg: { devReg: true, branches: ['b1', 'b2'] } } } = {}) {
   const routes = {}; const app = { post: (p, ...h) => (routes[p] = h) }; let orgLoads = 0;
-  const users = { cash: { email: 'c@test.sa', role: 'cashier', tenant: 'default' }, other: { email: 'o@test.sa', role: 'cashier', tenant: 'default' }, view: { email: 'v@test.sa', role: 'accountant_view', tenant: 'default' }, off: { email: 'x@test.sa', role: 'cashier', tenant: 'default' } };
+  const users = { cash: { email: 'c@test.sa', role: 'cashier', tenant: 'default' }, other: { email: 'o@test.sa', role: 'cashier', tenant: 'default' }, view: { email: 'v@test.sa', role: 'accountant_view', tenant: 'default' }, off: { email: 'x@test.sa', role: 'cashier', tenant: 'default' }, kash: { email: 'k@test.sa', role: 'cashier', tenant: 'default' } };
   const requireMember = (req, res, next) => { const u = users[req.who]; if (!u) return res.status(401).json({ error: 'يلزم تسجيل الدخول' }); req.user = u; next(); };
   const F = (o) => ({ fields: Object.fromEntries(Object.entries(o).map(([k, v]) => [k, typeof v === 'boolean' ? { booleanValue: v } : Array.isArray(v) ? { arrayValue: { values: v.map(x => ({ stringValue: x })) } } : { stringValue: String(v) }])) });
-  const db = { 'members/c@test.sa': { ...F({ active: true, branchId: 'b1', role: 'cashier' }), v: 1 }, 'members/o@test.sa': { ...F({ active: true, branchId: 'b2', role: 'cashier' }), v: 1 },
+  const db = { 'members/c@test.sa': { ...F({ active: true, branchId: 'b1', role: 'branch_manager' }), v: 1 }, 'members/o@test.sa': { ...F({ active: true, branchId: 'b2', role: 'branch_manager' }), v: 1 },
+    'members/k@test.sa': { ...F({ active: true, branchId: 'b1', role: 'cashier' }), v: 1 },
     'members/v@test.sa': { ...F({ active: true, scope: 'all', role: 'accountant_view' }), v: 1 }, 'members/x@test.sa': { ...F({ active: false, branchId: 'b1', role: 'cashier' }), v: 1 }, 'platform/admins': { ...F({ emails: [] }), v: 1 } };
   const txReads = {}; let txn = 0; let commits = 0;
   const fetchImpl = async (u, i = {}) => {
@@ -154,6 +155,7 @@ test('(3) المسار: 401 بلا هوية، 400 لمدخل خاطئ، 403 لغ
   assert.equal((await H.call('other', body())).status, 403, 'عضو فرع آخر');
   assert.equal((await H.call('view', body())).status, 403, 'العرض فقط');
   assert.equal((await H.call('off', body())).status, 403, 'عضو معطّل');
+  assert.equal((await H.call('kash', body())).status, 403, 'قرار المالك: مدير الفرع فقط — الكاشير لا يطلب رقم الجهاز');
   let r = await H.call('cash', body()); assert.equal(r.status, 200); assert.deepEqual(r.json, { ok: true, tag: 'D0001', again: false });
   r = await H.call('cash', body()); assert.deepEqual(r.json, { ok: true, tag: 'D0001', again: true }, 'الجهاز نفسه رقمه نفسه');
   r = await H.call('cash', body({ devKey: KB })); assert.equal(r.json.tag, 'D0002');

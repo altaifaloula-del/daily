@@ -89,6 +89,8 @@ export function mountPosDevices(app, { express, requireMember, rateLimit, T, fet
     let M;
     try { M = await member(t, email); } catch (e) { log.error('pos/device-register member', t.id, e.message); return res.status(502).json({ error: 'تعذّر التحقق من العضوية' }); }
     if (!memberInBranch(M.m, q.branchId, M.admin)) return res.status(403).json({ error: 'لا صلاحية على هذا الفرع' });
+    // قرار المالك: «مدير الفرع فقط» يطلب رقم الجهاز (ومدير المنصة للدعم)
+    if (!M.admin && String((M.m || {}).role || '') !== 'branch_manager') return res.status(403).json({ error: 'يطلب رقم الجهاز مدير الفرع فقط' });
     try { const c = ((await loadOrg(t)) || {}).posCfg || {};
       if (!c.devReg) return res.status(409).json({ error: 'سجل أجهزة نقطة البيع غير مفعّل للمنشأة' });
       if (!(c.branches || []).includes(q.branchId)) return res.status(409).json({ error: 'نقطة البيع غير مفعّلة لهذا الفرع' }); }

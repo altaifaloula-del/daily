@@ -131,7 +131,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const openOf = (tg) => !!tg && ((ops.posShifts || []).some(x => x.branchId === (br || {}).id && x.dev === tg && x.status === 'open' && !pendCloseL.some(p => p.id === x.id)) || !!(localShift && localShift.branchId === (br || {}).id && localShift.dev === tg && localShift.status === 'open'));
   const devTag = srvTag ? posDevTagPick({ local: dev.tag, srv: srvTag, on: devRegOn, openLocal: openOf(dev.tag), openSrv: openOf(srvTag) }) : dev.tag;
   const regTry = useRef('');
-  useEffect(() => { if (!devRegOn || !br || srvTag) return; const bid = br.id;
+  useEffect(() => { if (!devRegOn || !br || srvTag || me.role !== 'branch_manager') return; const bid = br.id;   // قرار المالك: مدير الفرع فقط يطلب رقم الجهاز
     const go = () => { if ((typeof navigator !== 'undefined' && navigator.onLine === false) || regTry.current === bid) return; regTry.current = bid;
       posDevRegApi({ branchId: bid, devKey: posDevKey(), ...(/^[A-Z0-9]{1,8}$/.test(String(dev.tag)) ? { localTag: dev.tag } : {}), ...(dev.name ? { name: String(dev.name).slice(0, 40) } : {}) })
         .then(r => { if (r && r.ok && r.tag) setDevNo(posDevNoSet(bid, r.tag)); else regTry.current = ''; }).catch(() => { regTry.current = ''; }); };
