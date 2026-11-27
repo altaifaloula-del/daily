@@ -23,6 +23,7 @@ import { GeneralLedger } from './GeneralLedger.jsx';   // v49.4 المرحلة 0
 import { makeRptXlsx } from '../../App.jsx';   // v50.0 منظومة التقارير
 import { FL_START, FL_GROUPS, flReadOn, flLoad, flEntriesOf, flBalDiff, flScope } from '../../App.jsx';   // v56.14 D4 الميزان والقوائم من الدفتر المخزّن
 import { DEP_METHODS, depMethod, deprSchedule, wfOn, wfRequired, wfState, wfCanAct, wfApprove } from '../../App.jsx';   // v49.4 طرق الإهلاك
+import { assetBrSave } from '../../App.jsx';   // v56.48 سجل مركز تكلفة الأصل (قرار المالك)
 import { equityStatement, EQS_ROWS, closeListOn, closeAutoChecks, closeManualState, closeLockBlock, fxRevalOn, fxRevalRows } from '../../App.jsx';   // v56.20 (E2) + v56.21 (E3)   // v56.19 (FINANCE E1)
 import { ACCT_GROUPS, DocLink, RowGrip, moveIdx, RECUR_AR, recurNext, recurDue, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, projList, projectPL, projNextCode, ACCT_SECTIONS, ACC_KIND, Field, Kpi, LOCK_MSG, MizanMerge, Modal, NUM_FACE, Num, ROLES, _xe, acctSecKey, arDate, bankOfBranch, branchBanks, bsLayout, bsRowsOf, buildAccounting, buildPartners, capOK, countedClosing, customerAging, detectStmtMap, entityById, entityList, gosiRatesFor, isLayout, isRowsOf, isoD, lockedThru, makeXlsx, money, monthEnd, monthLedger, multiEntityOn, naMissing, nowISO, openDocWin, parseCsvGrid, parseMt940, parseXlsxGrid, payTotal, periodLocked, posClrOf, printA4, qrSvg, roleEdit, rolePost, snapMonths, stAddDays, stDate, stNum, sum, supplierAging, today, uid, useSecNav, zatcaTLV } from '../../App.jsx';
 
@@ -578,11 +579,16 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
     const salv = Number(f.salvage) || 0; if (salv < 0 || salv >= cost) return say('القيمة المتبقية يجب أن تكون أقل من التكلفة', 'no');
     const rec = { id: f.id || uid('as'), name: f.name.trim(), cost, buyDate: f.buyDate || today(), lifeYears: Number(f.lifeYears), fund: f.fund || 'none', note: f.note || '',
       ...(f.depMethod && f.depMethod !== 'sl' ? { depMethod: f.depMethod } : {}), ...(salv > 0 ? { salvage: salv } : {}), ...(f.branchId ? { branchId: f.branchId } : {}) };   // v56.43 (E8.1) مركز التكلفة اختياري   // v49.4 طريقة الإهلاك والقيمة المتبقية
-    await commitOrg(d => ({ ...d, assets: f.id ? (d.assets || []).map(x => x.id === f.id ? rec : x) : [...(d.assets || []), rec] }), {
+    // v56.48 (قرار المالك): نقل الأصل بين مراكز التكلفة «من شهر النقل فصاعدًا» — سجل brHist يُحفظ ولا يُمحى
+    const prevA = f.id ? (org.assets || []).find(x => x.id === f.id) : null; const bh0 = assetBrSave(org, prevA, rec.branchId, today().slice(0, 7)); if (bh0.err) return say(bh0.err, 'no');
+    let bhErr = '';
+    await commitOrg(d => { let r2 = rec; if (f.id) { const bh = assetBrSave(d, (d.assets || []).find(x => x.id === f.id), rec.branchId, today().slice(0, 7)); if (bh.err) { bhErr = bh.err; return d; } if (bh.brHist) r2 = { ...rec, brHist: bh.brHist }; }
+      return { ...d, assets: f.id ? (d.assets || []).map(x => x.id === f.id ? r2 : x) : [...(d.assets || []), r2] }; }, {
       actionType: f.id ? 'update' : 'create', targetType: 'fixed_asset', targetId: rec.id,
       need: f.id ? 'edit' : 'post', title: f.id ? 'عدّل أصلاً ثابتاً (أُعيد اشتقاق إهلاكه)' : 'سجّل أصلاً ثابتاً',
       details: rec.name + ' · ' + money(cost) + ' · ' + rec.lifeYears + ' سنة'
     });
+    if (bhErr) return say(bhErr, 'no');
     setAstF(null); say('حُفظ الأصل — قيود الشراء والإهلاك تولّدت تلقائياً ✓');
   };
 

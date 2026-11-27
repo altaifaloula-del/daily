@@ -4366,3 +4366,29 @@ test('v56.47 النقاط اليدوية: التفعيل ثم الإيقاف ي�
   assert.equal(await p.evaluate(() => window.curOrg.posGl.manLoyRanges.length), 1, 'الإيقاف يغلق النطاق ولا يحذفه');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.48 توزيع الإهلاك على الفروع: التفعيل يُنشئ نطاقًا من الشهر الجاري، والإيقاف يغلقه ولا يمحوه', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Admin/admin');
+  await p.click('button:has-text("صيانة النظام")'); await p.waitForSelector('[data-depbr-toggle]');
+  assert.match(await p.locator('[data-depbr-st]').innerText(), /غير مفعّل/, 'معطّل افتراضيًا');
+  assert.match(await p.locator('[data-depbr-hint]').innerText(), /مركز التكلفة/);
+  await p.click('[data-depbr-toggle]'); await p.waitForFunction(() => (((window.curOrg.depBranch || {}).ranges) || []).length === 1);
+  const r = await p.evaluate(() => window.curOrg.depBranch.ranges[0]); const d = new Date();
+  assert.equal(r.from, d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'), 'من الشهر الجاري'); assert.equal(r.to, undefined);
+  await p.click('[data-depbr-toggle]'); await p.waitForFunction(() => !!((((window.curOrg.depBranch || {}).ranges) || [])[0] || {}).to);
+  assert.equal(await p.evaluate(() => window.curOrg.depBranch.ranges.length), 1, 'الإيقاف يغلق النطاق ولا يحذفه');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v56.48 نقل الأصل بين مراكز التكلفة (قرار المالك): مع التوزيع يُحفظ سجل يبدأ النقل فيه من الشهر الجاري', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1200 } }, 'live/Accounting/acc/ast');
+  const cur = await p.evaluate(() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); });
+  await p.evaluate((cur) => window.setOrg(o => ({ ...o, depBranch: { ranges: [{ from: cur, at: 'x' }] },
+    assets: [...(o.assets || []), { id: 'aq', name: 'فرن النقل', cost: 12000, buyDate: '2025-01-10', lifeYears: 5, fund: '1201', branchId: 'b1' }] })), cur);
+  await p.evaluate(() => window.as('admin'));   // التعديل لمن يملكه
+  const row = p.locator('tr:has-text("فرن النقل"):has(button:has-text("تعديل"))').first(); await row.waitFor(); await row.locator('button:has-text("تعديل")').click();
+  await p.selectOption('select[aria-label="فرع الأصل"]', ''); await p.click('.modal button:has-text("حفظ الأصل")');
+  await p.waitForFunction(() => !!((window.curOrg.assets || []).find(a => a.id === 'aq') || {}).brHist);
+  assert.deepEqual(await p.evaluate(() => window.curOrg.assets.find(a => a.id === 'aq').brHist), [{ from: '2025-01', branchId: 'b1' }, { from: cur, branchId: '' }]);
+  assert.deepEqual(errs, []); await ctx.close();
+});
