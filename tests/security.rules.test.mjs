@@ -375,6 +375,16 @@ test('v56.50 سجل إرسال الرسائل comms_log للخادم وحده: �
   }
 });
 
+test('v56.54 سجل أجهزة نقطة البيع (pos_devices) للخادم وحده: لا قراءة ولا كتابة ولا حذف لعضو ولا لمدير', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => { await setDoc(doc(ctx.firestore(), 'pos_devices', 'b1'), { branchId: 'b1', next: 2, devs: '[]' }); });
+  for (const k of ['cash', 'bm', 'fin', 'acct', 'owner']) {
+    await assertFails(getDoc(doc(as(k), 'pos_devices', 'b1')), k + ' يقرأ pos_devices');
+    await assertFails(setDoc(doc(as(k), 'pos_devices', 'b9_' + k), { branchId: 'b9', next: 1, devs: '[]' }), k + ' يكتب pos_devices');
+    await assertFails(updateDoc(doc(as(k), 'pos_devices', 'b1'), { next: 1 }), k + ' يعدّل pos_devices');
+    await assertFails(deleteDoc(doc(as(k), 'pos_devices', 'b1')), k + ' يحذف pos_devices');
+  }
+});
+
 test('v56.46 حجوزات البيع الآجل وسجل تفويضه للخادم وحده: لا قراءة ولا كتابة ولا حذف لعضو ولا لمدير', async () => {
   await env.withSecurityRulesDisabled(async (ctx) => { const d = ctx.firestore();
     await setDoc(doc(d, 'pos_credit', 'x'), { key: 'cust:c1', holds: '[]' }); await setDoc(doc(d, 'pos_credit_log', 'x'), { orderId: 'x', amount: 10 }); });

@@ -47,7 +47,9 @@ export const ENGINE_EXPORTS = ['depBrRanges', 'depBrAt', 'depBrFrom', 'depBrOf',
   // v56.53 — نقطة البيع المرحلة 5أ: العمل دون اتصال
   'posOffOn', 'POS_OB_KINDS', 'posObKey', 'posObItem', 'posObSort', 'posSyncErr', 'posSyncDelay', 'posStoreIdb', 'posStoreLs', 'posStoreMem', 'posStoreOpen', 'posObMigrate', 'posObRestore', 'posSyncLog', 'posSyncLogList', 'posSyncRun', 'posOffRetLimit', 'posOffRetPending', 'posOffRetCheck', 'posOffRetReview',
   // v56.53 — معالجة المراجعة الأمنية
-  'posLockRun', 'posOnMark', 'posOnFresh', 'posOnClear', 'posRetHashSrc', 'posOffRetAudit', 'posChainGaps'];
+  'posLockRun', 'posOnMark', 'posOnFresh', 'posOnClear', 'posRetHashSrc', 'posOffRetAudit', 'posChainGaps',
+  // v56.54 — نقطة البيع 5ب: نوع حد المرتجع، سجل الأجهزة، فتح التطبيق دون إنترنت
+  'POS_ORET_MODES', 'POS_ORET_PERIODS', 'posOffRetRule', 'POS_SRV_TAG', 'POS_DEVNO_KEY', 'posDevRegOn', 'posDevNoGet', 'posDevNoSet', 'posDevSrvTag', 'posDevKey', 'posDevTagPick', 'POS_SW_FLAG', 'POS_SW_CACHE', 'posShellOn', 'posSwIsPos', 'posSwWarmList', 'posSwSync'];
 
 export async function buildEngine() {
   fs.mkdirSync(cache, { recursive: true });

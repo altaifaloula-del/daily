@@ -14,6 +14,7 @@ import { posHolds, posHoldsSet, posHoldPut, posHoldRecall } from '../../App.jsx'
 import { posVoidBlock, posNextNo, posTabCuts, escH, POS_VOID_ROLES } from '../../App.jsx';   // v56.2 (POS دفعة 1) حراس الإلغاء والترقيم وحساب الطاولة
 import { posCreditList, posCreditAuthApi, posArRefundMax } from '../../App.jsx';   // v56.46 البيع الآجل
 import { restCfg, coversOf, posWaiters, salesByWaiter, tabRemain, tabSplitItems, tabSplitSet, tabPartPriced, tabSplitReset, tabPayPart, tabMerge, kdsStations, kdsSplit, kdsPrepReport, kdsPrepSheets } from '../../App.jsx';   // v56.52 المطعم (مُطفأة افتراضيًا)
+import { posDevRegOn, posDevNoGet, posDevNoSet, posDevSrvTag, posDevKey, posDevTagPick, posDevRegApi, posShellOn, posSwSync, POS_SW_FLAG } from '../../App.jsx';   // v56.54 سجل الأجهزة وفتح التطبيق دون إنترنت (مُطفآن افتراضيًا)
 import { posOffOn, POS_OB_USED, posObItem, posObSort, posStoreOpen, posLegacyQ, posObMigrate, posObRestore, posSyncRun, posSyncLogList, posSyncDelay, posSyncErr, posOffRetCheck, posOffRetPending, posOffRetReview, posLockRun, posOnMark, posOnFresh, posOnClear, posRetHashSrc, posOffRetAudit, posChainGaps } from '../../App.jsx';   // v56.53 العمل دون اتصال (مُطفأ افتراضيًا)
 
 /* v56.53 — صندوق الصادر (IndexedDB «muktasab-pos») حين org.posCfg.offline — بلا تفعيل لا يُفتح شيء ويبقى الطابور القديم حرفيًا.
@@ -125,8 +126,22 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   // v33.3: الوردية تُفتح على الجهاز فورًا حتى لو تعذّر الحفظ السحابي، وتُرسل مع الطلبات عند عودة الاتصال
   const [localShift, setLocalShift] = useState(() => { try { return JSON.parse(localStorage.getItem(POS_SH_KEY) || 'null'); } catch { return null; } });
   const [pendCloseLS, setPendClose] = useState(pendShiftsGet); const pendCloseL = useMemo(() => offOn ? OB.list('shift') : pendCloseLS, [offOn, OB.ver, pendCloseLS]); const pendClose = pendCloseL.length ? pendCloseL : null;   // eslint-disable-line react-hooks/exhaustive-deps
-  const cloudShift = (ops.posShifts || []).find(x => x.branchId === (br || {}).id && x.dev === dev.tag && x.status === 'open' && !pendCloseL.some(p => p.id === x.id));
-  const shift = cloudShift || (localShift && localShift.branchId === (br || {}).id && localShift.dev === dev.tag && localShift.status === 'open' ? { ...localShift, pending: true } : null);
+  // v56.54 — رقم الجهاز من سجل الخادم (posCfg.devReg): يُطلب مرة واحدة لكل فرع ويُحفظ؛ لا يتبدّل أثناء وردية مفتوحة. بلا رقم ⇒ الوسم المحلي كما كان
+  const devRegOn = posDevRegOn(org); const [devNo, setDevNo] = useState(() => posDevNoGet()); const srvTag = br ? posDevSrvTag(devNo, br.id) : '';
+  const openOf = (tg) => !!tg && ((ops.posShifts || []).some(x => x.branchId === (br || {}).id && x.dev === tg && x.status === 'open' && !pendCloseL.some(p => p.id === x.id)) || !!(localShift && localShift.branchId === (br || {}).id && localShift.dev === tg && localShift.status === 'open'));
+  const devTag = srvTag ? posDevTagPick({ local: dev.tag, srv: srvTag, on: devRegOn, openLocal: openOf(dev.tag), openSrv: openOf(srvTag) }) : dev.tag;
+  const regTry = useRef('');
+  useEffect(() => { if (!devRegOn || !br || srvTag || me.role !== 'branch_manager') return; const bid = br.id;   // قرار المالك: مدير الفرع فقط يطلب رقم الجهاز
+    const go = () => { if ((typeof navigator !== 'undefined' && navigator.onLine === false) || regTry.current === bid) return; regTry.current = bid;
+      posDevRegApi({ branchId: bid, devKey: posDevKey(), ...(/^[A-Z0-9]{1,8}$/.test(String(dev.tag)) ? { localTag: dev.tag } : {}), ...(dev.name ? { name: String(dev.name).slice(0, 40) } : {}) })
+        .then(r => { if (r && r.ok && r.tag) setDevNo(posDevNoSet(bid, r.tag)); else regTry.current = ''; }).catch(() => { regTry.current = ''; }); };
+    go(); window.addEventListener('online', go); return () => window.removeEventListener('online', go); }, [devRegOn, (br || {}).id, srvTag]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // v56.54 — فتح التطبيق دون إنترنت (posCfg.offline + offShell): يُسجَّل عامل pos-sw على هذا الجهاز؛ الإيقاف يلغيه ويمسح كاشه (بلا تفعيل سابق لا يُلمس شيء)
+  const shellOn = posShellOn(org);
+  useEffect(() => { let f = null; try { f = localStorage.getItem(POS_SW_FLAG); } catch { }
+    if (shellOn) posSwSync(true).catch(() => { }); else if (f) posSwSync(false).catch(() => { }); }, [shellOn]);
+  const cloudShift = (ops.posShifts || []).find(x => x.branchId === (br || {}).id && x.dev === devTag && x.status === 'open' && !pendCloseL.some(p => p.id === x.id));
+  const shift = cloudShift || (localShift && localShift.branchId === (br || {}).id && localShift.dev === devTag && localShift.status === 'open' ? { ...localShift, pending: true } : null);
   const setLS = (v) => { try { if (v) localStorage.setItem(POS_SH_KEY, JSON.stringify(v)); else localStorage.removeItem(POS_SH_KEY); } catch { } setLocalShift(v); };
   // v34.0: التسعير = العروض وخصم الصنف (لكل سطر) ← عرض الفاتورة ← الخصم اليدوي (مبلغ أو نسبة) ← استبدال النقاط
   const phoneN0 = normPhone(cust.phone); const phone0 = phoneN0.length >= 9 ? phoneN0 : '';
@@ -259,7 +274,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
 
   const openShift = async (cashStr) => {
     const amt = posR2(String(cashStr == null ? '' : cashStr).replace(/[^\d.]/g, ''));
-    const rec = { id: uid('ps'), branchId: br.id, dev: dev.tag, devName: dev.name, openedAt: nowISO(), openedBy: me.name, openingCash: amt, status: 'open', date: today };
+    const rec = { id: uid('ps'), branchId: br.id, dev: devTag, devName: dev.name, openedAt: nowISO(), openedBy: me.name, openingCash: amt, status: 'open', date: today };
     let ok = false;
     try { ok = await commit(d => ({ ...d, posShifts: [rec, ...(d.posShifts || [])] }), { actionType: 'create', targetType: 'pos_shift', targetId: rec.id, branchName: br.name, title: 'فتح وردية نقطة بيع', details: dev.name + ' · افتتاحي ' + money(amt) }); }
     catch (e) { console.warn('openShift', e); logClientError(e, 'فتح وردية نقطة البيع'); }
@@ -332,9 +347,9 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     // ترقيم الجهاز اليومي وسلسلة البصمات (تعمل دون اتصال)
     const yy = today.replace(/-/g, '').slice(2); const sk = 'mizan:posSeq:' + br.id + ':' + today, hk = 'mizan:posHash:' + br.id;
     let ls = 0, lp = null; try { ls = Number(localStorage.getItem(sk)) || 0; lp = JSON.parse(localStorage.getItem(hk) || 'null'); } catch { }
-    const { seq, prev } = posNextNo(ls, lp, [...(ops.posOrders || []), ...qNow()], br.id, dev.tag, today, 'ف');   // v56.2 (B4): لا رقم مكرر بعد مسح التخزين المحلي
+    const { seq, prev } = posNextNo(ls, lp, [...(ops.posOrders || []), ...qNow()], br.id, devTag, today, 'ف');   // v56.2 (B4): لا رقم مكرر بعد مسح التخزين المحلي
     const bi = (org.branches || []).findIndex(b => b.id === br.id) + 1;
-    const o = { id: oid, no: 'ف' + bi + '-' + yy + '-' + dev.tag + '-' + String(seq).padStart(4, '0'), branchId: br.id, dev: dev.tag, shiftId: shift.id, date: today, at: nowISO(), by: me.name,
+    const o = { id: oid, no: 'ف' + bi + '-' + yy + '-' + devTag + '-' + String(seq).padStart(4, '0'), branchId: br.id, dev: devTag, shiftId: shift.id, date: today, at: nowISO(), by: me.name,
       channel, ...(plId ? { priceList: plId } : {}), lines: priced.lines.map(l => ({ productId: l.productId, name: l.name, qty: l.qty, price: l.price, ...(l.note ? { note: l.note } : {}), ...(((cart.find(c => c.key === l.key) || {}).rec) ? { rec: (cart.find(c => c.key === l.key) || {}).rec } : {}), ...(l.disc ? { disc: l.disc, promoId: l.promoId, promoName: l.promoName } : {}) })),
       gross: T.gross, disc: T.disc, ...(priced.orderDisc ? { orderDisc: priced.orderDisc, orderPromo: priced.orderPromo } : {}), manualDisc: manual, ...(manual ? { discReason: disc.reason.trim() } : {}),
       ...(cpCode.trim() && priced.codeOk ? { coupon: cpCode.trim(), ...(priced.coupon ? { couponId: priced.coupon.id, ...(priced.coupon.limited ? { couponLtd: true } : {}) } : {}) } : {}),
@@ -374,10 +389,10 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const all = {}; (o.lines || []).forEach((l, i) => { all[i] = Number(l.qty) || 0; }); const C = posReturnCalc(o, all);
     const yy = today.replace(/-/g, '').slice(2); const sk = 'mizan:posRetSeq:' + br.id + ':' + today, hk = 'mizan:posHash:' + br.id;
     let ls = 0, lp = null; try { ls = Number(localStorage.getItem(sk)) || 0; lp = JSON.parse(localStorage.getItem(hk) || 'null'); } catch { }
-    const { seq, prev } = posNextNo(ls, lp, [...(ops.posOrders || []), ...qNow()], br.id, dev.tag, today, 'م');
+    const { seq, prev } = posNextNo(ls, lp, [...(ops.posOrders || []), ...qNow()], br.id, devTag, today, 'م');
     const bi = (org.branches || []).findIndex(b => b.id === br.id) + 1;
     const at = nowISO();
-    const vn = { no: 'م' + bi + '-' + yy + '-' + dev.tag + '-' + String(seq).padStart(4, '0'), dev: dev.tag, date: today, at, by: me.name, total: -C.total, vat: -C.vat, net: -C.net, icv: (prev.icv || 0) + 1, pih: prev.hash || '0' };
+    const vn = { no: 'م' + bi + '-' + yy + '-' + devTag + '-' + String(seq).padStart(4, '0'), dev: devTag, date: today, at, by: me.name, total: -C.total, vat: -C.vat, net: -C.net, icv: (prev.icv || 0) + 1, pih: prev.hash || '0' };
     vn.hash = sha256Hex(JSON.stringify([vn.no, vn.at, C.lines, vn.total, vn.vat, vn.icv, vn.pih, o.id]));
     let blocked = '';
     const ok = await commit(d => { blocked = ''; const cur = (d.posOrders || []).find(x => x.id === o.id); const why = posVoidBlock(d, cur); if (why) { blocked = why; return d; }
@@ -419,15 +434,15 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const offRet = offOn && typeof navigator !== 'undefined' && navigator.onLine === false;
     if (offRet && OB.info.fatal) return say(OB.info.fatal, 'no');
     if (offRet) { if (opt.m === 'credit') return say('المرتجع إلى حساب العميل يتطلب اتصالًا', 'no');
-      const ck = posOffRetCheck(org, allOrders, ops.posOffRevs, br.id, C.total); if (ck.err) return say(ck.err, 'no'); }
+      const ck = posOffRetCheck(org, allOrders, ops.posOffRevs, br.id, C.total, { date: today, shiftId: shift ? shift.id : '' }); if (ck.err) return say(ck.err, 'no'); }   // v56.54: نوع الحد وفترته (بلا الإعداد كما كان)
     // v56.46: «إلى حساب العميل» — لا يمس الدرج، ولا يتجاوز متبقي الذمة (أو الآجل ناقص المرتجعات السابقة إلى الحساب)
     if (opt.m === 'credit') { const mx = posArRefundMax({ ...ops, posOrders: allOrders }, o); if (C.total > mx + 0.004) return say('المرتجع إلى حساب العميل لا يتجاوز ' + money(mx) + ' — رُدّ الباقي بطريقة أخرى', 'no'); }
     if (opt.m === 'cash' && shift) { const drawer = posR2((Number(shift.openingCash) || 0) + posOrdersStats(shiftOrders(shift)).cash); if (C.total > drawer + 0.004) return say('النقد في الدرج (' + money(drawer) + ') أقل من المبلغ المردود', 'no'); }
     const yy = today.replace(/-/g, '').slice(2); const sk = 'mizan:posRetSeq:' + br.id + ':' + today, hk = 'mizan:posHash:' + br.id;
     let ls = 0, lp = null; try { ls = Number(localStorage.getItem(sk)) || 0; lp = JSON.parse(localStorage.getItem(hk) || 'null'); } catch { }
-    const { seq, prev } = posNextNo(ls, lp, [...(ops.posOrders || []), ...qNow()], br.id, dev.tag, today, 'م');   // v56.2 (B4): لا رقم مكرر بعد مسح التخزين المحلي
+    const { seq, prev } = posNextNo(ls, lp, [...(ops.posOrders || []), ...qNow()], br.id, devTag, today, 'م');   // v56.2 (B4): لا رقم مكرر بعد مسح التخزين المحلي
     const bi = (org.branches || []).findIndex(b => b.id === br.id) + 1;
-    const r = { id: uid('pr'), kind: 'return', refId: o.id, refNo: o.no, no: 'م' + bi + '-' + yy + '-' + dev.tag + '-' + String(seq).padStart(4, '0'), branchId: br.id, dev: dev.tag, ...(shift ? { shiftId: shift.id } : {}),
+    const r = { id: uid('pr'), kind: 'return', refId: o.id, refNo: o.no, no: 'م' + bi + '-' + yy + '-' + devTag + '-' + String(seq).padStart(4, '0'), branchId: br.id, dev: devTag, ...(shift ? { shiftId: shift.id } : {}),
       date: today, at: nowISO(), by: me.name, channel: o.channel, lines: [], retLines: C.lines, gross: -C.total, disc: 0, manualDisc: 0, total: -C.total, vat: -C.vat, net: -C.net, rate: o.rate,
       payments: [{ m: opt.m, amount: -C.total, ...(opt.appId ? { appId: opt.appId, appName: opt.appName } : {}), ...(opt.pm ? { pm: opt.pm, pmName: opt.pmName } : {}), ...(opt.m === 'credit' ? { custKey: opt.custKey, custName: opt.custName } : {}) }], change: 0, status: 'paid',
       ...(opt.m === 'credit' ? { ar: { key: opt.custKey, name: opt.custName || '' } } : {}),
@@ -668,7 +683,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
           <span className="pos-mark"><Store size={17} /></span>
           <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
             <b style={{ fontSize: 16 }}>نقطة البيع</b>
-            <span className="pos-sub">{dev.name} ({dev.tag}){shift ? ' · الوردية منذ ' + String(shift.openedAt || '').slice(11, 16) : ' · لا وردية مفتوحة'}</span>
+            <span className="pos-sub" data-devtag={devTag}>{dev.name} ({devTag}){shift ? ' · الوردية منذ ' + String(shift.openedAt || '').slice(11, 16) : ' · لا وردية مفتوحة'}</span>
           </div>
           {brs.length > 1 ? <select className="sel pos-br" aria-label="الفرع" value={br.id} onChange={e => setBrId(e.target.value)}>{brs.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select> : <span className="pos-chip">{br.name}</span>}
           <span style={{ marginInlineStart: 'auto' }} />

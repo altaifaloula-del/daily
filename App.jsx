@@ -4062,7 +4062,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.53';
+const APP_VER = 'v56.54';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -4169,6 +4169,9 @@ function PlatformApp() {
   useEffect(() => { const h = setTimeout(prefetchMods, 2500); return () => clearTimeout(h); }, []);   // v38.3 جلب التطبيقات في الخلفية بعد ظهور الواجهة
   const [org, setOrg] = useState(null);
   const orgNow = useRef(null); orgNow.current = org; grrSetOn(org); lypSetOn(org);   // v56.17: مفتاح نسخ سجلات النمو لدفتر الولاء   // v29.5: للحارس المركزي للإقفال داخل writeOps
+  // v56.54: جهاز موسوم لفتح نقطة البيع دون إنترنت والمفتاح أُطفئ ⇒ يُلغى عامل pos-sw ويُمسح كاشه (متصلًا وبإعدادات منشأة محمّلة فقط)
+  const shellOff = !!(org && org.posCfg && !posShellOn(org));
+  useEffect(() => { if (!shellOff || (typeof navigator !== 'undefined' && navigator.onLine === false)) return; let f = null; try { f = localStorage.getItem(POS_SW_FLAG); } catch { } if (f) posSwSync(false).catch(() => { }); }, [shellOff]);
   const [opsRaw, setOps] = useState({ closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [] });
   // v42.2: القراءة من السجلات المستقلة — ops المعروضة = مستند الفرع مدموجًا بالسجلات (السجل يغلب) متى فُعّلت
   const [clRecs, setClRecs] = useState(null);
@@ -9495,6 +9498,62 @@ function Hub({ hubId, view, ...rest }) {
    ============================================================ */
 const POS_DEV_KEY = 'mizan:posDev', POS_Q_KEY = 'mizan:posQueue';
 const posDev = () => { try { let d = JSON.parse(localStorage.getItem(POS_DEV_KEY) || 'null'); if (!d || !d.tag) { d = { tag: Math.random().toString(36).slice(2, 6).toUpperCase().padEnd(4, '0'), name: 'كاشير' };   /* v56.2 (B4): 4 خانات للأجهزة الجديدة (كان حرفين: 1 من 1296 تصادم) — الأجهزة القائمة تحتفظ بوسمها */ localStorage.setItem(POS_DEV_KEY, JSON.stringify(d)); } return d; } catch { return { tag: 'X1', name: 'كاشير' }; } };
+/* v56.54 — سجل أجهزة نقطة البيع على الخادم (org.posCfg.devReg، مُطفأ افتراضيًا — docs/pos/POS_OFFLINE_SW.md §3).
+   الجهاز يطلب رقمه الفريد لكل فرع مرة واحدة من /api/pos/device-register (معاملة على الخادم تمنع التكرار) ويحفظه على الجهاز؛
+   الوسم «D» + 4 أرقام (5 خانات فأكثر) لا يتصادم مع الوسم المحلي (2 أو 4 خانات). بلا رقم من الخادم (أو دون اتصال) يبقى الوسم المحلي القائم. */
+const POS_DEVNO_KEY = 'mizan:posDevNo', POS_DEVKEY_KEY = 'mizan:posDevKey', POS_SRV_TAG = /^D\d{4,6}$/, POS_DEVKEY_RE = /^[A-Za-z0-9_-]{16,64}$/;
+const posDevRegOn = (org) => !!(org && org.posCfg && org.posCfg.devReg);
+const posDevNoGet = (ls) => { try { const v = JSON.parse((ls || localStorage).getItem(POS_DEVNO_KEY) || '{}'); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; } catch { return {}; } };
+const posDevSrvTag = (map, brId) => { const t = String((((map || {})[brId]) || {}).tag || ''); return POS_SRV_TAG.test(t) ? t : ''; };
+/** يحفظ رقم الخادم للفرع (مرة واحدة: لا يُستبدل رقم محفوظ صالح) — يعيد الخريطة بعد الحفظ */
+const posDevNoSet = (brId, tag, ls, at) => { const L = ls || localStorage; const m = posDevNoGet(L); if (posDevSrvTag(m, brId) || !POS_SRV_TAG.test(String(tag || ''))) return m;
+  const nx = { ...m, [brId]: { tag: String(tag), at: at || new Date().toISOString() } }; try { L.setItem(POS_DEVNO_KEY, JSON.stringify(nx)); } catch { return m; } return nx; };
+/** مفتاح الجهاز (عشوائي، يبقى على الجهاز) — مفتاح عدم التكرار عند الخادم: الجهاز نفسه يأخذ رقمه نفسه مهما أعاد الطلب */
+const posDevKey = (ls, rnd) => { const L = ls || localStorage; try { const v = L.getItem(POS_DEVKEY_KEY); if (POS_DEVKEY_RE.test(String(v || ''))) return v; } catch { }
+  const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'; let b;
+  try { b = rnd ? rnd(22) : crypto.getRandomValues(new Uint8Array(22)); } catch { b = Array.from({ length: 22 }, () => Math.floor(Math.random() * 256)); }
+  const k = Array.from(b, x => A[x % A.length]).join(''); try { L.setItem(POS_DEVKEY_KEY, k); } catch { } return k; };
+/** وسم الجهاز الفعلي للفرع: لا يتغيّر أثناء وردية مفتوحة (الوردية تُغلق بوسمها)، ورقم الخادم مع التفعيل فقط (أو لإكمال ورديته بعد الإيقاف) */
+function posDevTagPick({ local, srv, on, openLocal, openSrv } = {}) {
+  if (!srv || !POS_SRV_TAG.test(String(srv))) return local;
+  if (openLocal) return local;
+  if (on || openSrv) return srv;
+  return local;
+}
+/** v56.54 — طلب رقم الجهاز من الخادم. يعيد { ok, tag, again } أو { ok:false, why } — لا يرمي */
+async function posDevRegApi(body, opt) {
+  const b = srvBase(); if (!b) return { ok: false, why: 'الخادم غير مهيأ' };
+  const ac = typeof AbortController === 'function' ? new AbortController() : null; const tm = ac ? setTimeout(() => ac.abort(), (opt && opt.ms) || 15000) : null;
+  try { const r = await fetch(b + '/api/pos/device-register', { method: 'POST', headers: await aiHeaders(), body: JSON.stringify(body), ...(ac ? { signal: ac.signal } : {}) });
+    const j = await r.json().catch(() => ({})); if (!r.ok) return { ok: false, why: j.error || ('HTTP ' + r.status), status: r.status }; return j; }
+  catch (e) { return { ok: false, why: 'تعذّر الوصول للخادم' }; } finally { if (tm) clearTimeout(tm); }
+}
+/* v56.54 — فتح التطبيق دون إنترنت لأجهزة نقطة البيع (org.posCfg.offline + offShell، مُطفأ افتراضيًا — docs/pos/POS_OFFLINE_SW.md §2).
+   عامل خدمة مستقل public/pos-sw.js يُسجَّل فقط على جهاز موسوم محليًا (mizan:posSwOn)، وسكربت الشفاء في index.html يستثنيه وكاشه **فقط** بوجود العلامة.
+   الإيقاف يزيل العلامة ويلغي تسجيله ويمسح كاشه — فيعود الشفاء العام كما كان. */
+const POS_SW_FLAG = 'mizan:posSwOn', POS_SW_CACHE = 'muktasab-pos-shell-';
+const posShellOn = (org) => posOffOn(org) && !!org.posCfg.offShell;
+const posSwIsPos = (reg) => { const w = reg && (reg.active || reg.waiting || reg.installing); return !!(w && /\/pos-sw\.js(\?|$)/.test(String(w.scriptURL || ''))); };
+/** قائمة التسخين: الصفحة الحالية + الأصول المجزّأة المحمّلة فعلًا من الأصل نفسه (لا بيانات) */
+const posSwWarmList = (page, entries, origin) => [page, ...(entries || []).map(x => String((x && x.name) || x || '')).filter(u => { try { const U = new URL(u); return U.origin === origin && /\/assets\/[^/]+-[A-Za-z0-9_-]{6,}\.(js|css|woff2?|png|svg|jpg|jpeg|webp)$/.test(U.pathname); } catch { return false; } })].filter(Boolean);
+async function posSwSync(on, env) {
+  const e = env || (typeof window !== 'undefined' ? { sw: navigator.serviceWorker, caches: typeof caches !== 'undefined' ? caches : null, ls: window.localStorage, ver: APP_VER, url: 'pos-sw.js', scope: './',
+    warm: () => posSwWarmList(location.pathname, (performance.getEntriesByType ? performance.getEntriesByType('resource') : []), location.origin) } : {});
+  if (!e.sw || !e.ls) return { on: false, why: 'no-sw' };
+  if (on) {
+    try { e.ls.setItem(POS_SW_FLAG, '1'); } catch { return { on: false, why: 'no-ls' }; }
+    try { const reg = await e.sw.register(e.url + '?v=' + encodeURIComponent(e.ver || ''), { scope: e.scope });
+      let tm = 0; const ready = e.sw.ready ? await Promise.race([e.sw.ready, new Promise(r => { tm = setTimeout(() => r(null), e.readyMs || 8000); })]).finally(() => clearTimeout(tm)) : reg;
+      const w = (ready || reg || {}).active; if (w && e.warm) w.postMessage({ type: 'warm', urls: e.warm() });
+      return { on: true }; }
+    catch (err) { return { on: false, why: String((err && err.message) || err).slice(0, 80) }; }
+  }
+  let had = false; try { had = !!e.ls.getItem(POS_SW_FLAG); e.ls.removeItem(POS_SW_FLAG); } catch { }
+  let n = 0; try { const regs = await e.sw.getRegistrations(); for (const r of regs) if (posSwIsPos(r)) { await r.unregister(); n++; } } catch { }
+  let c = 0; try { if (e.caches) { for (const k of await e.caches.keys()) if (String(k).startsWith(POS_SW_CACHE)) { await e.caches.delete(k); c++; } } } catch { }
+  return { on: false, had, unreg: n, cleared: c };
+}
+export { POS_DEVNO_KEY, POS_DEVKEY_KEY, POS_SRV_TAG, posDevRegOn, posDevNoGet, posDevNoSet, posDevSrvTag, posDevKey, posDevTagPick, posDevRegApi, POS_SW_FLAG, POS_SW_CACHE, posShellOn, posSwIsPos, posSwWarmList, posSwSync };
 const POS_SH_KEY = 'mizan:posShiftLocal';
 const POS_SC_KEY = 'mizan:posShiftClose';   // v34.14: ورديات أُغلقت على الجهاز ولم تُرسل بعد (قائمة)
 const pendShiftsGet = () => { try { const v = JSON.parse(localStorage.getItem(POS_SC_KEY) || '[]'); return Array.isArray(v) ? v : (v ? [v] : []); } catch { return []; } };
@@ -9837,9 +9896,25 @@ function posChainGaps(orders, branchId) {
    الحد على مجموع مرتجعات الفرع دون اتصال التي لم تُراجَع بعد (لا لكل مرتجع وحده) — يُوسم offline:true ويظهر للمدير «للمراجعة بعد الاتصال». */
 const posOffRetLimit = (org, brId) => { const v = Number(((((org || {}).posCfg || {}).offRetLimit) || {})[brId]); return v > 0 && isFinite(v) ? posR2(v) : 0; };
 const posOffRetPending = (orders, revs, brId) => (orders || []).filter(o => o && o.kind === 'return' && o.offline === true && (!brId || o.branchId === brId) && !(revs || []).some(r => r && r.retId === o.id));
-function posOffRetCheck(org, orders, revs, brId, amt) {
+/* v56.54 (قرار المالك: «اترك خيار لتحديد حد المرتجع»): نوع الحد لكل فرع — offRetMode[فرع]: 'total' (مجموع غير المراجَع، الافتراضي) أو 'each' (لكل مرتجع وحده)؛
+   وفترة اختيارية لنوع المجموع offRetPeriod[فرع]: 'none' (الافتراضي) أو 'day' (يوم العمل) أو 'shift' (وردية هذا الجهاز). بلا الإعداد الجديد ⇒ كما في v56.53 حرفيًا.
+   الوردية غير معروفة (مرتجع بلا وردية) ⇒ يُرجَع إلى مجموع كل غير المراجَع (الأشد) — لا يُمنح حد أوسع بلا دليل. */
+const POS_ORET_MODES = ['total', 'each'], POS_ORET_PERIODS = ['none', 'day', 'shift'];
+const posOffRetRule = (org, brId) => { const c = (org || {}).posCfg || {}; const m = (c.offRetMode || {})[brId], p = (c.offRetPeriod || {})[brId];
+  const mode = POS_ORET_MODES.includes(m) ? m : 'total'; return { lim: posOffRetLimit(org, brId), mode, period: mode === 'total' && POS_ORET_PERIODS.includes(p) ? p : 'none' }; };
+function posOffRetCheck(org, orders, revs, brId, amt, ctx) {
   const lim = posOffRetLimit(org, brId); if (!lim) return { err: 'المرتجع دون اتصال غير مسموح لهذا الفرع — يحدد المدير حده من إعدادات نقطة البيع', lim: 0, used: 0 };
   const a = posR2(amt); if (!(a > 0)) return { err: 'مبلغ المرتجع غير صحيح', lim, used: 0 };
+  const R = posOffRetRule(org, brId), x = ctx || {};
+  if (R.mode === 'each') { if (a > lim + 0.004) return { err: 'يتجاوز حد المرتجع الواحد دون اتصال لهذا الفرع (' + lim.toFixed(2) + ')؛ انتظر عودة الاتصال', lim, used: 0, mode: 'each' };
+    return { ok: true, lim, used: 0, left: posR2(lim - a), mode: 'each' }; }
+  const per = R.period === 'day' && x.date ? 'day' : R.period === 'shift' && x.shiftId ? 'shift' : 'none';
+  if (R.period !== 'none') {
+    const pend = posOffRetPending(orders, revs, brId).filter(o => per === 'day' ? String(o.date || '') === String(x.date) : per === 'shift' ? o.shiftId === x.shiftId : true);
+    const used = posR2(pend.reduce((s, o) => s + Math.abs(Number(o.total) || 0), 0)); const PT = { day: ' لهذا اليوم', shift: ' لهذه الوردية', none: '' }[per];
+    if (used + a > lim + 0.004) return { err: 'يتجاوز حد المرتجع دون اتصال لهذا الفرع' + PT + ' (' + lim.toFixed(2) + ') — غير المراجَع ' + used.toFixed(2) + '؛ انتظر عودة الاتصال', lim, used, period: per };
+    return { ok: true, lim, used, left: posR2(lim - used - a), period: per };
+  }
   const used = posR2(posOffRetPending(orders, revs, brId).reduce((s, o) => s + Math.abs(Number(o.total) || 0), 0));
   if (used + a > lim + 0.004) return { err: 'يتجاوز حد المرتجع دون اتصال لهذا الفرع (' + lim.toFixed(2) + ') — غير المراجَع ' + used.toFixed(2) + '؛ انتظر عودة الاتصال', lim, used };
   return { ok: true, lim, used, left: posR2(lim - used - a) };
@@ -9855,6 +9930,7 @@ function posOffRetReview(ops, ret, me) {
 }
 export { posLockRun, posOnMark, posOnFresh, posOnClear, POS_ON_LS, posRetHashSrc, posOffRetAudit, posChainGaps };
 export { posOffOn, POS_IDB, POS_OB_KINDS, POS_OB_USED, posObKey, posObItem, posObSort, posSyncErr, posSyncDelay, posStoreIdb, posStoreLs, posStoreMem, posStoreOpen, posLegacyQ, posObMigrate, posObRestore, posSyncLog, posSyncLogList, posSyncRun, posOffRetLimit, posOffRetPending, posOffRetCheck, posOffRetReview };
+export { POS_ORET_MODES, POS_ORET_PERIODS, posOffRetRule };   // v56.54
 /* v56.0 (GAP-007): تعليق طلب سفري واستدعاؤه — مسودة على الجهاز لكل فرع (تعمل دون اتصال)، لا رقم فاتورة ولا عدّاد ولا بصمة
    قبل الدفع، فتبقى سلسلة الفوترة الإلكترونية بلا فجوات. الاستدعاء يعيد التسعير بسعر المنتج الحالي ويُسقط المنتج المحذوف. */
 const POS_HOLD_MAX = 20;
