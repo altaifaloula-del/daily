@@ -74,18 +74,21 @@ service cloud.firestore {
     function baseId(id) { return id.split('__')[0]; }
 
     function isOrgDoc(id)    { return baseId(id).matches('^rms8_org.*$'); }
-    function isCoreDoc(id)   { return baseId(id) == 'rms8_core'; }
+    function isCoreDoc(id)   { return baseId(id) in ['rms8_core', 'rms8_lyc']; }   // v56.37: rms8_lyc بصلاحية المركزي
     function isBrDoc(id)     { return baseId(id).matches('^rms8_br_.+$'); }
     function isBfDoc(id)     { return baseId(id).matches('^rms8_bf_.+$'); }
     // v52.7 (G3 الخيار A): فواتير نقطة البيع لكل فرع وشهر — صلاحيتها صلاحية الفرع نفسه
     function isPosDoc(id)    { return baseId(id).matches('^rms8_pos_[A-Za-z0-9_-]{1,80}_[0-9]{6}$'); }
-    function isBranchDoc(id) { return isBrDoc(id) || isBfDoc(id) || isPosDoc(id); }
+    // v56.37: أسماء عملاء الولاء لكل فرع (فُصلت عن rms8_loy المشترك) — صلاحيتها صلاحية الفرع؛ وأسماء حركات المركز rms8_lyc للمركز وحده
+    function isLybDoc(id)    { return baseId(id).matches('^rms8_lyb_[A-Za-z0-9_-]{1,80}$'); }
+    function isBranchDoc(id) { return isBrDoc(id) || isBfDoc(id) || isPosDoc(id) || isLybDoc(id); }
     // v41.7: أرشيف فواتير نقطة البيع القديمة لكل فرع وسنة — يقرؤه المركز ويكتبه مسؤول النظام وحده
     function isArchDoc(id)   { return baseId(id).matches('^rms8_arch_[A-Za-z0-9_-]{1,80}_[0-9]{4}$'); }
 
     function branchIdOf(id) {
       return isBrDoc(id) ? baseId(id).split('rms8_br_')[1]
         : isPosDoc(id) ? baseId(id).replace('^rms8_pos_', '').replace('_[0-9]{6}$', '')
+        : isLybDoc(id) ? baseId(id).split('rms8_lyb_')[1]
         : baseId(id).split('rms8_bf_')[1];
     }
 
@@ -132,7 +135,7 @@ service cloud.firestore {
     // v28.1: قائمة سماح صريحة لأسماء المستندات — أي اسم آخر مرفوض قراءةً وكتابةً
     function knownDoc(id) {
       // v34.0: rms8_loy — نقاط ولاء العملاء، مشترك بين الفروع (يكتبه أي عضو نشط غير «عرض فقط» كي تُكسب النقاط وتُستبدل في كل فرع)
-      return baseId(id) in ['rms8_org', 'rms8_dir', 'rms8_core', 'rms8_pulse', 'rms8_ops', 'rms8_files', 'rms8_hist', 'rms8_loy']
+      return baseId(id) in ['rms8_org', 'rms8_dir', 'rms8_core', 'rms8_pulse', 'rms8_ops', 'rms8_files', 'rms8_hist', 'rms8_loy', 'rms8_lyc']
         || isBranchDoc(id) || isArchDoc(id);
     }
     // المستندات القديمة (تشغيل ما قبل v9، أرشيف الملفات القديم، الإغلاقات المؤرشفة) تضم بيانات كل الفروع

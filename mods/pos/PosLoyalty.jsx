@@ -1,14 +1,14 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useEffect, useMemo } from 'react';
-import { cloud, KEYS } from '../../storage';
 import { Gift, Check, Users, RefreshCw } from 'lucide-react';
-import { Field, Modal, loyPost, money, normPhone, nowISO, posR2, uid } from '../../App.jsx';
+import { Field, Modal, loyPost, loyGet, userBrIds, ROLES, money, normPhone, nowISO, posR2, uid } from '../../App.jsx';
 
 export function PosLoyalty({ org, commitOrg, say, canCfg, me }) {
   const c = org.loyaltyCfg || {};
   const [f, setF] = useState({ enabled: !!c.enabled, earnPer: String(c.earnPer || 10), ptValue: String(c.ptValue || 0.5), minRedeem: String(c.minRedeem || 20), maxRedeemPct: String(c.maxRedeemPct || 50) });
   const [doc, setDoc] = useState(null); const [q, setQ] = useState(''); const [adj, setAdj] = useState(null);
-  const load = () => cloud.get(KEYS.loy, { members: {}, tx: [] }).then(d => setDoc(d || { members: {}, tx: [] })).catch(() => setDoc({ members: {}, tx: [] }));
+  const R0 = ROLES[(me || {}).role] || {};   // v56.37: أسماء فروع المستخدم (والمركز للمركز) إن فُصلت
+  const load = () => loyGet(userBrIds(me), !!(R0.scope === 'all' || R0.admin)).then(d => setDoc(d || { members: {}, tx: [] })).catch(() => setDoc({ members: {}, tx: [] }));
   useEffect(() => { load(); }, []);
   const saveCfg = async () => {
     const v = { enabled: !!f.enabled, earnPer: Number(f.earnPer) || 0, ptValue: Number(f.ptValue) || 0, minRedeem: Number(f.minRedeem) || 0, maxRedeemPct: Math.min(100, Number(f.maxRedeemPct) || 100) };

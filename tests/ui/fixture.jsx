@@ -58,6 +58,7 @@ function Live() {
   // v56.0: الحفظ يبني على أحدث حالة (كما يقرأ writeOps أحدث نسخة سحابية) — كان يبني على نسخة الرسم الأخيرة فيمحو حفظٌ تالٍ في الدورة نفسها سابقَه
   const oRef = React.useRef(o); oRef.current = o; const setO2 = (v) => { oRef.current = typeof v === 'function' ? v(oRef.current) : v; setO(oRef.current); }; const [who, setWho] = React.useState(b || 'admin'); window.as = setWho;
   const [g, setG] = React.useState(org); window.curOrg = g; window.setOps = setO2; window.setOrg = setG;   // v39.0: حقن بيانات للاختبار
+  M.lypSetOn && M.lypSetOn(g);   // v56.37: كما في PlatformApp — مفتاح فصل أسماء الولاء
   const [hv, setHv] = React.useState(c); window.hub = setHv;   // تنقّل بين المراكز مع بقاء البيانات
   // v56.0 (GAP-018): window.__cloudDown يحاكي تعذّر الوصول للسحابة (الحفظ يفشل بصدق كما في writeOps دون اتصال)
   const commit = async (fn) => { if (window.__cloudDown) { window.__downTries = (window.__downTries || 0) + 1; return false; } const o = oRef.current; try { const nx0 = fn(JSON.parse(JSON.stringify(o))); const nx1 = ME[who].branchId ? nx0 : M.syncPoInbox(g, nx0); const nx = M.dedupeSameId(o, M.assignVouchers(g, o, M.syncSaleMoves(g, o, nx1)));

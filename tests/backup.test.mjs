@@ -101,3 +101,9 @@ test('v52.7 composeLogical: فواتير نقطة البيع الشهرية تُ
   assert.deepEqual(L.ops.posOrders.map(o => o.id).sort(), ['a', 'b', 'x']);
 });
 
+
+test('v56.37 composeLogical: أسماء عملاء الولاء المفصولة تُحفظ في النسخة (سجل كل فرع والمركز)', () => {
+  const L = composeLogical({ rms8_org: org, rms8_loy: { members: {}, tx: [] }, rms8_lyb_b1: { names: { '511': 'سارة' } }, rms8_lyc: { names: { '522': 'منى' } } });
+  assert.deepEqual(L.loyNames, { rms8_lyb_b1: { names: { '511': 'سارة' } }, rms8_lyc: { names: { '522': 'منى' } } });
+  assert.equal('loyNames' in composeLogical({ rms8_org: org }), false, 'بلا فصل كما كان');
+});

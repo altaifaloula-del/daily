@@ -4042,3 +4042,50 @@ test('v56.36 الحماية على الخادم لسجلات الدمج: تظه�
   await p.click('[data-grr-check]'); await p.waitForFunction(() => /Firestore فقط/.test(window.lastSay || ''));
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.37 فصل أسماء عملاء الولاء: تفعيل ← معاينة ← نقل ← حذف من المشترك، والأسماء تبقى ظاهرة للمركز', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Admin/admin');
+  const b = await p.evaluate(() => (window.curOrg.branches || [])[0].id);
+  await p.evaluate((b) => { localStorage.setItem('rms8:loy', JSON.stringify({ members: { '511111111': { name: 'سارة الاختبار', since: '2026-01-01' }, '522222222': { name: 'منى المركز' } },
+    tx: [{ id: 't1:e', phone: '511111111', name: 'سارة الاختبار', pts: 12, br: b, at: '2026-01-01T10:00:00Z' }, { id: 'la1', phone: '522222222', pts: 4, br: '', at: '2026-01-02T10:00:00Z' }] })); }, b);
+  await p.click('button:has-text("صيانة النظام")'); await p.waitForSelector('[data-lypii]');
+  assert.match(await p.locator('[data-lypii]').innerText(), /غير مفعّل/);
+  await p.click('[data-lypii-toggle]'); await p.waitForFunction(() => window.curOrg.loyPii && window.curOrg.loyPii.on === true);
+  await p.click('[data-lypii-prev]'); await p.waitForSelector('[data-lypii-plan]');
+  assert.match(await p.locator('[data-lypii-plan]').innerText(), /أسماء أعضاء 2 · أسماء في الحركات 1 · تُنقل 2 إلى 2/);
+  await p.click('[data-lypii-copybtn]'); await p.waitForSelector('[data-lypii-copy]');
+  assert.match(await p.locator('[data-lypii-copy]').innerText(), /مكتمل/);
+  const names = await p.evaluate((b) => [JSON.parse(localStorage.getItem('rms8:lyb_' + b)).names, JSON.parse(localStorage.getItem('rms8:lyc')).names], b);
+  assert.deepEqual(names, [{ '511111111': 'سارة الاختبار' }, { '522222222': 'منى المركز' }]);
+  await p.click('[data-lypii-strip]'); await p.waitForFunction(() => window.curOrg.loyPii && !!window.curOrg.loyPii.strippedAt);
+  const L = await p.evaluate(() => JSON.parse(localStorage.getItem('rms8:loy')));
+  assert.equal(JSON.stringify(L).includes('سارة'), false, 'لا اسم في المشترك'); assert.deepEqual(L.tx.map(t => t.pts), [12, 4], 'النقاط كما هي');
+  await p.waitForSelector('[data-lypii-plan]'); assert.match(await p.locator('[data-lypii-plan]').innerText(), /بلا أسماء/);
+  await p.click('[data-lypii-toggle]'); await p.waitForFunction(() => /لا يُوقف الفصل/.test(window.lastSay || ''));
+  assert.equal(await p.evaluate(() => window.curOrg.loyPii.on), true, 'لا إيقاف بعد الحذف');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v56.37 نقطة البيع مع فصل الأسماء: النقاط في الدفتر المشترك بلا اسم، والاسم في سجل الفرع ويظهر للكاشير', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/bm');
+  await p.evaluate(() => {
+    window.setOrg(g => ({ ...g, loyPii: { on: true }, taxCfg: { enabled: false }, posCfg: { branches: ['b1'], autoPrint: false }, loyaltyCfg: { enabled: true, earnPer: 10, ptValue: 0.5, minRedeem: 20, maxRedeemPct: 50 },
+      products: [{ id: 'k', name: 'كبسة', sellPrice: 50, cat: 'رئيسي' }], posPromos: [] }));
+    window.setOps(o => ({ ...o, posTabs: [], posOrders: [], closings: o.closings.filter(c => c.branchId !== 'b1') }));
+  }); await p.waitForTimeout(400);
+  const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); }
+  await p.locator('.pos-tile:has-text("كبسة")').click();
+  if (!(await p.locator('input[aria-label="جوال العميل"]').count())) await p.click('button:has-text("+ عميل ولاء")');
+  await p.fill('input[aria-label="جوال العميل"]', '0553334444'); await p.waitForTimeout(500);
+  await p.fill('input[placeholder="اسم العميل (جديد)"]', 'ريم الفرع');
+  await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200); await p.click('.modal button:has-text("تأكيد")');
+  await p.waitForFunction(() => { try { return (JSON.parse(localStorage.getItem('rms8:loy') || '{}').tx || []).length > 0 && !!localStorage.getItem('rms8:lyb_b1'); } catch { return false; } }, null, { timeout: 15000 });
+  const L = await p.evaluate(() => JSON.parse(localStorage.getItem('rms8:loy'))), N = await p.evaluate(() => JSON.parse(localStorage.getItem('rms8:lyb_b1')).names);
+  assert.equal(JSON.stringify(L).includes('ريم'), false, 'لا اسم في المشترك'); assert.ok(L.tx.some(t => t.pts > 0), 'النقاط مكسوبة');
+  const ph = L.tx[0].phone; assert.equal(N[ph], 'ريم الفرع');
+  await p.locator('.pos-tile:has-text("كبسة")').click();
+  if (!(await p.locator('input[aria-label="جوال العميل"]').count())) await p.click('button:has-text("+ عميل ولاء")');
+  await p.fill('input[aria-label="جوال العميل"]', '0553334444'); await p.waitForTimeout(900);
+  assert.match(await p.locator('.pos-cart').innerText(), /ريم الفرع/, 'الكاشير يرى اسم عميل فرعه');
+  assert.deepEqual(errs, []); await ctx.close();
+});

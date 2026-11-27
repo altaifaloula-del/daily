@@ -58,7 +58,9 @@ export function composeLogical(values, meta = {}) {
   const seenPos = new Set((ops.posOrders || []).map(o => o && o.id));
   Object.keys(values).filter(k => /^rms8_pos_.+_[0-9]{6}$/.test(k)).sort().forEach(k => ((values[k] || {}).orders || []).forEach(o => { if (o && !seenPos.has(o.id)) { seenPos.add(o.id); (ops.posOrders = ops.posOrders || []).push(o); } }));
   const branchesDocs = Object.keys(values).filter(k => /^rms8_br_/.test(k)).length;
-  return { meta: { app: 'rms8', kind: 'nightly', exportedAt: new Date().toISOString(), by: 'النسخ الليلي (GitHub Actions)', branchesDocs, ...meta }, org, ops, hist: values.rms8_hist || null, loy: values.rms8_loy || null };
+  // v56.37: أسماء عملاء الولاء المفصولة (سجل لكل فرع + سجل المركز) — تُحفظ كما هي
+  const lynKs = Object.keys(values).filter(k => /^rms8_lyb_/.test(k) || k === 'rms8_lyc').sort(); const lyn = lynKs.length ? Object.fromEntries(lynKs.map(k => [k, values[k] || null])) : null;
+  return { meta: { app: 'rms8', kind: 'nightly', exportedAt: new Date().toISOString(), by: 'النسخ الليلي (GitHub Actions)', branchesDocs, ...meta }, org, ops, hist: values.rms8_hist || null, loy: values.rms8_loy || null, ...(lyn ? { loyNames: lyn } : {}) };
 }
 
 export function encrypt(buf, pass) {
