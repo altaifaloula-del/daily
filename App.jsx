@@ -1659,7 +1659,7 @@ function buildPartners(org, ops) {
     });
     (ops.eclDocs || []).filter(d => eclLive(d) && (d.kind === 'wo' || d.kind === 'rec') && d.customerKey === key).forEach(d => t.push(d.kind === 'wo'
       ? { date: d.date, desc: 'شطب دين معدوم ' + (d.no || ''), ref: d.no || '', src: 'ecl', debit: 0, credit: eclR2(d.amount), sid: d.siId }   // v56.40: يُخصم من فاتورته في الأعمار
-      : { date: d.date, desc: 'استرداد دين مشطوب ' + (d.no || ''), ref: d.no || '', src: 'ecl', debit: eclR2(d.amount), credit: 0, due: d.date }));
+      : { date: d.date, desc: 'استرداد دين مشطوب ' + (d.no || ''), ref: d.no || '', src: 'ecl', debit: eclR2(d.amount), credit: 0, due: ((ops.salesInvoices || []).find(y => y.id === d.siId) || {}).dueDate || d.date }));   // يُعمَّر بتاريخ استحقاق فاتورته
     return t; };
 
   // الموظفون — استحقاق وصرف الرواتب قيود دائمة تُرحَّل من شاشة الرواتب (لا سطر اصطناعي يتغيّر بالشهر)

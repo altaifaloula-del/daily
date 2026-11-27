@@ -96,3 +96,8 @@ test('E6 (التحقق المحاسبي): حساب المخصص فرعي من 13
   const A2 = E.buildAccounting(org, { ...ops, eclDocs: [doc('d1', 'prov', 100, { branchId: 'b1' }), doc('d2', 'prov', 50)] });
   assert.equal(A2.entries.find(e => e.id === 'ecl:d1').branchId, 'b1'); assert.equal(A2.entries.find(e => e.id === 'ecl:d2').branchId, undefined, 'بلا فرع = مركزي');
 });
+
+test('E6: eclAllowOk مباشرة', () => {
+  const A = E.buildAccounting(org, {});
+  assert.equal(E.eclAllowOk('1389', A), true); assert.equal(E.eclAllowOk('1380', A), false); assert.equal(E.eclAllowOk('13', A), false); assert.equal(E.eclAllowOk('1111', A), false);
+});
