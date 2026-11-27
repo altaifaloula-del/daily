@@ -15,6 +15,8 @@ export const LEDGER_FIN_ROLES = ['system_admin', 'general_management', 'head_off
 const KEY = /^[A-Za-z0-9_-]{1,150}$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const str = (v, n) => typeof v === 'string' && v.length <= n;
+/** v56.49: فرع السطر — فارغ (المركز الرئيسي) أو معرّف فرع بنمط المعرّفات نفسه (لا مسافات ولا رموز) */
+export const LEDGER_BR = /^[A-Za-z0-9_-]{0,100}$/;
 
 /** تحقق نقي من قيد واحد — يعيد السجل الذي سيُكتب (بمجموعين وبصمة يحسبها الخادم) أو سبب الرفض */
 export function ledgerValidate(item) {
@@ -29,6 +31,7 @@ export function ledgerValidate(item) {
   let dr = 0, cr = 0;
   for (const l of L) {
     if (!Array.isArray(l) || l.length !== 4 || !str(l[0], 20) || !l[0] || !str(l[3], 100)) return { err: 'سطر غير صالح' };
+    if (!LEDGER_BR.test(l[3])) return { err: 'فرع السطر غير صالح' };
     if (!Number.isSafeInteger(l[1]) || !Number.isSafeInteger(l[2]) || l[1] < 0 || l[2] < 0) return { err: 'المبالغ يجب أن تكون هللات صحيحة غير سالبة' };
     dr += l[1]; cr += l[2];
   }

@@ -3081,7 +3081,8 @@ function buildAccounting(org, ops) {
     const nM = Math.max(1, Math.round((Number(a.lifeYears) || 0) * 12));
     const funded = cost > 0 && a.fund && a.fund !== 'none' && accIx[a.fund];
     if (funded) push({
-      id: 'ast:' + a.id, date: (a.buyDate || '').slice(0, 10), title: 'شراء أصل ثابت — ' + (a.name || '') + ' (' + (FUND_AR[a.fund] || '') + ')',
+      id: 'ast:' + a.id, date: (a.buyDate || '').slice(0, 10), ...(depBrOf(org, a, a.buyDate) ? { branchId: depBrOf(org, a, a.buyDate) } : {}),   // v56.49 (قرار المجلس): فرع الأصل في شهر الشراء داخل نطاق التوزيع، وإلا كما كان
+      title: 'شراء أصل ثابت — ' + (a.name || '') + ' (' + (FUND_AR[a.fund] || '') + ')',
       src: 'الأصول الثابتة', ref: a.id,
       lines: [L('1701', cost, 0), L(a.fund, 0, cost)]
     });
@@ -4033,7 +4034,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.48';
+const APP_VER = 'v56.49';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
