@@ -4,6 +4,7 @@ import { Upload, Truck, FileBarChart, ChevronDown, Printer, FileText, Building2,
 import { poNeedsAppr, wfOn, wfState, wfCanAct, wfApprove } from '../../App.jsx';   // v49.5 مسارات الاعتماد
 import { deptOn, deptList, DEPT_SHARED } from '../../App.jsx';   // v56.27 E4
 import { whtPayBlock } from '../../App.jsx';   // v56.47 (E7) المورد غير المقيم يُسدَّد بسند الصرف فقط
+import { rcmSupOf, rcmApply, rcmRate, rcmInvAcc } from '../../App.jsx';   // v56.51 (1) الاحتساب العكسي على خدمات غير المقيم
 import { canEditRec, autoCfgOf, poSuggestions, DocLink, RowGrip, moveIdx, projList, uomOf, uomOk, lineUnits, lineFac, UomSelect, DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, _xe, roleEdit, rolePost, buildAccounting, INV_BILLERS, itemsSeq, vatNoOk, supVatOf, ItemPick, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, poWhOf, brSigCheck, signoff, signDecision, sigFailMsg, pjBackfill, pjMissing, INV_CLS, invCls } from '../../App.jsx';
 import { cloud, bfKey } from '../../storage';
 import { ExpImport } from './ExpImport.jsx';   // v53.1
@@ -673,6 +674,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     // تقريب التحويل: الإجمالي بالريال = مجموع البنود + الضريبة (لا فرق تقريب في القيد)
     rec.amount = Math.round((sum(rec.expLines, l => l.net) + rec.vatAmt) * 100) / 100;
     rec.pm = pyS.pm; if (pyS.payments.length) { const pp = { ...pyS.payments[0], amount: Math.min(pyS.payments[0].amount, rec.amount) }; if (pp.paid != null) pp.paid = pp.amount; rec.payments = [pp]; rec.paidAmount = pp.amount; }
+    if (rcmSupOf(org, sp.id)) { const rk = rcmApply(org, rec, { on: f.rcmOn !== false, nr: !!f.rcmNr, ops }); if (rk.err) return say(rk.err, 'no'); Object.assign(rec, rk.doc); }   // v56.51 (1) — الفاتورة بلا الحقل إن لم ينطبق
     const ok = await commit(d => ({ ...d, invoices: [rec, ...(d.invoices || [])] }), { actionType: 'create', targetType: 'expense', targetId: rec.id, title: 'سجّل فاتورة خدمات ومصروفات',
       details: sp.name + ' · ' + rec.invoiceNo + ' · ' + ls.length + ' بند · ' + money(rec.amount) });
     if (ok === false) return;
@@ -1323,6 +1325,11 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
           {isFx(svc.cur) && Number(svc.rate) > 0 && <div className="note" data-fxsar>بالريال: <b className="num">{money(k.gross * Number(svc.rate))}</b> ر.س بسعر {svc.rate}</div>}
           {VatNoField({ supplierId: svc.supplierId, vat: k.vat, value: svc.vatNo, onChange: v => setSvc(f => ({ ...f, vatNo: v })) })}
           {ImgField({ img: svc.img, onImg: (img) => setSvc(f => ({ ...f, img })) })}
+          {rcmSupOf(org, svc.supplierId) && (() => { const use = svc.rcmOn !== false; const g = isFx(svc.cur) ? Math.round(k.gross * (Number(svc.rate) || 0) * 100) / 100 : k.gross; return (<div className="note" style={{ margin: '6px 0' }} data-svc-rcm>
+            <label className="row" style={{ gap: 6, fontSize: 12.5 }}><input type="checkbox" aria-label="خدمة خاضعة للاحتساب العكسي" checked={use} onChange={e => setSvc(f => ({ ...f, rcmOn: e.target.checked }))} />المورد غير مقيم — خدمة خاضعة للاحتساب العكسي (ألغِ الاختيار إن أُدّيت خارج المملكة)</label>
+            {use && <label className="row" style={{ gap: 6, fontSize: 12.5, marginTop: 4 }}><input type="checkbox" aria-label="ضريبة غير قابلة للاسترداد" checked={!!svc.rcmNr} onChange={e => setSvc(f => ({ ...f, rcmNr: e.target.checked }))} />غير قابلة للاسترداد (مدين حساب البند {rcmInvAcc({ expLines: svc.lines.map(l => ({ accCode: l.accCode, net: Number(l.net) || 0 })) })} بدل 1501)</label>}
+            {use && <div className="hint" data-svc-rcmcalc>{money(g)} × {rcmRate(org)}% = <b className="num">{money(Math.round(g * rcmRate(org)) / 100)}</b> — مدين {svc.rcmNr ? 'المصروف' : '1501'} / دائن 2301 بتاريخ الفاتورة وبلا أثر نقدي</div>}
+          </div>); })()}
           {PayBox(svc, setSvc, k.gross, svc.cur)}
           <div className="note">كل بند يُقيَّد على حسابه المختار، وضريبة المدخلات للبنود الخاضعة، والإجمالي إلى ح/ المورد (آجل) ويظهر في كشفه وأعمار ديونه ويُسدَّد من «سداد».</div>
         </Modal>); })()}

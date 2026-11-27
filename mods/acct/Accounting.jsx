@@ -13,6 +13,8 @@ import { DeptShiftMap } from './DeptShiftMap.jsx';   // v56.42 الدفعة 8 (U
 import { ImpairCard } from './ImpairCard.jsx';   // v56.43 الدفعة 10 (E8)
 import { WhtCard, whtCanEdit } from './WhtCard.jsx';
 import { whtOn } from '../../App.jsx';   // v56.47 (E7) ضريبة الاستقطاع
+import { TaxAdjCard } from './TaxAdjCard.jsx';
+import { rcmOn, siConvOn, bdvOn, whtSettleWarn } from '../../App.jsx';   // v56.51 المقترحات الضريبية الأربعة
 import { impOn } from '../../App.jsx';
 import { budVOn, ppOn } from '../../App.jsx';
 import { eclOn } from '../../App.jsx';
@@ -325,15 +327,18 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
     const invById = {}; (ops.invoices || []).forEach(i => { invById[i.id] = i; });
     const parById = {}; (org.partners || []).forEach(x => { parById[x.id] = x; });
     const clById = {}; (ops.closings || []).forEach(c => { clById[c.id] = c; });
-    const F = { s: 0, sAdj: 0, sV: 0, sVAdj: 0, p: 0, pAdj: 0, pV: 0, pVAdj: 0 };
+    const F = { s: 0, sAdj: 0, sV: 0, sVAdj: 0, p: 0, pAdj: 0, pV: 0, pVAdj: 0, rc: 0, rcV: 0, rcIn: 0 };   // v56.51: rc* الاحتساب العكسي
     const bySrc = {}, byBr = {}, byMon = {}, bySup = {};
     const tx = [];
     const noVatSup = { n: 0, vat: 0 }, noRcpt = { n: 0, vat: 0 }; let credits = 0;
     ents.forEach(e => {
       const v = e.vat;
       // التعديلات (إشعارات دائنة/مرتجعات) تُفصل في عمودها كما في نموذج الهيئة
-      if (v.out > 0 || v.netSales > 0) { F.s += v.netSales; F.sV += v.out; } else if (v.out < 0 || v.netSales < 0) { F.sAdj += v.netSales; F.sVAdj += v.out; credits++; }
-      if (v.inn > 0 || v.netPurch > 0) { F.p += v.netPurch; F.pV += v.inn; } else if (v.inn < 0 || v.netPurch < 0) { F.pAdj += v.netPurch; F.pVAdj += v.inn; credits++; }
+      // v56.51: الاحتساب العكسي في بند 9 وحده، وتعديل ضريبة الدين المعدوم (وعكسه عند الاسترداد) في عمود التعديلات بإشارته
+      if (v.rc != null) { F.rc += v.rc; F.rcV += v.out; F.rcIn += v.inn; }
+      else if (v.bd) { F.sAdj += v.netSales; F.sVAdj += v.out; credits++; }
+      else if (v.out > 0 || v.netSales > 0) { F.s += v.netSales; F.sV += v.out; } else if (v.out < 0 || v.netSales < 0) { F.sAdj += v.netSales; F.sVAdj += v.out; credits++; }
+      if (v.rc != null) { /* بند 9 */ } else if (v.inn > 0 || v.netPurch > 0) { F.p += v.netPurch; F.pV += v.inn; } else if (v.inn < 0 || v.netPurch < 0) { F.pAdj += v.netPurch; F.pVAdj += v.inn; credits++; }
       const sk = e.src || 'أخرى'; const S = bySrc[sk] = bySrc[sk] || { n: 0, net: 0, out: 0, inn: 0 };
       S.n++; S.net += (v.netSales || 0) + (v.netPurch || 0); S.out += v.out || 0; S.inn += v.inn || 0;
       const B = byBr[e.branchId || ''] = byBr[e.branchId || ''] || { name: brName(e.branchId), ns: 0, out: 0, np: 0, inn: 0 };
@@ -341,7 +346,8 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
       const mk = (e.date || '').slice(0, 7); const M = byMon[mk] = byMon[mk] || { out: 0, inn: 0, ns: 0, np: 0 };
       M.out += v.out || 0; M.inn += v.inn || 0; M.ns += v.netSales || 0; M.np += v.netPurch || 0;
       let party = '', pVat = '', flag = '';
-      if (/^inv:/.test(e.id || '')) {
+      if (v.rc != null) { party = (e.reg || {}).party || ''; flag = 'احتساب عكسي' + ((e.reg || {}).nr ? ' (غير قابلة للاسترداد)' : ''); }   // v56.51: لا يُعامل كفاتورة مورد محلي بلا رقم ضريبي
+      else if (/^inv:/.test(e.id || '')) {
         const inv = invById[e.id.slice(4)] || {}; const sup = parById[inv.supplierId] || {};
         party = inv.supplierName || sup.name || 'مورد'; pVat = String(sup.vatNo || sup.tax || inv.supplierVat || '').trim();
         const U = bySup[party] = bySup[party] || { name: party, vatNo: pVat, n: 0, net: 0, vat: 0 };
@@ -357,7 +363,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
     });
     Object.keys(F).forEach(k => { F[k] = r2x(F[k]); });
     const rnd = (o) => { Object.keys(o).forEach(k => { if (typeof o[k] === 'number' && k !== 'n') o[k] = r2x(o[k]); }); return o; };
-    const effRate = vsum.netSales > 0.004 ? Math.round(vsum.out / vsum.netSales * 10000) / 100 : null;
+    const effRate = vsum.netSales > 0.004 ? Math.round((vsum.out - F.rcV) / vsum.netSales * 10000) / 100 : null;   // v56.51: بلا مخرجات الاحتساب العكسي (ليست على مبيعات) — صفر بدونه
     return {
       F, tx: tx.sort((a, b) => (a.date || '').localeCompare(b.date || '')),
       src: Object.entries(bySrc).map(([k, o]) => ({ k, ...rnd(o) })).sort((a, b) => (b.out + b.inn) - (a.out + a.inn)),
@@ -393,7 +399,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
     const r1 = mv('4101', pe), r2 = mv('4102', pe);
     const revNet = r2x(r1.c - r1.d + r2.c - r2.d);
     const expOut = r2x(revNet * taxRate / 100);
-    const dBase = r2x(vsum.out - expOut);
+    const dBase = r2x(vsum.out - vatX.F.rcV - expOut);   // v56.51: مخرجات الاحتساب العكسي ليست على إيراد
     const untaxed = pe.filter(e => !isTaxSettle(e) && !e.vat && e.lines.some(l => (l.code === '4101' || l.code === '4102') && l.credit > 0.004))
       .map(e => ({ date: e.date, title: e.title, src: e.src, amt: r2x(sum(e.lines.filter(l => l.code === '4101' || l.code === '4102'), l => l.credit - l.debit)) }));
     const s2 = mv('2302', pe);
@@ -419,10 +425,10 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
       { n: '6', t: 'إجمالي المبيعات', a: F.s, adj: F.sAdj, v: r2x(F.sV + F.sVAdj), tot: 1 },
       { n: '7', t: 'المشتريات الخاضعة للنسبة الأساسية', a: F.p, adj: F.pAdj, v: r2x(F.pV + F.pVAdj) },
       { n: '8', t: 'الاستيرادات الخاضعة للضريبة المدفوعة في الجمارك', ...Z, na: 1 },
-      { n: '9', t: 'الاستيرادات الخاضعة لآلية الاحتساب العكسي', ...Z, na: 1 },
+      F.rc || F.rcV ? { n: '9', t: 'الاستيرادات الخاضعة لآلية الاحتساب العكسي', a: F.rc, adj: 0, v: F.rcV } : { n: '9', t: 'الاستيرادات الخاضعة لآلية الاحتساب العكسي', ...Z, na: 1 },   // v56.51: من قيود الاحتساب العكسي إن وُجدت
       { n: '10', t: 'المشتريات الخاضعة للنسبة الصفرية', ...Z, na: 1 },
       { n: '11', t: 'المشتريات المعفاة', ...Z, na: 1 },
-      { n: '12', t: 'إجمالي المشتريات', a: F.p, adj: F.pAdj, v: r2x(F.pV + F.pVAdj), tot: 1 },
+      { n: '12', t: 'إجمالي المشتريات', a: r2x(F.p + F.rc), adj: F.pAdj, v: r2x(F.pV + F.pVAdj + F.rcIn), tot: 1 },   // v56.51: + الاحتساب العكسي القابل للاسترداد (صفر بلا احتساب عكسي)
       { n: '13', t: 'إجمالي ضريبة القيمة المضافة المستحقة عن الفترة', v: vatDue, tot: 1, only: 1 },
       { n: '14', t: 'تصحيحات من الفترات السابقة (بحد ±5,000 ر.س)', v: 0, only: 1, na: 1 },
       { n: '15', t: 'رصيد الضريبة المرحّل من الفترة/الفترات السابقة', v: 0, only: 1, na: 1 },
@@ -1176,6 +1182,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
     if (periodLocked(org, jm && jm.date)) return say(LOCK_MSG(jm.date), 'no');
     if (jm.recur && jm.recurEnd && jm.recurEnd < (jm.date || today())) return say('تاريخ انتهاء التكرار قبل تاريخ القيد', 'no');
     if (!jmOk) return say('القيد غير مكتمل — اختر الحسابات وتأكد أن مجموع المدين يساوي الدائن', 'no');
+    { const ww = whtSettleWarn(org, { lines: (jm.lines || []).map(l => ({ code: l.code, debit: Number(l.debit) || 0 })) }); if (ww && !window.confirm(ww + '\n\nمتابعة حفظ القيد؟')) return; }   // v56.51 (2-ج) تحذير لا منع
     const direct = jeOwner(me);   // v47.1: قيد المالك يُرحَّل مباشرة، وغيره ينتظر اعتماد المحاسب أو المالك
     const rec = {
       id: uid('jm'), date: jm.date || today(), title: jm.title.trim() || (jm.opening ? 'قيد افتتاحي' : 'قيد يدوي'),
@@ -1860,7 +1867,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                 <tr className={'is-line' + (Math.abs(vatRec.dOut) >= 0.01 ? ' bad' : '')}><td>ضريبة المخرجات — حركة 2301 (دائن {money(vatRec.o.c)} − مدين {money(vatRec.o.d)})</td><td className="is-amt"><span className="num">{money(vatRec.tbOut)}</span></td><td className="is-amt"><span className="num">{money(vsum.out)}</span></td><td className={'is-amt' + (Math.abs(vatRec.dOut) >= 0.01 ? ' neg' : '')}><span className="num">{Math.abs(vatRec.dOut) < 0.01 ? '✓ 0.00' : fmtBal(vatRec.dOut)}</span></td></tr>
                 <tr className={'is-line' + (Math.abs(vatRec.dIn) >= 0.01 ? ' bad' : '')}><td>ضريبة المدخلات — حركة 1501 (مدين {money(vatRec.i.d)} − دائن {money(vatRec.i.c)})</td><td className="is-amt"><span className="num">{money(vatRec.tbIn)}</span></td><td className="is-amt"><span className="num">{money(vsum.inn)}</span></td><td className={'is-amt' + (Math.abs(vatRec.dIn) >= 0.01 ? ' neg' : '')}><span className="num">{Math.abs(vatRec.dIn) < 0.01 ? '✓ 0.00' : fmtBal(vatRec.dIn)}</span></td></tr>
                 <tr className="is-total"><td>صافي الضريبة للفترة</td><td className="is-amt"><span className="num">{fmtBal(r2x(vatRec.tbOut - vatRec.tbIn))}</span></td><td className="is-amt"><span className="num">{fmtBal(vatDue)}</span></td><td className={'is-amt' + (vatRec.ok ? '' : ' neg')}><span className="num">{fmtBal(r2x(vatRec.dOut - vatRec.dIn))}</span></td></tr>
-                <tr className={'is-line' + (Math.abs(vatRec.dBase) >= 1 ? ' warnr' : '')}><td>فحص الوعاء: إيراد المبيعات 4101+4102 ({money(vatRec.revNet)}) × {taxRate}%</td><td className="is-amt"><span className="num">{money(vatRec.expOut)}</span></td><td className="is-amt"><span className="num">{money(vsum.out)}</span></td><td className={'is-amt' + (Math.abs(vatRec.dBase) >= 1 ? ' neg' : '')}><span className="num">{Math.abs(vatRec.dBase) < 1 ? '✓' : fmtBal(vatRec.dBase)}</span></td></tr>
+                <tr className={'is-line' + (Math.abs(vatRec.dBase) >= 1 ? ' warnr' : '')}><td>فحص الوعاء: إيراد المبيعات 4101+4102 ({money(vatRec.revNet)}) × {taxRate}%</td><td className="is-amt"><span className="num">{money(vatRec.expOut)}</span></td><td className="is-amt"><span className="num">{money(vsum.out - vatX.F.rcV)}</span></td><td className={'is-amt' + (Math.abs(vatRec.dBase) >= 1 ? ' neg' : '')}><span className="num">{Math.abs(vatRec.dBase) < 1 ? '✓' : fmtBal(vatRec.dBase)}</span></td></tr>
                 {(vatRec.closeCr > 0 || vatRec.payDr > 0) && <tr className="is-line"><td>الحساب الوسيط 2302 في الفترة: إقفالات (دائن) / سداد (مدين)</td><td className="is-amt"><span className="num">{money(vatRec.closeCr)}</span></td><td className="is-amt"><span className="num">{money(vatRec.payDr)}</span></td><td className="is-amt"><span className="num">{fmtBal(r2x(vatRec.closeCr - vatRec.payDr))}</span></td></tr>}
               </tbody>
             </table>
@@ -3168,6 +3175,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
               </div>
             ) : <div className="note">تفعيل الضريبة وتعديل نسبتها صلاحية للإدارة العليا/مسؤول النظام فقط.</div>}
           </div>
+          {(whtCanEdit(me) || rcmOn(org) || siConvOn(org) || bdvOn(org)) && <TaxAdjCard org={org} me={me} commitOrg={commitOrg} say={say} can={whtCanEdit(me)} />}
 
           {taxOn && <>
             <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>

@@ -4,6 +4,7 @@ import React, { useMemo, useState } from 'react';
 import { deptOn, deptList, DEPT_SHARED } from '../../App.jsx';
 import { cvLive, cvNeedsAppr, cvApprOpenFrom, cvApprove, jeOwner, canApproveJe } from '../../App.jsx';   // v56.32 اعتماد سندات الصرف (T9)   // v56.28 E4: قسم سند الصرف على حساب مصروف (توصية المجلس)
 import { whtNonRes, whtOkTypes, whtApply, whtAmtOf } from '../../App.jsx';   // v56.47 (E7) ضريبة الاستقطاع
+import { rcmSupOf, rcmApply, rcmRate, whtSettleWarn } from '../../App.jsx';   // v56.51 الاحتساب العكسي وتحذير التسوية
 import { Receipt, Plus, Printer, Download, Check, Scale, X } from 'lucide-react';
 import { DocLink, CV_KIND, cvNextNo, projList, partyOpenDocs, applyCashVoucher, cashVoucherHtml, buildAccounting, buildPartners, branchBanks, Field, Modal, LOCK_MSG, makeXlsx, money, nowISO, periodLocked, printA4, today, uid } from '../../App.jsx';
 
@@ -36,6 +37,11 @@ export function CashVouchers({ org, ops, me, commit, say }) {
   const whtTs = whtSup ? whtOkTypes(org) : [];
   const whtSel = whtSup ? (f.whtType != null ? f.whtType : (whtTs.some(t => t.id === whtSup.whtType) ? whtSup.whtType : '')) : '';
   const whtT = whtTs.find(t => t.id === whtSel); const whtPrev = whtT ? whtAmtOf(r2(f.amount), whtT.rate) : 0;
+  // v56.51 (1): الاحتساب العكسي على الجزء «على الحساب» — مقترح افتراضيًا للمورد غير المقيم، قابل للإلغاء (خدمة مؤدّاة خارج المملكة)
+  const rcmSup = f && f.kind === 'pv' && f.pt === 'sup' && f.key ? rcmSupOf(org, f.key) : null;
+  const rcmGoods = !!(rcmSup && f.rcmKind === 'goods');   // (مراجعة المجلس 7) سلع مستوردة: ضريبتها في الجمارك — لا احتساب عكسي
+  const rcmOwed = rcmSup ? (() => { const pp = P.find(x => x.key === f.key); return pp ? Math.max(0, -r2(pp.txns.filter(t => !t.date || String(t.date).slice(0, 10) <= String(f.date || '')).reduce((a, t) => a + (t.debit || 0) - (t.credit || 0), 0))) : 0; })() : 0;   // الرصيد المستحق بتاريخ السند   // المستحق للمورد قبل السند: ما يقابله سداد لا دفعة مقدمة
+  const rcmUse = rcmSup && !rcmGoods ? f.rcmOn !== false : false; const rcmBase = rcmSup ? Math.max(0, r2(r2(f.amount) - allocSum - Math.max(0, rcmOwed - allocSum))) : 0;
   const autoAlloc = () => { let left = r2(f.amount); const al = {}; docs.forEach(d => { if (left <= 0) return; const a = Math.min(left, d.rem); al[d.id] = String(r2(a)); left = r2(left - a); }); setF(x => ({ ...x, alloc: al })); };
 
   const print = (v) => printA4(org, CV_KIND[v.kind].ar + ' — ' + v.no, '', cashVoucherHtml(org, v));
@@ -66,7 +72,9 @@ export function CashVouchers({ org, ops, me, commit, say }) {
       if (r2(alloc.reduce((s2, x) => s2 + x.amount, 0)) > a + 0.004) return say('مجموع التوزيع أكبر من مبلغ السند', 'no');
       v = { ...v, fund: f.pm === 'cash' ? '1101' : (f.fund && f.fund !== '1101' ? f.fund : '1201'), pm: f.pm, ...(String(f.ref || '').trim() ? { ref: String(f.ref).trim() } : {}), party, ...(alloc.length ? { alloc } : {}), ...(party.t === 'emp' && f.kind === 'pv' ? { empPurpose: f.empPurpose } : {}) };
     }
-    if (whtSup) { const w = whtApply(org, v, whtSel); if (w.err) return say(w.err, 'no'); v = w.v; }   // v56.47 (E7)
+    if (whtSup) { const w = whtApply(org, (whtT && whtT.treaty) ? { ...v, whtTreaty: { ref: f.trRef || '', cert: f.trCert || '', exp: f.trExp || '' } } : v, whtSel); if (w.err) return say(w.err, 'no'); v = w.v; }   // v56.47 (E7) · v56.51 (2-ب) مستند الاتفاقية
+    if (rcmSup) { const rk = rcmApply(org, v, { goods: rcmGoods, on: rcmUse, nr: !!f.rcmNr, owed: rcmOwed }); if (rk.err) return say(rk.err, 'no'); v = rk.doc; }   // v56.51 (1)
+    if (f.kind === 'ov') { const ww = whtSettleWarn(org, v); if (ww && !window.confirm(ww + '\n\nمتابعة المقاصّة؟')) return; }   // v56.51 (2-ج) تحذير لا منع
     if (cvNeedsAppr(org, v)) v = jeOwner(me) ? { ...v, status: 'posted', approvedBy: me.name, approvedAt: nowISO(), selfPosted: true } : { ...v, status: 'pending', byId: me.id || '' };   // v56.32 T9
     let no = '';
     const ok = await commit(d => { no = cvNextNo(d, f.kind); return applyCashVoucher(d, { ...v, no }, me); },
@@ -155,13 +163,24 @@ export function CashVouchers({ org, ops, me, commit, say }) {
             <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>{Object.entries(PT).map(([k, t]) => <button key={k} className={'btn sm' + (f.pt === k ? ' pri' : ' gh')} data-cvpt={k} onClick={() => setF(x => ({ ...x, pt: k, key: '', acc: '', alloc: {} }))}>{t}</button>)}</div>
             {f.pt === 'acc'
               ? <Field label="الحساب"><select className="sel" aria-label="حساب السند" value={f.acc} onChange={e => setF(x => ({ ...x, acc: e.target.value }))}><option value="">— اختر الحساب —</option>{accs.map(a => <option key={a.code} value={a.code}>{a.code} · {a.name}</option>)}</select></Field>
-              : <Field label={PT[f.pt]}><select className="sel" aria-label="جهة السند" value={f.key} onChange={e => setF(x => ({ ...x, key: e.target.value, alloc: {}, whtType: undefined }))}><option value="">— اختر —</option>{parties(f.pt).map(p => <option key={p.key} value={p.key}>{p.name}</option>)}</select>
+              : <Field label={PT[f.pt]}><select className="sel" aria-label="جهة السند" value={f.key} onChange={e => setF(x => ({ ...x, key: e.target.value, alloc: {}, whtType: undefined, rcmOn: undefined, rcmNr: false, rcmKind: 'svc' }))}><option value="">— اختر —</option>{parties(f.pt).map(p => <option key={p.key} value={p.key}>{p.name}</option>)}</select>
                 {f.key && <div className="hint">الرصيد: <b className="num">{money(Math.abs(bal(f.key)))}</b> {bal(f.key) > 0 ? '(لنا)' : bal(f.key) < 0 ? '(علينا)' : ''}</div>}</Field>}
             {whtSup && <div className="note" style={{ margin: '6px 0' }} data-cv-whtbox>
               <div style={{ marginBottom: 6 }}>المورد <b>غير مقيم</b>{whtSup.country ? ' (' + whtSup.country + ')' : ''} — المبلغ أدناه هو <b>الإجمالي</b> الذي يخفض ذمته، ويُخصم الاستقطاع ويُدفع الصافي.</div>
               <Field label="نوع ضريبة الاستقطاع (المؤكَّد من المختص)"><select className="sel" aria-label="نوع ضريبة الاستقطاع" data-cv-whttype value={whtSel} onChange={e => setF(x => ({ ...x, whtType: e.target.value }))}><option value="">— اختر —</option>{whtTs.map(t => <option key={t.id} value={t.id}>{t.name} — {t.rate}%</option>)}</select></Field>
               {!whtTs.length && <div className="hint" style={{ color: 'var(--rose)' }}>لا نوع مؤكَّد — يضيفه المحاسب أو مسؤول النظام في «المحاسبة ← الزكاة وضريبة الدخل» بعد تأكيد المختص</div>}
+              {whtT && whtT.treaty && <div className="grid g3" data-cv-treaty style={{ marginTop: 6 }}>
+                <Field label="مرجع طلب البوابة"><input className="inp" aria-label="مرجع طلب البوابة" value={f.trRef || ''} onChange={e => setF(x => ({ ...x, trRef: e.target.value }))} /></Field>
+                <Field label="رقم شهادة الإقامة الضريبية"><input className="inp" aria-label="رقم شهادة الإقامة الضريبية" value={f.trCert || ''} onChange={e => setF(x => ({ ...x, trCert: e.target.value }))} /></Field>
+                <Field label="صلاحية الشهادة حتى"><input type="date" className="inp" aria-label="صلاحية شهادة الإقامة" value={f.trExp || ''} onChange={e => setF(x => ({ ...x, trExp: e.target.value }))} /></Field></div>}
               {whtT && r2(f.amount) > 0 && <div className="hint" data-cv-whtcalc>الإجمالي <b className="num">{money(r2(f.amount))}</b> · الاستقطاع {whtT.rate}% = <b className="num">{money(whtPrev)}</b> · الصافي المدفوع <b className="num">{money(r2(r2(f.amount) - whtPrev))}</b></div>}
+            </div>}
+            {rcmSup && <div className="note" style={{ margin: '6px 0' }} data-cv-rcm>
+              <div className="row" style={{ gap: 6, marginBottom: 4 }}>{[['svc', 'خدمة'], ['goods', 'سلع مستوردة (ضريبتها في الجمارك)']].map(([k, t]) => <button key={k} type="button" className={'btn sm' + ((f.rcmKind || 'svc') === k ? ' pri' : ' gh')} data-cv-rcmkind={k} onClick={() => setF(x => ({ ...x, rcmKind: k }))}>{t}</button>)}</div>
+              {rcmGoods ? <div className="hint">السلع المستوردة لا يُحتسب عليها عكسيًا — ضريبتها تُدفع في الجمارك.</div> : <>
+              <label className="row" style={{ gap: 6, fontSize: 12.5 }}><input type="checkbox" aria-label="خدمة خاضعة للاحتساب العكسي" checked={rcmUse} onChange={e => setF(x => ({ ...x, rcmOn: e.target.checked }))} />خدمة خاضعة للاحتساب العكسي (ألغِ الاختيار إن أُدّيت الخدمة خارج المملكة)</label>
+              {rcmUse && <label className="row" style={{ gap: 6, fontSize: 12.5, marginTop: 4 }}><input type="checkbox" aria-label="ضريبة غير قابلة للاسترداد" checked={!!f.rcmNr} onChange={e => setF(x => ({ ...x, rcmNr: e.target.checked }))} />غير قابلة للاسترداد (تُحمَّل على المصروف)</label>}
+              {rcmUse && <div className="hint" data-cv-rcmcalc>على الجزء «على الحساب» <b className="num">{money(rcmBase)}</b> × {rcmRate(org)}% = <b className="num">{money(r2(rcmBase * rcmRate(org) / 100))}</b> — مدين {f.rcmNr ? 'المصروف' : '1501'} / دائن 2301 بلا أثر نقدي{allocSum > 0 ? ' (الموزَّع على الفواتير احتُسب عند تسجيلها)' : ''}{rcmOwed - allocSum > 0.004 ? ' — بعد خصم المستحق للمورد غير الموزَّع ' + money(r2(rcmOwed - allocSum)) + ' (سداد لا دفعة مقدمة)' : ''}</div>}</>}
             </div>}
             {f.pt === 'emp' && f.kind === 'pv' && <div className="row" style={{ gap: 6, margin: '6px 0' }}>{[['custody', 'عهدة'], ['advance', 'سلفة تُستقطع من الراتب']].map(([k, t]) => <button key={k} className={'btn sm' + (f.empPurpose === k ? ' pri' : ' gh')} data-emppurpose={k} onClick={() => setF(x => ({ ...x, empPurpose: k }))}>{t}</button>)}</div>}
             <div className="row" style={{ gap: 6, flexWrap: 'wrap', margin: '8px 0' }}>{[['cash', 'نقدًا'], ['bank', 'تحويل بنكي'], ['cheque', 'شيك']].map(([k, t]) => <button key={k} className={'btn sm' + (f.pm === k ? ' pri' : ' gh')} data-cvpm={k} onClick={() => setF(x => ({ ...x, pm: k, fund: k === 'cash' ? '1101' : (x.fund === '1101' ? '1201' : x.fund) }))}>{t}</button>)}</div>

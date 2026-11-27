@@ -3,6 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { Bell, AlertTriangle, Settings, Check, Clock, Sparkles, ChevronLeft } from 'lucide-react';
 import { DOC_LABEL, complianceItems, Field, Kpi, ROLES, buildAccounting, buildPartners, countedClosing, customerAging, defaultHrPolicies, defaultTrainingPrograms, deficitCfg, deficitPatterns, expiringTraining, hrEmpStats, hrScoreFor, isoD, missingRequiredTraining, money, overdueSignDocs, stockByWh, sum, supplierAging, today } from '../../App.jsx';
 import { budVOn, budActive, budMonthMap } from '../../App.jsx';   // v56.41
+import { whtDueAlert } from '../../App.jsx';   // v56.51 (2-أ)
 
 export function AlertsCenter({ org, ops, me, myBranches, scoped, setTab, openAcctView, openInvView, commitOrg, say }) {
   const dcf = deficitCfg(org);
@@ -74,6 +75,8 @@ export function AlertsCenter({ org, ops, me, myBranches, scoped, setTab, openAcc
     const vatDue = r2(out - inn);
     if (vatDue > 0.004) push('mid', 'tax', 'صافي ضريبة مستحقة (تقديري)', money(vatDue) + ' — راجع مسودة الإقرار.', { label: 'الضريبة', go: () => goAcct('vat') });
   }
+  // v56.51 (2-أ): استقطاع الشهر السابق غير المورَّد — بموعد يُدخله المالك ويؤكّده المختص فقط
+  { const wd = whtDueAlert(org, A, td); if (wd) push(wd.late ? 'high' : 'mid', 'tax', (wd.late ? 'تأخّر توريد ضريبة الاستقطاع عن ' : 'توريد ضريبة الاستقطاع عن ') + wd.months.map(m => m.ym).join('، '), money(wd.amt) + ' في 2107 غير مورَّد — ' + wd.months.map(m => m.ym + ': ' + money(m.amt) + ' (الموعد ' + m.due + (m.late ? '، متأخر' : '') + ')').join(' · ') + '. وُرِّده بقيد (مدين 2107 / دائن البنك).', { label: 'الاستقطاع', go: () => goAcct('zakat') }); }
 
   // تشغيل
   const pendingApp = (ops.closings || []).filter(c => c.status === 'submitted').length;

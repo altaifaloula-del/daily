@@ -42,32 +42,37 @@ export function VatRegisters({ org, ops, say }) {
   const rowOf = (r) => [r.date, r.doc + (r.cat ? ' · ' + r.cat : ''), r.no, r.party, r.pvat, brN(r.branchId), r.net, r.vat, r.gross];
   const totOf = (arr) => ['الإجمالي', '', '', '', '', '', sumF(arr, 'net'), sumF(arr, 'vat'), sumF(arr, 'gross')];
   const sumF = (arr, k) => Math.round(arr.reduce((s, r) => s + r[k], 0) * 100) / 100;
+  // v56.51: عمود «التعديل» (ضريبة الدين المعدوم وعكسها) وبند وسجل الاحتساب العكسي — يظهران فقط إن وُجدت مستنداتها
+  const hasAdj = R.sales.some(r => r.adj), rcm = R.rcm || [];
+  const ADJ_AR = { bd: 'تعديل دين معدوم', bdr: 'عكس تعديل (استرداد)' };
   const exportX = () => { try { dl('سجلات_الضريبة_' + st.from + '_' + st.to + '.xlsx', [
-    { name: 'ملخص الإقرار', rows: [['البند', 'الوصف', 'المبلغ', 'الضريبة'], ...R.boxes.map(b => [b.n, b.ar, b.net == null ? '' : b.net, b.vat])] },
-    { name: 'سجل المبيعات', rows: [head, ...R.sales.map(rowOf), totOf(R.sales)] },
-    { name: 'سجل المشتريات', rows: [head, ...R.purch.map(rowOf), totOf(R.purch)] }]); say('نُزّل (Excel) ✓'); } catch { say('تعذّر توليد Excel', 'no'); } };
+    { name: 'ملخص الإقرار', rows: [['البند', 'الوصف', 'المبلغ', 'الضريبة', ...(hasAdj ? ['منها تعديل الضريبة'] : [])], ...R.boxes.map(b => [b.n, b.ar, b.net == null ? '' : b.net, b.vat, ...(hasAdj ? [b.adj == null ? '' : b.adj] : [])])] },
+    { name: 'سجل المبيعات', rows: hasAdj ? [[...head, 'التعديل'], ...R.sales.map(r => [...rowOf(r), r.adj ? ADJ_AR[r.adj] || r.adj : '']), [...totOf(R.sales), '']] : [head, ...R.sales.map(rowOf), totOf(R.sales)] },
+    { name: 'سجل المشتريات', rows: [head, ...R.purch.map(rowOf), totOf(R.purch)] },
+    ...(rcm.length ? [{ name: 'الاحتساب العكسي', rows: [[...head, 'غير قابلة للاسترداد'], ...rcm.map(r => [...rowOf(r), r.nr ? 'نعم' : '']), [...totOf(rcm), '']] }] : [])]); say('نُزّل (Excel) ✓'); } catch { say('تعذّر توليد Excel', 'no'); } };
   const tbl = (arr) => `<table><thead><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${arr.map(r => `<tr>${rowOf(r).map((c, i) => `<td${i >= 6 ? ' class="n"' : ''}>${i >= 6 ? money(c) : _xe(String(c || ''))}</td>`).join('')}</tr>`).join('')}<tr class="tot">${totOf(arr).map((c, i) => `<td${i >= 6 ? ' class="n"' : ''}>${i >= 6 ? money(c) : c}</td>`).join('')}</tr></tbody></table>`;
-  const print = (what) => printA4(org, what === 'sum' ? 'ملخص إقرار ضريبة القيمة المضافة' : what === 's' ? 'سجل ضريبة المبيعات' : 'سجل ضريبة المشتريات', sub + ' · النسبة ' + rate + '%',
+  const print = (what) => printA4(org, what === 'sum' ? 'ملخص إقرار ضريبة القيمة المضافة' : what === 's' ? 'سجل ضريبة المبيعات' : what === 'rc' ? 'سجل الاحتساب العكسي' : 'سجل ضريبة المشتريات', sub + ' · النسبة ' + rate + '%',
     what === 'sum' ? `<table><thead><tr><th>البند</th><th>الوصف</th><th>المبلغ</th><th>الضريبة</th></tr></thead><tbody>${R.boxes.map(b => `<tr${b.tot ? ' class="tot"' : ''}><td>${b.n}</td><td>${_xe(b.ar)}${b.note ? `<div style="font-size:9px;color:#888">${_xe(b.note)}</div>` : ''}</td><td class="n">${b.net == null ? '' : money(b.net)}</td><td class="n">${money(b.vat)}</td></tr>`).join('')}</tbody></table>
-      <div class="box" style="margin-top:10px">${R.checks.map(c => _xe(c.msg)).join('<br>')}</div>` : tbl(what === 's' ? R.sales : R.purch));
-  const list = tab === 's' ? R.sales : R.purch;
+      <div class="box" style="margin-top:10px">${R.checks.map(c => _xe(c.msg)).join('<br>')}</div>` : tbl(what === 's' ? R.sales : what === 'rc' ? rcm : R.purch));
+  const list = tab === 's' ? R.sales : tab === 'rc' ? rcm : R.purch;
+  const bx = (n) => R.boxes.find(b => b.n === n) || { net: 0, vat: 0 };
   return (
     <div className="grid" style={{ gap: 12 }}>
       <PeriodBar org={org} st={st} set={set} />
       <div className="grid g4">
-        <Kpi label="ضريبة المخرجات (المبيعات)" value={money(R.boxes[2].vat)} sub={R.sales.length + ' مستند · ' + money(R.boxes[2].net) + ' قبل الضريبة'} icon={Receipt} color="#D9A83E" />
-        <Kpi label="ضريبة المدخلات (المشتريات)" value={money(R.boxes[5].vat)} sub={R.purch.length + ' مستند · ' + money(R.boxes[5].net) + ' قبل الضريبة'} icon={Receipt} color="#5B93C4" />
-        <Kpi label="صافي الضريبة للفترة" value={money(R.boxes[6].vat)} sub={R.boxes[6].vat >= 0 ? 'مستحقة للهيئة' : 'رصيد دائن (استرداد/ترحيل)'} icon={ShieldCheck} color={R.boxes[6].vat >= 0 ? '#D9544D' : '#4FB286'} />
+        <Kpi label="ضريبة المخرجات (المبيعات)" value={money(bx('6').vat)} sub={R.sales.length + ' مستند · ' + money(bx('6').net) + ' قبل الضريبة'} icon={Receipt} color="#D9A83E" />
+        <Kpi label="ضريبة المدخلات (المشتريات)" value={money(bx('12').vat)} sub={R.purch.length + ' مستند · ' + money(bx('12').net) + ' قبل الضريبة'} icon={Receipt} color="#5B93C4" />
+        <Kpi label="صافي الضريبة للفترة" value={money(bx('13').vat)} sub={bx('13').vat >= 0 ? 'مستحقة للهيئة' : 'رصيد دائن (استرداد/ترحيل)'} icon={ShieldCheck} color={bx('13').vat >= 0 ? '#D9544D' : '#4FB286'} />
         <Kpi label="المطابقة مع الدفاتر" value={R.checks.some(c => c.sev === 'bad') ? 'فرق' : 'مطابق'} sub="حسابا 2301 و1501" icon={ShieldCheck} color={R.checks.some(c => c.sev === 'bad') ? '#D9544D' : '#4FB286'} />
       </div>
       <div className="card">
-        <div className="card-h"><div className="rp-seg">{[['sum', 'ملخص الإقرار'], ['s', 'سجل المبيعات (' + R.sales.length + ')'], ['p', 'سجل المشتريات (' + R.purch.length + ')']].map(([k, ar]) => <button key={k} className={'btn sm' + (tab === k ? ' pri' : ' gh')} onClick={() => setTab(k)}>{ar}</button>)}</div>
+        <div className="card-h"><div className="rp-seg">{[['sum', 'ملخص الإقرار'], ['s', 'سجل المبيعات (' + R.sales.length + ')'], ['p', 'سجل المشتريات (' + R.purch.length + ')'], ...(rcm.length ? [['rc', 'الاحتساب العكسي (' + rcm.length + ')']] : [])].map(([k, ar]) => <button key={k} className={'btn sm' + (tab === k ? ' pri' : ' gh')} onClick={() => setTab(k)}>{ar}</button>)}</div>
           <div className="rp-seg"><button className="btn sm" onClick={exportX}><Download size={13} />Excel</button><button className="btn sm" onClick={() => print(tab)}><Printer size={13} />طباعة</button></div></div>
         {R.checks.map((c, i) => <div key={i} className={'cf-note ' + (c.sev === 'ok' ? 'info' : c.sev)} style={{ marginBottom: 6 }}><span className={'badge ' + (c.sev === 'ok' ? 'b-mint' : c.sev === 'bad' ? 'b-rose' : 'b-amber')}>{c.sev === 'ok' ? 'سليم' : c.sev === 'bad' ? 'فرق' : 'ضابط'}</span><span>{c.msg}</span></div>)}
         {tab === 'sum' ? <div className="rp-boxes">{R.boxes.map(b => <div key={b.n} className={'rp-box' + (b.tot ? ' tot' : '')}><span className="rp-n num">{b.n}</span><span className="rp-l">{b.ar}{b.note ? <small>{b.note}</small> : null}</span>
-          <span className="rp-v">{b.net != null && <span className="num" dir="ltr">{money(b.net)}</span>}<b className="num" dir="ltr">{money(b.vat)}</b></span></div>)}</div>
+          <span className="rp-v">{b.net != null && <span className="num" dir="ltr">{money(b.net)}</span>}<b className="num" dir="ltr">{money(b.vat)}</b>{b.adj != null && <small data-vat-adj>منها تعديل <span className="num" dir="ltr">{money(b.adj)}</span></small>}</span></div>)}</div>
           : !list.length ? <div className="empty">لا مستندات في الفترة.</div> : <div className="rp-rows">{list.slice(0, 400).map(r => <div key={r.id} className={'rp-row' + (r.k === 'p' && r.vat > 0 && !r.pvat ? ' flag' : '')}>
-            <span className="rp-a"><b>{r.party || r.doc}</b><small><span className="dt">{arDate(r.date)}</span> · {r.doc}{r.no ? ' ' + r.no : ''}{r.cat ? ' · ' + r.cat : ''} · {brN(r.branchId)}</small>{r.pvat ? <small className="num" dir="ltr">{r.pvat}</small> : r.vat > 0 && r.k === 'p' ? <small style={{ color: 'var(--amber)' }}>بلا رقم ضريبي للمورد</small> : null}</span>
+            <span className="rp-a"><b>{r.party || r.doc}</b><small><span className="dt">{arDate(r.date)}</span> · {r.doc}{r.no ? ' ' + r.no : ''}{r.adj ? ' · ' + (ADJ_AR[r.adj] || '') : ''}{r.nr ? ' · غير قابلة للاسترداد' : ''}{r.cat ? ' · ' + r.cat : ''} · {brN(r.branchId)}</small>{r.pvat ? <small className="num" dir="ltr">{r.pvat}</small> : r.vat > 0 && r.k === 'p' ? <small style={{ color: 'var(--amber)' }}>بلا رقم ضريبي للمورد</small> : null}</span>
             <span className="rp-b"><b className="num" dir="ltr">{money(r.gross)}</b><small className="num" dir="ltr">{money(r.net)} + {money(r.vat)}</small></span></div>)}
             {list.length > 400 && <div className="note">يُعرض أول 400 — الكل في Excel.</div>}</div>}
         <div className="note" style={{ marginTop: 8 }}>من القيود نفسها: مبيعات الإغلاقات وفواتير المبيعات وإشعاراتها، ومصروفات الإغلاقات وفواتير الموردين وإشعاراتها — بعد استبعاد السلف. «بلا ضريبة» تعني أن المستند لم يُحمَّل ضريبة؛ تصنيفه (صفري/معفى/خارج النطاق) يُحدَّد عند تعبئة الإقرار في بوابة الهيئة.</div>
