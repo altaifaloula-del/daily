@@ -4031,3 +4031,14 @@ test('v56.35 ضوابط التسويق: تصدير الكل للمالك وحد�
   assert.equal(await p.locator('[data-unmerge-ok]').count(), 0, 'صاحب الطلب لا يعتمده');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.36 الحماية على الخادم لسجلات الدمج: تظهر في بطاقة السجلات المحمية حين تُفعَّل ضوابط التسويق مع النسخ فقط', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Admin/admin');
+  await p.click('button:has-text("صيانة النظام")'); await p.waitForSelector('[data-grr]');
+  await p.evaluate(() => window.setOrg(o => ({ ...o, growthRecords: { on: true } }))); await p.waitForTimeout(300);
+  assert.equal(await p.locator('[data-grr-mkm]').count(), 0, 'بلا ضوابط التسويق لا سجلات دمج');
+  await p.evaluate(() => window.setOrg(o => ({ ...o, mktCtl: { on: true } }))); await p.waitForTimeout(300);
+  assert.match(await p.locator('[data-grr-mkm]').innerText(), /صاحب طلب التراجع/);
+  await p.click('[data-grr-check]'); await p.waitForFunction(() => /Firestore فقط/.test(window.lastSay || ''));
+  assert.deepEqual(errs, []); await ctx.close();
+});

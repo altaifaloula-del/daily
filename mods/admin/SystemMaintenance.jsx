@@ -8,7 +8,7 @@ import { archKey, archivePlan, nowISO, printA4, uid, dtLocal, posSplitBranch, po
 import { clrCompare, clrLoad, clrOn, clrSeed, clrState, logAudit, clrRead, clrViewStats } from '../../App.jsx';   // v41.9 + v42.2
 import { posrOn, posrCompare, posrLoad, posrSeed, posrState, posrRepair } from '../../App.jsx';   // v56.4 (POS 2a) سجلات فواتير نقطة البيع
 import { MKT_BR_CV, mktBrOn } from '../../App.jsx';
-import { grrOn, mkcCompare, lytCompare, grrLoad, grrSeed, grrState } from '../../App.jsx';
+import { grrOn, mkcCompare, lytCompare, grrLoad, grrSeed, grrState, mkmOn, mkmCompare, mkmViolations, mkmSeed } from '../../App.jsx';
 import { posGlOpen, posGlRanges, posGlCheck } from '../../App.jsx';
 import { loyMonthAdj, posLoyOpening, posMisLoyRanges, posMisLoyFrom, posGlNote, jeOwner, posGlFrom } from '../../App.jsx';   // v56.33 (الدفعة 2 — P1/P2)
 import { ctlBarOn } from '../../App.jsx';
@@ -768,10 +768,11 @@ function MktCtlCard({ org, commitOrg, say, isAdm }) {
 function GrowthRecordsCard({ org, ops, commitOrg, say, isAdm }) {
   const on = grrOn(org); const [busy, setBusy] = useState(''); const [rep, setRep] = useState(null);
   const check = async () => {
-    setBusy('check'); const [mc, ly, loy] = await Promise.all([grrLoad('mkt_consents', 'branchId', [], true), grrLoad('loy_tx', 'br', [], true), cloud.get(KEYS.loy, { tx: [] }).catch(() => null)]); setBusy('');
-    if (!mc || !ly) return say('السجلات المحمية تعمل على قاعدة Firestore فقط', 'no');
-    if (mc.err || ly.err) return say('تعذّرت قراءة السجلات (' + (mc.err || ly.err) + ') — قد تكون القواعد لم تُنشر بعد', 'no');
-    setRep({ mc: mkcCompare(ops.mktConsents || [], mc), ly: lytCompare((loy && loy.tx) || [], ly) });
+    const mmOn = mkmOn(org);   // v56.36: سجلات الدمج حين تُفعَّل ضوابط التسويق أيضًا
+    setBusy('check'); const [mc, ly, loy, mm] = await Promise.all([grrLoad('mkt_consents', 'branchId', [], true), grrLoad('loy_tx', 'br', [], true), cloud.get(KEYS.loy, { tx: [] }).catch(() => null), mmOn ? grrLoad('mkt_merges', '', [], true) : Promise.resolve([])]); setBusy('');
+    if (!mc || !ly || !mm) return say('السجلات المحمية تعمل على قاعدة Firestore فقط', 'no');
+    if (mc.err || ly.err || mm.err) return say('تعذّرت قراءة السجلات (' + (mc.err || ly.err || mm.err) + ') — قد تكون القواعد لم تُنشر بعد', 'no');
+    setRep({ mc: mkcCompare(ops.mktConsents || [], mc), ly: lytCompare((loy && loy.tx) || [], ly), ...(mmOn ? { mm: mkmCompare(ops.mktMerges || [], mm), mmBad: mkmViolations(ops.mktMerges || []) } : {}) });
   };
   const toggle = async () => {
     if (!isAdm) return;
@@ -781,11 +782,14 @@ function GrowthRecordsCard({ org, ops, commitOrg, say, isAdm }) {
     if (ok) say(on ? 'أُوقف النسخ — السجلات الموجودة تبقى' : 'فُعّل — اضغط «مطابقة» ثم «نسخ التاريخ»');
   };
   const seed = async () => {
-    if (!isAdm || !on || !rep) return; const n = rep.mc.missing.length + rep.ly.missing.length; if (!n) return say('لا ناقص', 'ok');
-    if (!window.confirm('نسخ ' + rep.mc.missing.length + ' موافقة و' + rep.ly.missing.length + ' حركة ولاء إلى السجلات المحمية؟ (لا يُحذف ولا يتغير شيء في المصدر)')) return;
-    setBusy('seed'); const a = await grrSeed('mkc', rep.mc.missing, (i, t) => setBusy('موافقات ' + i + '/' + t)); const b = await grrSeed('lyt', rep.ly.missing, (i, t) => setBusy('ولاء ' + i + '/' + t)); setBusy('');
-    if (a.err || b.err) return say(a.err || b.err, 'no');
-    await logAudit({ actionType: 'migrate', targetType: 'system_settings', targetId: 'growthRecords', title: 'نسخ الموافقات وحركات الولاء إلى السجلات المحمية', details: 'موافقات ' + a.ok + '/' + a.total + ' · ولاء ' + b.ok + '/' + b.total + ((a.fail || b.fail) ? ' · تعذّر ' + (a.fail + b.fail) + ' (' + (a.lastErr || b.lastErr) + ')' : '') });
+    const bad = new Set(((rep && rep.mmBad) || []).map(x => x.id)); const mmMiss = ((rep && rep.mm && rep.mm.missing) || []).filter(x => !bad.has(x.id));   // المخالف لا يُنسخ أبدًا
+    if (!isAdm || !on || !rep) return; const n = rep.mc.missing.length + rep.ly.missing.length + mmMiss.length; if (!n) return say('لا ناقص', 'ok');
+    if (!window.confirm('نسخ ' + rep.mc.missing.length + ' موافقة و' + rep.ly.missing.length + ' حركة ولاء' + (mmMiss.length ? ' و' + mmMiss.length + ' سجل دمج' : '') + ' إلى السجلات المحمية؟ (لا يُحذف ولا يتغير شيء في المصدر)')) return;
+    setBusy('seed'); const a0 = await grrSeed('mkc', rep.mc.missing, (i, t) => setBusy('موافقات ' + i + '/' + t)); const b0 = await grrSeed('lyt', rep.ly.missing, (i, t) => setBusy('ولاء ' + i + '/' + t));
+    const m = mmMiss.length ? await mkmSeed(mmMiss, (i, t) => setBusy('دمج ' + i + '/' + t)) : { ok: 0, fail: 0, total: 0 }; setBusy('');
+    if (a0.err || b0.err || m.err) return say(a0.err || b0.err || m.err, 'no');
+    const a = { ...a0, ok: a0.ok + m.ok, fail: a0.fail + m.fail, lastErr: a0.lastErr || m.lastErr }, b = b0;
+    await logAudit({ actionType: 'migrate', targetType: 'system_settings', targetId: 'growthRecords', title: 'نسخ الموافقات وحركات الولاء إلى السجلات المحمية', details: 'موافقات ' + a0.ok + '/' + a0.total + ' · ولاء ' + b.ok + '/' + b.total + (m.total ? ' · دمج ' + m.ok + '/' + m.total : '') + ((a.fail || b.fail) ? ' · تعذّر ' + (a.fail + b.fail) + ' (' + (a.lastErr || b.lastErr) + ')' : '') });
     say((a.fail || b.fail) ? 'نُسخ ' + (a.ok + b.ok) + ' وتعذّر ' + (a.fail + b.fail) : 'نُسخ ' + (a.ok + b.ok) + ' سجلًا ✓', (a.fail || b.fail) ? 'no' : 'ok'); check();
   };
   const st = grrState(); const line = (t, r) => r && <div className="me-row"><span className="me-a"><b>{t}</b><small>في المصدر {r.total} · في السجلات {r.recs} · ناقص {r.missing.length} · مختلف {r.differ.length} · زائد {r.extra.length}</small></span><span className={'badge ' + (r.ok ? 'b-mint' : 'b-amber')}>{r.ok ? 'مطابق' : 'غير مطابق'}</span></div>;
@@ -794,8 +798,9 @@ function GrowthRecordsCard({ org, ops, commitOrg, say, isAdm }) {
       <span className={'badge ' + (on ? 'b-sky' : 'b-dim')}>{on ? 'النسخ مفعّل' : 'غير مفعّل'}</span></div>
     <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
       كل موافقة أو إلغاء اشتراك وكل حركة نقاط تُنسخ إلى سجل يحرسه الخادم: <b>يُضاف ولا يُعدَّل ولا يُحذف</b>، والكاتب والوقت من الخادم. المصدر يبقى كما هو في هذه المرحلة.
+      {mkmOn(org) && <div data-grr-mkm>ومع ضوابط التسويق تُنسخ سجلات دمج ملفات العملاء أيضًا: يرفض الخادم تسجيل اعتماد صاحب طلب التراجع أو رفضه بنفسه، والتراجع بلا طلب عن دمج نقل نقاطًا — فتظهر المخالفة في المطابقة. المنع الفعلي للعملية نفسها عند نقل المصدر إلى الخادم (مرحلة لاحقة).</div>}
       {on && st.at ? <div>منذ فتح الصفحة: نُسخ {st.ok}{st.fail ? ' · تعذّر ' + st.fail + ' (' + st.lastErr + ')' : ''}</div> : null}</div>
-    {rep && <div data-grr-rep>{line('الموافقات التسويقية', rep.mc)}{line('حركات الولاء', rep.ly)}</div>}
+    {rep && <div data-grr-rep>{line('الموافقات التسويقية', rep.mc)}{line('حركات الولاء', rep.ly)}{rep.mm && line('دمج ملفات العملاء', rep.mm)}{rep.mmBad && rep.mmBad.length > 0 && <div className="me-row" data-grr-mkmbad><span className="me-a"><b>مخالف لفصل المهام في المصدر</b><small>{rep.mmBad.length} سجل (اعتماد أو رفض بيد صاحب الطلب، أو تراجع بلا طلب عن دمج نقل نقاطًا) — لا يُنسخ، ويستحق المراجعة</small></span><span className="badge b-rose">مخالف</span></div>}</div>}
     <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
       {isAdm && <button className={'btn sm ' + (on ? 'gh' : 'pri')} onClick={toggle} data-grr-toggle>{on ? 'إيقاف' : 'تفعيل'}</button>}
       <button className="btn sm gh" disabled={!!busy} onClick={check} data-grr-check>{busy === 'check' ? 'جارٍ…' : 'مطابقة'}</button>
