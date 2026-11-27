@@ -2329,15 +2329,17 @@ function dsHandCheck(org, x, cashAt, td) {
   return ''; }
 /* v56.45 (الدفعة 11 — T7، إجابة المالك: مدفوعات الموردين والضريبة والرواتب التي صُرفت بأوامر صرف سُجّلت أيضًا في شاشاتها) — قراءة فقط:
    لكل أمر مرحّل على 5901 من البنود الثلاثة: المطابقات المحتملة في شاشتها (قيد يُنقص الالتزام نفسه بالمبلغ نفسه ±1 ر.س خلال ±31 يومًا).
-   التصحيح قيد يدوي بانتظار الاعتماد (x.dsDup) يعتمده غير منشئه — المالك قيدًا قيدًا. لا يُعدَّل قيد سابق ولا يُفتح شهر مقفل. */
+   التصحيح قيد يدوي بانتظار الاعتماد (x.dsDup) يعتمده غير منشئه — المالك قيدًا قيدًا. القيد الواحد قد يطابق أكثر من أمر — المراجعة بشرية.
+   (قرار المجلس) تاريخ التسليم قد يسبق تاريخ الأمر — النقد يُسلَّم قبل إصدار الأمر أحيانًا، والقيد بتاريخ التسليم الفعلي (الاستحقاق). لا يُعدَّل قيد سابق ولا يُفتح شهر مقفل. */
 const DS_DUP_LIAB = { 'سداد موردين': '2101', 'ضريبة القيمة المضافة': '2302', 'صرف رواتب': '2201' };
 function dsDupScan(A, ops, org) {
   const dd = (a, b) => Math.abs((Date.parse(a) - Date.parse(b)) / 864e5);
   const fixed = {}; (ops.journalManual || []).forEach(j => { if (j && j.dsDup && j.status !== 'rejected' && j.status !== 'withdrawn') fixed[j.dsDup] = j; });
-  const E = ((A && A.entries) || []).filter(e => !/^(dis|dsp|dsr):/.test(String(e.id)));
+  const E = ((A && A.entries) || []).filter(e => !/^(dis|dsp|dsr|sal-set):/.test(String(e.id)));   // (التحقق المستقل) تسوية السلف والخصوم ليست سدادًا
   return (ops.disbursements || []).filter(x => x && dsLive(x) && DS_DUP_LIAB[x.category] && x.amount > 0 && dsAccOf(org, x, null) === '5901')
     .map(x => { const liab = DS_DUP_LIAB[x.category], d = dsPostDate(org, x);
-      const m = E.filter(e => dd(e.date, d) <= 31 && (e.lines || []).some(l => String(l.code) === liab && Math.abs((Number(l.debit) || 0) - x.amount) <= 1)).map(e => ({ id: e.id, date: e.date, title: e.title }));
+      const m = E.filter(e => dd(e.date, d) <= 31 && (e.lines || []).some(l => String(l.code) === liab && Math.abs((Number(l.debit) || 0) - x.amount) < 0.005))
+        .map(e => ({ id: e.id, date: e.date, title: e.title, cr: [...new Set((e.lines || []).filter(l => (Number(l.credit) || 0) > 0).map(l => String(l.code)))] }));   // المبلغ نفسه بالهللة؛ cr: حساب النقد الذي خُصم في الشاشة
       return { x, liab, date: d, fund: dsFundOf(org, x, null), matches: m, fix: fixed[x.id] || null }; })
     .sort((a, b) => a.date.localeCompare(b.date) || String(a.x.id).localeCompare(String(b.x.id))); }
 const dsBlockReason = (org, rec) => (rec && dsRouteAt(org, rec.date) && DS_BLOCKED[rec.category]) ? 'لا يُصرف «' + rec.category + '» من أوامر الصرف — استخدم: ' + DS_BLOCKED[rec.category] : '';
@@ -2525,7 +2527,7 @@ function buildAccounting(org, ops) {
   addAcc('1399', 'ذمم تطبيقات أخرى (غير معرّفة)', 'asset');
   addAcc('1380', 'ذمم العملاء — مبيعات آجلة', 'asset', { link: 'سجل فواتير المبيعات' });
   addAcc('1401', 'سلف الموظفين وعُهدهم', 'asset', { link: 'الرواتب والسلف' });
-  if (dsPreRanges(org).length || (ops.disbursements || []).some(x => x && x.cashAt)) addAcc(DS_PRE_ACC, 'مبالغ صُرفت بانتظار اعتماد أمر الصرف', 'asset', { link: 'أوامر الصرف — النقد المسلَّم قبل الاعتماد' });   // v56.45 T1
+  if (dsPreRanges(org).length) addAcc(DS_PRE_ACC, 'مبالغ صُرفت بانتظار اعتماد أمر الصرف', 'asset', { link: 'أوامر الصرف — النقد المسلَّم قبل الاعتماد' });   // v56.45 T1
   addAcc('1501', 'ضريبة القيمة المضافة — مدخلات', 'asset', { link: 'مدخلات الفترة الجارية — تُقفل في 2302 مع الإقرار' });
   addAcc('1601', 'المخزون — بضاعة آخر المدة', 'asset', { link: 'رسملة المخزون — من شاشة المخزون' });
   // v30.5 — الجرد المستمر (org.purchaseCfg.perpetualFrom = 'YYYY-MM'): حسابات تكلفة الاستهلاك والهدر والفروقات
@@ -9846,7 +9848,7 @@ function DisbursementForm({ org, me, balance, commit, say, onClose }) {
     const bank = route && f.method !== 'cash' ? String(f.fundAcc || '1201') : '';   // v56.31 T3
     if (bank && !dsBankOk(org, bank)) return say('البنك المختار غير معرّف — اختر البنك التجميعي أو بنك فرع', 'no');
     const hand = !!f.handed && route && !direct && dsPreOpen(org);   // v56.45 T1
-    if (hand) { const why = dsHandCheck(org, { ...f, date: f.date || today(), status: 'pending' }, f.cashAt || today(), today()); if (why) return say(why, 'no');
+    if (hand) { const why = dsHandCheck(org, { ...f, cashAt: undefined, date: f.date || today(), status: 'pending' }, f.cashAt || today(), today());   // (التحقق المستقل) الأمر الجديد بلا تسليم سابق if (why) return say(why, 'no');
       if (f.method === 'cash' && f.amount > balance) return say('المبلغ يتجاوز رصيد الخزينة المتاح', 'no'); }
     const { handed: _h, cashAt: _c, ...f0 } = f;
     const rec = { ...f0, ...(hand ? { cashAt: f.cashAt || today(), cashBy: me.name, cashById: me.id || '', cashRecAt: nowISO() } : {}), id: uid('ds'), by: me.name, byId: me.id || '', createdAt: nowISO(), ...(mAcc ? { acc: mAcc } : {}), ...(bank ? { fundAcc: bank } : { fundAcc: undefined }),

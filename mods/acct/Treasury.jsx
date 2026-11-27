@@ -46,6 +46,7 @@ export function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
     const hd = dsHanded(org, x);   // v56.45: سُلِّم نقده قبل الاعتماد ⇒ المصروف بتاريخ التسليم إن كان شهره مفتوحًا، والرصيد لا يُفحص (خرج فعلًا)
     const td0 = hd && !periodLocked(org, x.cashAt) ? x.cashAt : today();   // v56.31 T1: القيد بتاريخ الاعتماد
     if (ok && periodLocked(org, td0)) return say(LOCK_MSG(td0), 'no');
+    if (ok && x.cashAt && (x.cashById ? x.cashById === me.id : x.cashBy === me.name)) return say('من سجّل تسليم النقد لا يعتمد الأمر نفسه — يعتمده غيره (فصل المهام)', 'no');   // (التحقق المستقل) قرار المجلس
     if (withdraw && hd) return say('سُلِّم نقد هذا الأمر — لا يُسحب؛ يعتمده غير منشئه أو يرفضه ثم يُسجَّل الاسترداد', 'no');
     if (ok && !hd && dsCashOut(org, x) && x.amount > balance - (pendCash - x.amount) + 0.004) return say('المبلغ يتجاوز رصيد الخزينة المتاح (بعد حجز الأوامر المعلّقة)', 'no');
     const r = ok || withdraw ? null : window.prompt('سبب الرفض:', ''); if (!ok && !withdraw && r === null) return;
@@ -204,7 +205,7 @@ export function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
                       {x.status === 'pending' && <div className="row" style={{ gap: 4, marginTop: 4 }} data-ds-pending><span className="badge b-amber">بانتظار الاعتماد</span>
                         {x.cashAt && <span className="badge b-rose" data-ds-handed title={'سجّله ' + (x.cashBy || '')}>سُلِّم النقد {x.cashAt}</span>}
                         {!x.cashAt && dsPreOpen(org) && canReceive && <button className="btn sm gh" data-ds-hand onClick={() => handDs(x)}>سُلِّم النقد</button>}
-                        {canApproveJe(me, x) && <><button className="btn sm" data-ds-ok onClick={() => decideDs(x, true)}><Check size={12} />اعتماد</button><button className="btn sm gh" data-ds-no onClick={() => decideDs(x, false)}><X size={12} />رفض</button></>}
+                        {canApproveJe(me, x) && !(x.cashAt && (x.cashById ? x.cashById === me.id : x.cashBy === me.name)) && <><button className="btn sm" data-ds-ok onClick={() => decideDs(x, true)}><Check size={12} />اعتماد</button><button className="btn sm gh" data-ds-no onClick={() => decideDs(x, false)}><X size={12} />رفض</button></>}
                         {(x.byId ? x.byId === me.id : x.by === me.name) && <button className="btn sm gh" data-ds-wd onClick={() => decideDs(x, false, true)}>سحب</button>}</div>}
                       {x.status === 'withdrawn' && <div><span className="badge b-dim">مسحوب</span></div>}
                       {x.selfPosted && <div><span className="badge b-sky" data-ds-self>رحّله المالك بنفسه</span></div>}

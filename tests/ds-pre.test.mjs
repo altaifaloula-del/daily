@@ -73,3 +73,14 @@ test('T7: مراجعة التكرار — مطابقة بالمبلغ والال
   const ops3 = { ...ops, journalManual: [...ops.journalManual, { id: 'j3', status: 'rejected', dsDup: 'v', lines: [] }] };
   assert.equal(E.dsDupScan(E.buildAccounting(o, ops3), ops3, o).find(r => r.x.id === 'v').fix, null, 'المرفوض لا يُعد تصحيحًا');
 });
+
+test('T7 (التحقق المستقل): المبلغ نفسه بالهللة، وتسوية السلف ليست سدادًا، والمطابقة تحمل حساب النقد في الشاشة؛ و1402 لا يظهر بلا تفعيل', () => {
+  const o = { ...base };
+  const ops = { disbursements: [ds('v', '2026-10-20', 'ضريبة القيمة المضافة', 700), ds('w', '2026-10-20', 'ضريبة القيمة المضافة', 1000)],
+    journalManual: [{ id: 'j1', date: '2026-10-25', status: 'posted', title: 'سداد', lines: [{ code: '2302', debit: 700, credit: 0 }, { code: '1201', debit: 0, credit: 700 }] },
+      { id: 'j2', date: '2026-10-26', status: 'posted', title: 'سداد', lines: [{ code: '2302', debit: 1000.9, credit: 0 }, { code: '1201', debit: 0, credit: 1000.9 }] }] };
+  const R = E.dsDupScan(E.buildAccounting(o, ops), ops, o);
+  assert.deepEqual(R.find(r => r.x.id === 'v').matches.map(m => m.cr), [['1201']]);
+  assert.equal(R.find(r => r.x.id === 'w').matches.length, 0, 'فرق 0.90 ليس المبلغ نفسه');
+  assert.ok(!E.buildAccounting({ ...base, dsRoute: org.dsRoute }, { disbursements: [ds('a', '2026-12-02', 'صيانة وتشغيل', 1, { status: 'pending', cashAt: '2026-12-02' })] }).accounts.some(a => a.code === '1402'));
+});

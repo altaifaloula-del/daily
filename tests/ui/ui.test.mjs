@@ -4246,6 +4246,9 @@ test('v56.45 الدفعة 11 (T1/T7): تسجيل تسليم النقد قبل ا
   p.removeAllListeners('dialog'); p.on('dialog', d => d.accept(d.type() === 'prompt' ? td : undefined).catch(() => {}));
   await p.click('[data-ds-hand]'); await p.waitForFunction((td) => (window.cur.disbursements.find(x => x.id === 'dh1') || {}).cashAt === td, td);
   assert.equal(await p.locator('[data-ds-handed]').count(), 1);
+  assert.equal(await p.locator('[data-ds-ok]').count(), 0, 'من سجّل التسليم لا يعتمد (فصل المهام)');
+  await p.evaluate(() => window.setOps(o => ({ ...o, disbursements: o.disbursements.map(x => x.id === 'dh1' ? { ...x, cashBy: 'أمين الخزينة', cashById: 'treasurer-x' } : x) })));
+  await p.waitForSelector('[data-ds-ok]');
   await p.click('[data-ds-ok]'); await p.waitForFunction(() => (window.cur.disbursements.find(x => x.id === 'dh1') || {}).status === 'posted');
   const x = await p.evaluate(() => window.cur.disbursements.find(x => x.id === 'dh1'));
   assert.equal(x.lateAppr, true); assert.equal(x.postDate, td);
@@ -4262,7 +4265,7 @@ test('v56.45 الدفعة 11 (T1/T7): تسجيل تسليم النقد قبل ا
     assert.equal(await p.evaluate(() => ((window.curOrg.dsPre || {}).ranges || []).length), 0, 'لا يُفعَّل قبل ضوابط أوامر الصرف');
     assert.equal(await p.locator('[data-dsmap-raw]').count(), 1);
     await p.click('[data-dsdup-open]'); await p.waitForSelector('[data-dsdup-row="old1"]');
-    await p.selectOption('[data-dsdup-row="old1"] [data-dsdup-cr]', '5901'); await p.click('[data-dsdup-row="old1"] [data-dsdup-fix]');
+    await p.selectOption('[data-dsdup-row="old1"] [data-dsdup-dr]', '1101'); await p.selectOption('[data-dsdup-row="old1"] [data-dsdup-cr]', '5901'); await p.click('[data-dsdup-row="old1"] [data-dsdup-fix]');
     await p.waitForFunction(() => (window.cur.journalManual || []).some(j => j.dsDup === 'old1'));
     const j = await p.evaluate(() => window.cur.journalManual.find(j => j.dsDup === 'old1'));
     assert.deepEqual(j.lines.map(l => l.code + ':' + l.debit + '/' + l.credit), ['1101:1000/0', '5901:0/1000']);

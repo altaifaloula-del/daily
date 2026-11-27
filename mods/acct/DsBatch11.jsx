@@ -2,6 +2,7 @@
    وT7 مراجعة أوامر الصرف الماضية المكررة مع شاشاتها (قراءة + قيد تصحيح بانتظار الاعتماد). */
 import React, { useState, useMemo } from 'react';
 import { ShieldCheck, AlertTriangle } from 'lucide-react';
+import { jeOwner } from '../../App.jsx';
 import { dsPreRanges, dsPreOpen, dsRouteOpen, dsDupScan, buildAccounting, fpLockedTo, jeAutoSt, money, nowISO, today, uid, periodLocked, LOCK_MSG } from '../../App.jsx';
 
 export function DsPreCard({ org, commitOrg, say, isAdm }) {
@@ -45,12 +46,15 @@ export function DsDupCard({ org, ops, me, commit, say, canPost }) {
   const cashAccs = useMemo(() => A ? A.accounts.filter(a => a.cash || /^12/.test(String(a.code))).map(a => ({ code: String(a.code), name: a.name })) : [], [A]);
   const n = (ops.disbursements || []).filter(x => ['سداد موردين', 'ضريبة القيمة المضافة', 'صرف رواتب'].includes(x.category)).length;
   if (!n) return null;
+  // (التحقق المستقل) المدين المقترح = حساب النقد الدائن في القيد المطابَق إن كان واحدًا (الشاشة سجّلت الدفع عليه)، وإلا اختيار صريح
+  const drSug = (r) => { const s = [...new Set(r.matches.flatMap(m => m.cr || []))]; return r.matches.length === 1 && s.length === 1 ? s[0] : ''; };
   const fix = async (r) => {
-    const p = pick[r.x.id] || {}; const dr = p.dr || r.fund, cr = p.cr;
+    const p = pick[r.x.id] || {}; const dr = p.dr || drSug(r), cr = p.cr;
+    if (!dr) return say('اختر الطرف المدين: حساب النقد الذي خُصم مرتين (الأمر أو الشاشة) — راجع كشف البنك أو جرد الخزينة', 'no');
     if (!canPost) return say('ينشئ قيد التصحيح المحاسب أو الإدارة المالية', 'no');
     if (!cr) return say('اختر الطرف الدائن: 5901 (تصحيح في الفترة الجارية) أو 3201 (الأرباح المبقاة إن كان جوهريًا لسنة سابقة) — قرار المختص', 'no');
     const dt = today(); if (periodLocked(org, dt)) return say(LOCK_MSG(dt), 'no');
-    if (!window.confirm('إنشاء قيد تصحيح «بانتظار الاعتماد»: مدين ' + dr + ' / دائن ' + cr + ' بمبلغ ' + money(r.x.amount) + '؟\nلا أثر له قبل أن يعتمده غير منشئه (المالك).')) return;
+    if (!window.confirm((r.matches.length ? '' : 'لا مطابقة آلية لهذا الأمر — تأكد يدويًا من تكراره.\n') + (jeOwner(me) ? 'إنشاء قيد التصحيح وترحيله باعتمادك' : 'إنشاء قيد تصحيح «بانتظار الاعتماد»') + ': مدين ' + dr + ' / دائن ' + cr + ' بمبلغ ' + money(r.x.amount) + '؟' + (jeOwner(me) ? '' : '\nلا أثر له قبل أن يعتمده غير منشئه (المالك).') + (cr === '3201' ? '\nدائن 3201 لا يعيد عرض أرقام المقارنة — يوثّقه المختص.' : ''))) return;
     const rec = { id: uid('jm'), date: dt, title: 'تصحيح تكرار أمر صرف «' + r.x.category + '» ' + (r.x.reference || r.x.id) + ' بتاريخ ' + r.date + ' (سُجّل أيضًا في شاشته)', opening: false,
       by: me.name, createdAt: nowISO(), ...jeAutoSt(me), src: 'ds-dup', dsDup: r.x.id, lines: [{ code: dr, debit: r.x.amount, credit: 0 }, { code: cr, debit: 0, credit: r.x.amount }] };
     let dup = false;
@@ -64,7 +68,7 @@ export function DsDupCard({ org, ops, me, commit, say, canPost }) {
       <button className="btn sm" data-dsdup-open onClick={() => setOpen(v => !v)}>{open ? 'إخفاء' : 'فحص'}</button></div>
     <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9 }}>
       بإجابتك: سداد الموردين والضريبة والرواتب التي صُرفت بأوامر صرف سُجّلت أيضًا في شاشاتها — فالمصروف 5901 مضخَّم والنقد مخصوم مرتين.
-      الفحص يعرض لكل أمر المطابقات المحتملة (نفس المبلغ ±1 ر.س خلال 31 يومًا). راجع كل سطر؛ التصحيح قيد بانتظار الاعتماد يعتمده المالك قيدًا قيدًا، ولا يُعدَّل قيد سابق ولا يُفتح شهر مقفل.</div>
+      الفحص يعرض لكل أمر المطابقات المحتملة (المبلغ نفسه خلال 31 يومًا — قد يطابق قيد واحد أكثر من أمر). المدين المقترح حساب النقد في القيد المطابَق، وبلا مطابقة واحدة يُختار صراحةً. راجع كل سطر؛ التصحيح قيد بانتظار الاعتماد يعتمده المالك قيدًا قيدًا، ولا يُعدَّل قيد سابق ولا يُفتح شهر مقفل.</div>
     {open && <div style={{ marginTop: 8 }}>
       {!rows.length && <div className="empty">لا أوامر مرحّلة على 5901 لهذه البنود.</div>}
       {rows.map(r => <div key={r.x.id} className="me-row" data-dsdup-row={r.x.id} style={{ flexWrap: 'wrap', gap: 6 }}>
@@ -72,8 +76,8 @@ export function DsDupCard({ org, ops, me, commit, say, canPost }) {
           <small data-dsdup-m>{r.matches.length ? 'مطابقة محتملة: ' + r.matches.map(m => m.date + ' ' + m.title).join(' | ') : 'لا مطابقة آلية — راجع يدويًا'}</small></span>
         {r.fix ? <span className={'badge ' + (r.fix.status === 'pending' ? 'b-amber' : 'b-mint')} data-dsdup-fixed>{r.fix.status === 'pending' ? 'قيد تصحيح بانتظار الاعتماد' : 'صُحِّح'}</span>
           : canPost && <span className="row" style={{ gap: 4, flexWrap: 'wrap' }}>
-            <select className="sel" aria-label="الطرف المدين" value={(pick[r.x.id] || {}).dr || r.fund} onChange={e => setPick(p => ({ ...p, [r.x.id]: { ...(p[r.x.id] || {}), dr: e.target.value } }))}>
-              {cashAccs.map(a => <option key={a.code} value={a.code}>مدين {a.code} — {a.name}</option>)}</select>
+            <select className="sel" aria-label="الطرف المدين" data-dsdup-dr value={(pick[r.x.id] || {}).dr || drSug(r)} onChange={e => setPick(p => ({ ...p, [r.x.id]: { ...(p[r.x.id] || {}), dr: e.target.value } }))}>
+              <option value="">— المدين —</option>{cashAccs.map(a => <option key={a.code} value={a.code}>مدين {a.code} — {a.name}</option>)}</select>
             <select className="sel" aria-label="الطرف الدائن" data-dsdup-cr value={(pick[r.x.id] || {}).cr || ''} onChange={e => setPick(p => ({ ...p, [r.x.id]: { ...(p[r.x.id] || {}), cr: e.target.value } }))}>
               <option value="">— الدائن —</option><option value="5901">دائن 5901 (الفترة الجارية)</option><option value="3201">دائن 3201 (الأرباح المبقاة)</option></select>
             <button className="btn sm" data-dsdup-fix onClick={() => fix(r)}>إنشاء قيد تصحيح</button></span>}
