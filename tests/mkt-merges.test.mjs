@@ -53,10 +53,25 @@ test('MKM v56.39: مصدر الدمج على الخادم — بلا تفعيل 
   const on = { growthRecords: { on: true }, mktCtl: { on: true } };
   assert.equal(E.mkmSrcOn(on), false); assert.equal(E.mkmSrcOn({ mkmSrc: { on: true } }), false, 'يلزم نسخ السجلات وضوابط التسويق');
   assert.equal(E.mkmSrcOn({ ...on, mkmSrc: { on: true } }), true);
-  const ops = { mktMerges: [{ id: 'mg-1', from: '1', to: '2', pts: 5, at: '1' }, { id: 'mg-x', from: '3', to: '4', pts: 9, at: '2' }, { id: 'mg-r', undoReq: 'mg-1', at: '3' }, { id: 'mg-f', undoOf: 'mg-1', at: '4' }] };
+  const ops = { mktMerges: [{ id: 'mg-1', from: '500000001', to: '500000002', pts: 5, at: '1' }, { id: 'mg-x', from: '500000003', to: '500000004', pts: 9, at: '2' }, { id: 'mg-r', undoReq: 'mg-1', at: '3' }, { id: 'mg-f', undoOf: 'mg-1', at: '4' }] };
   E.mkmSrvSet(null); assert.equal(E.mkmEff(ops).length, 4, 'بلا تحميل كما كان'); assert.deepEqual(E.mktMergesLive(ops).map(x => x.id), ['mg-x'], 'التراجع المزوّر يسري بلا الخادم');
-  E.mkmSrvSet(['mg-1', 'mg-r']);
+  E.mkmSrvSet([{ id: 'mg-1', kind: 'merge', ref: 'mg-1', from: '500000001', to: '500000002', pts: 5 }, { id: 'mg-r', kind: 'undoReq', ref: 'mg-1' }]);
   assert.deepEqual(E.mktMergesLive(ops).map(x => x.id), ['mg-1'], 'الدمج المكتوب مباشرةً والتراجع بلا سجل محمي لا أثر لهما');
   assert.deepEqual(E.mktUndoPending(ops).map(x => x.id), ['mg-r'], 'الطلب قائم لأن التراجع بلا سجل محمي لا يُغلقه');
+  E.mkmSrvSet(null);
+});
+
+test('MKM v56.39 (مراجعة الأمن): المطابقة بالمحتوى لا بالمعرّف — سجل مزوّر بمعرّف حقيقي لا أثر له', () => {
+  const g = { id: 'mg-1', from: '500000001', to: '500000002', pts: 5, at: '1' };
+  // (أ) في الخادم «طلب» بالمعرّف Z، وفي المصدر «تراجع» بالمعرّف نفسه
+  E.mkmSrvSet([{ id: 'mg-1', kind: 'merge', ref: 'mg-1', from: '500000001', to: '500000002', pts: 5 }, { id: 'mg-z', kind: 'undoReq', ref: 'mg-1' }]);
+  assert.deepEqual(E.mktMergesLive({ mktMerges: [g, { id: 'mg-z', undoOf: 'mg-1', at: '2' }] }).map(x => x.id), ['mg-1'], 'الدمج باقٍ');
+  // (ب) دمج في الخادم بنقاط 0 ومقابله في المصدر بنقاط 5
+  E.mkmSrvSet([{ id: 'mg-1', kind: 'merge', ref: 'mg-1', from: '500000001', to: '500000002', pts: 0 }]);
+  assert.deepEqual(E.mktMergesLive({ mktMerges: [g] }), [], 'نقاط مختلفة ⇒ لا يُعتدّ به');
+  // (ج) تراجع بطلب آخر
+  E.mkmSrvSet([{ id: 'mg-1', kind: 'merge', ref: 'mg-1', from: '500000001', to: '500000002', pts: 5 }, { id: 'mg-1-u', kind: 'undo', ref: 'mg-1', reqId: 'mg-q' }]);
+  assert.deepEqual(E.mktMergesLive({ mktMerges: [g, { id: 'mg-1-u', undoOf: 'mg-1', reqId: 'mg-other', at: '3' }] }).map(x => x.id), ['mg-1'], 'رقم طلب مختلف');
+  assert.deepEqual(E.mktMergesLive({ mktMerges: [g, { id: 'mg-1-u', undoOf: 'mg-1', reqId: 'mg-q', at: '3' }] }), [], 'المطابق يسري');
   E.mkmSrvSet(null);
 });
