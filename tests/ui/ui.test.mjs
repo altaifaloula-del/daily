@@ -4478,3 +4478,105 @@ test('v56.51 المقترحات الضريبية: تحويل المبسّطة إ
     assert.equal(await p.evaluate(() => window.curOrg.badDebtVat.ok), false, 'لا يؤكَّد إلا بوسم صريح');
     assert.deepEqual(errs, []); await ctx.close(); }
 });
+
+test('v56.52 المطعم: بلا تفعيل لا شيء جديد؛ ومع التفعيل الأشخاص والنادل والمحطات و«مستعجل» والدمج والتقسيم بالأصناف ودفع الأجزاء والتقارير', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/PosApp/bm');
+  const prods = [{ id: 'k', name: 'كبسة', sellPrice: 57.5, cat: 'رئيسي' }, { id: 'h', name: 'حمص', sellPrice: 18.4, cat: 'مقبلات' }, { id: 't', name: 'شاي', sellPrice: 4.6, cat: 'مشروبات' }];
+  await p.evaluate((prods) => { window.setOrg(g => ({ ...g, taxCfg: { enabled: true, rate: 15 }, posCfg: { branches: ['b1'], tables: { b1: 4 }, kds: true, autoPrint: false }, products: prods }));
+    window.setOps(o => ({ ...o, posTabs: [], kdsTickets: [], posOrders: [] })); }, prods); await p.waitForTimeout(400);
+  const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); }
+  const tile = (n) => p.locator('.pos-tile:has-text("' + n + '")').click();
+  // ١) بلا تفعيل: لا حقول ولا أزرار جديدة، والتذكرة والحساب بالشكل القديم
+  await p.click('.pos-seg button:has-text("محلي")'); await p.selectOption('select[aria-label="الطاولة"]', '1');
+  await tile('كبسة');
+  assert.deepEqual(await p.evaluate(() => ['input[aria-label="عدد الأشخاص"]', 'select[aria-label="النادل"]', '[data-rush]'].map(s => document.querySelectorAll(s).length)), [0, 0, 0]);
+  await p.click('button:has-text("إرسال للمطبخ")'); await p.waitForTimeout(300);
+  assert.deepEqual(await p.evaluate(() => [Object.keys(window.cur.posTabs[0]).sort().join(), Object.keys(window.cur.kdsTickets[0]).sort().join()]),
+    ['branchId,id,openedAt,openedBy,rounds,status,table', 'at,branchId,by,channel,id,lines,ref,src,status,table']);
+  await p.click('.pos-tabs button:has-text("الطاولات")'); await p.waitForTimeout(200); await p.click('[aria-label="طاولة 1"]'); await p.waitForTimeout(150);
+  assert.deepEqual(await p.evaluate(() => ['[data-tabmeta]', 'select[aria-label="دمج طاولة"]', '[data-splitbtn]'].map(s => document.querySelectorAll(s).length)), [0, 0, 0]);
+  await p.keyboard.press('Escape'); await p.waitForTimeout(100);
+  assert.equal(await p.locator('select[aria-label="المزيد"] option[value="rest"]').count(), 0, 'لا تقارير مطعم');
+  await p.click('.pos-tabs button:has-text("المطبخ")'); await p.waitForTimeout(150); assert.equal(await p.locator('[data-kdsst]').count(), 0);
+  // ٢) التفعيل (مسؤول النظام من الإعدادات — هنا مباشرة على الإعداد)
+  await p.evaluate(() => { window.setOrg(g => ({ ...g, posCfg: { ...g.posCfg, rest: { covers: true, waiters: true, merge: true, split: true, stations: true, rush: true, prepRpt: true, prepTarget: 10 },
+    stations: { b1: [{ id: 'g', name: 'شواية', cats: ['رئيسي'] }, { id: 'd', name: 'المشروبات والباردة', cats: ['مشروبات', 'مقبلات'] }] } } }));
+    window.setOps(o => ({ ...o, posTabs: [], kdsTickets: [], posOrders: [] })); }); await p.waitForTimeout(300);
+  await p.click('.pos-tabs button:has-text("البيع")'); await p.waitForTimeout(150);
+  await p.click('.pos-seg button:has-text("محلي")'); await p.selectOption('select[aria-label="الطاولة"]', '2');
+  await p.fill('input[aria-label="عدد الأشخاص"]', '3'); await p.selectOption('select[aria-label="النادل"]', 'e1');
+  await tile('كبسة'); await tile('كبسة'); await tile('شاي'); await p.check('[data-rush] input');
+  await p.click('button:has-text("إرسال للمطبخ")'); await p.waitForTimeout(300);
+  await p.selectOption('select[aria-label="الطاولة"]', '3'); await p.fill('input[aria-label="عدد الأشخاص"]', '2');
+  await tile('حمص'); await tile('حمص'); await tile('حمص'); await p.click('button:has-text("إرسال للمطبخ")'); await p.waitForTimeout(300);
+  let r = await p.evaluate(() => ({ tabs: window.cur.posTabs.map(t => [t.table, t.covers || 0, t.waiterName || '']).sort(), k: window.cur.kdsTickets.map(k => [k.table, k.stationName, k.lines.map(l => l.name + l.qty).join(), !!k.rush]) }));
+  assert.deepEqual(r, { tabs: [['2', 3, 'أحمد علي'], ['3', 2, '']], k: [['2', 'شواية', 'كبسة2', true], ['2', 'المشروبات والباردة', 'شاي1', true], ['3', 'المشروبات والباردة', 'حمص3', false]] });
+  // الدمج: الطاولة 3 في 2 — التذاكر المرسلة كما هي
+  await p.click('.pos-tabs button:has-text("الطاولات")'); await p.waitForTimeout(200); await p.click('[aria-label="طاولة 2"]'); await p.waitForTimeout(150);
+  await p.selectOption('select[aria-label="دمج طاولة"]', '3'); await p.waitForTimeout(350);
+  r = await p.evaluate(() => window.cur.posTabs.map(t => [t.table, t.status, t.covers || 0, (t.mergeLog || []).length]).sort());
+  assert.deepEqual(r, [['2', 'open', 5, 1], ['3', 'merged', 2, 0]]);
+  assert.equal(await p.evaluate(() => window.cur.kdsTickets.length), 3, 'تذاكر المطبخ تبقى');
+  assert.match(await p.locator('[data-mergelog]').innerText(), /دُمجت الطاولة 3/);
+  // التقسيم بالأصناف: (كبسة×2 + شاي) | (حمص×3)
+  await p.click('[data-splitbtn]'); await p.waitForSelector('[data-splited]');
+  await p.fill('input[aria-label="جزء 1 حمص"]', '0'); await p.fill('input[aria-label="جزء 2 حمص"]', '3');
+  assert.deepEqual(await p.locator('[data-parttotal]').allInnerTexts(), ['119.60', '55.20']);
+  await p.fill('input[aria-label="جزء 2 حمص"]', '2'); assert.match(await p.locator('[data-spliterr]').innerText(), /وزّع كل كمية «حمص» \(3\)/);
+  assert.equal(await p.locator('[data-splitsave]').isDisabled(), true);
+  await p.fill('input[aria-label="جزء 2 حمص"]', '3'); await p.click('[data-splitsave]'); await p.waitForTimeout(300);
+  assert.deepEqual(await p.evaluate(() => window.cur.posTabs.find(t => t.table === '2').split.parts.map(x => x.total)), [119.6, 55.2]);
+  const payPart = async (n) => { await p.click('.pos-tabs button:has-text("الطاولات")'); await p.waitForTimeout(200); await p.click('[aria-label="طاولة 2"]'); await p.waitForTimeout(150);
+    await p.click('[data-part="' + n + '"] button'); await p.waitForTimeout(200); assert.match(await p.locator('[data-paypart]').innerText(), new RegExp('الجزء ' + n));
+    await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200); await p.click('.modal button:has-text("تأكيد")'); await p.waitForTimeout(500); };
+  await payPart(1);
+  assert.equal(await p.evaluate(() => window.cur.posTabs.find(t => t.table === '2').status), 'open', 'يبقى مفتوحًا حتى آخر جزء');
+  await payPart(2);
+  r = await p.evaluate(() => ({ o: window.cur.posOrders.map(o => [o.total, o.vat, o.tabPart, o.tabParts, o.waiterId, o.covers || 0, o.lines.map(l => l.name + l.qty).join()]).sort((a, b) => a[2] - b[2]),
+    nos: new Set(window.cur.posOrders.map(o => o.no)).size, hashes: window.cur.posOrders.every(o => o.hash && o.icv), tab: window.cur.posTabs.find(t => t.table === '2').status, k: window.cur.kdsTickets.length }));
+  assert.deepEqual(r, { o: [[119.6, 15.6, 1, 2, 'e1', 5, 'كبسة2,شاي1'], [55.2, 7.2, 2, 2, 'e1', 0, 'حمص3']], nos: 2, hashes: true, tab: 'paid', k: 3 }, '119.60 + 55.20 = 174.80؛ الأشخاص على أول جزء فقط');
+  // شاشة المطبخ: محطة الجهاز و«مستعجل» أولًا
+  await p.click('.pos-tabs button:has-text("المطبخ")'); await p.waitForTimeout(150);
+  assert.equal(await p.locator('[data-kds] .pos-ticket').count(), 3);
+  assert.equal(await p.locator('[data-kds] .pos-kcol').first().locator('.pos-ticket').first().locator('[data-rushtag]').count(), 1, 'المستعجل أولًا');
+  await p.click('[data-kdsst] button:has-text("شواية")'); await p.waitForTimeout(150);
+  assert.deepEqual(await p.locator('[data-kds] .pos-ticket').evaluateAll(els => els.map(e => e.getAttribute('data-ticket'))), ['g']);
+  assert.equal(await p.evaluate(() => JSON.parse(localStorage.getItem('mizan:kdsStation')).b1), 'g', 'تُحفظ على الجهاز');
+  await p.click('[data-kdsst] button:has-text("كل المحطات")'); await p.waitForTimeout(100);
+  // التقارير: النادل، متوسط الفاتورة للشخص (174.80 ÷ 5 = 34.96)، وأوقات التحضير (الهدف 10 د: الشواية 12 د متأخرة)
+  await p.evaluate(() => { window.setOps(o => ({ ...o, kdsTickets: o.kdsTickets.map(k => { const at = Date.parse(k.at); return { ...k, status: 'ready', readyAt: new Date(at + (k.station === 'g' ? 12 : 4) * 60000).toISOString() }; }) })); });
+  await p.selectOption('select[aria-label="المزيد"]', 'rest'); await p.waitForSelector('[data-restrpt]');
+  assert.match(await p.locator('[data-rptwaiters]').innerText(), /أحمد علي[\s\S]*2[\s\S]*5[\s\S]*174\.80[\s\S]*87\.40[\s\S]*34\.96/);
+  assert.match(await p.locator('[data-rptareas]').innerText(), /174\.80[\s\S]*34\.96/);
+  const prep = await p.locator('[data-rptprep]').innerText();
+  assert.match(prep, /3 تذكرة/); assert.match(prep, /المتأخر عن\s*10\s*د:\s*1\s*\(33\.3%\)/); assert.match(prep, /شواية\s+1\s+12\s+12\s+1\s+100/);
+  await p.click('[data-restrpt] button:has-text("Excel")'); await p.waitForTimeout(200);
+  assert.match(await say(p), /نُزّل التقرير/);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v56.52 إعدادات المطعم: لمسؤول النظام وحده، معطّلة افتراضيًا، وحفظ المحطات مع رفض ربط تصنيف بمحطتين', async () => {
+  { const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/PosSettings/bm');
+    assert.equal(await p.locator('[data-restcfg]').count(), 0, 'مدير الفرع لا يرى مفاتيح المطعم'); assert.deepEqual(errs, []); await ctx.close(); }
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/PosSettings/admin');
+  await p.evaluate(() => window.setOrg(g => ({ ...g, posCfg: { ...(g.posCfg || {}), branches: ['b1'] }, products: [{ id: 'k', name: 'كبسة', sellPrice: 57.5, cat: 'رئيسي' }, { id: 't', name: 'شاي', sellPrice: 4.6, cat: 'مشروبات' }] }))); await p.waitForTimeout(200);
+  await p.evaluate(() => window.as('ctl')); await p.waitForTimeout(150); await p.evaluate(() => window.as('admin')); await p.waitForTimeout(300);
+  assert.deepEqual(await p.locator('[data-restcfg] input[type=checkbox]').evaluateAll(els => els.map(e => e.checked)), [false, false, false, false, false, false, false], 'كلها مطفأة');
+  // الحفظ بلا تفعيل لا يكتب مفاتيح المطعم
+  await p.locator('.card button.pri', { hasText: /^حفظ$/ }).click(); await p.waitForTimeout(250);
+  assert.deepEqual(await p.evaluate(() => ['rest' in window.curOrg.posCfg, 'stations' in window.curOrg.posCfg]), [false, false]);
+  await p.check('[data-restkey="stations"]'); await p.check('[data-restkey="prepRpt"]'); await p.fill('input[aria-label="هدف التحضير بالدقائق"]', '12');
+  const ed = p.locator('[data-stationed]').first();
+  await ed.locator('button:has-text("+ محطة")').click(); await ed.locator('button:has-text("+ محطة")').click();
+  await ed.locator('input[aria-label="اسم المحطة"]').nth(0).fill('شواية'); await ed.locator('input[aria-label="اسم المحطة"]').nth(1).fill('مشروبات');
+  await ed.locator('input[aria-label="تصنيف رئيسي للمحطة 1"]').check(); await ed.locator('input[aria-label="تصنيف رئيسي للمحطة 2"]').check();
+  await p.locator('.card button.pri', { hasText: /^حفظ$/ }).click(); await p.waitForTimeout(250);
+  assert.match(await say(p), /«رئيسي» مربوط بمحطتين/);
+  await ed.locator('input[aria-label="تصنيف رئيسي للمحطة 2"]').uncheck(); await ed.locator('input[aria-label="تصنيف مشروبات للمحطة 2"]').check();
+  await ed.locator('select[aria-label="منتجات المحطة 2"]').selectOption(['k']);
+  await p.locator('.card button.pri', { hasText: /^حفظ$/ }).click(); await p.waitForTimeout(250);
+  const c = await p.evaluate(() => window.curOrg.posCfg);
+  assert.deepEqual(c.rest, { covers: false, waiters: false, merge: false, split: false, stations: true, rush: false, prepRpt: true, prepTarget: 12 });
+  assert.deepEqual(c.stations.b1.map(s => [s.name, s.cats, s.prods]), [['شواية', ['رئيسي'], []], ['مشروبات', ['مشروبات'], ['k']]]);
+  assert.deepEqual(errs, []); await ctx.close();
+});

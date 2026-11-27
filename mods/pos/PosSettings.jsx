@@ -1,7 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState } from 'react';
 import { Settings, Trash2, Plus, Check } from 'lucide-react';
-import { Field, POS_DEV_KEY, posPaperDev, setPosPaperDev, uid, areasErr, ROLES } from '../../App.jsx';
+import { Field, POS_DEV_KEY, posPaperDev, setPosPaperDev, uid, areasErr, ROLES, restCfg, kdsStationsErr } from '../../App.jsx';
 
 export function PosSettings({ org, commitOrg, say, dev, me }) {
   const c = org.posCfg || {};
@@ -9,6 +9,13 @@ export function PosSettings({ org, commitOrg, say, dev, me }) {
   const [credit, setCredit] = useState(!!c.credit);
   const [appPr, setAppPr] = useState(!!c.appPrices);   // v56.47 (P4) قوائم أسعار التطبيقات — لمسؤول النظام وحده، معطّل افتراضيًا
   const [f, setF] = useState({ branches: c.branches || [], footer: c.footer || '', autoPrint: c.autoPrint !== false, returns: !!c.returns, devName: dev ? dev.name : '', maxDiscPct: c.maxDiscPct != null ? String(c.maxDiscPct) : '', payMethods: (c.payMethods || []).map(x => ({ ...x })), tables: { ...(c.tables || {}) }, areas: JSON.parse(JSON.stringify(c.areas || {})), drivers: (c.drivers || []).map(x => ({ ...x })), kds: !!c.kds, noImg: !!c.noImg, paper: String(c.paper || '') === '58' ? '58' : '80', devPaper: posPaperDev() });   // v42.9
+  // v56.52 — المطعم (المرحلة 3): لمسؤول النظام وحده، كل المفاتيح مطفأة افتراضيًا
+  const [rest, setRest] = useState(() => { const r = restCfg(org); return { ...r, prepTarget: r.prepTarget ? String(r.prepTarget) : '' }; });
+  const [stns, setStns] = useState(() => JSON.parse(JSON.stringify(c.stations || {})));
+  const pCats = [...new Set((org.products || []).filter(p => !p.posOff).map(p => p.cat || 'أخرى'))], pAll = (org.products || []).filter(p => !p.posOff && p.id);
+  const REST_KEYS = [['covers', 'عدد الأشخاص للطاولة — يُختم على الفاتورة، ومتوسط الفاتورة للشخص في تقرير الصالات'], ['waiters', 'النادل — اختيار نادل للطاولة من موظفي الفرع، وتقرير مبيعات كل نادل لليوم أو الوردية'],
+    ['merge', 'دمج الطاولات — ضمّ حساب طاولة مفتوح إلى آخر (تذاكر المطبخ المرسلة تبقى) بسجل تدقيق'], ['split', 'تقسيم الفاتورة بالأصناف — كل جزء فاتورة نقطة بيع مستقلة برقمها وبصمتها ودفعها'],
+    ['stations', 'محطات المطبخ — تذكرة لكل محطة حسب التصنيف أو المنتج، وكل شاشة مطبخ تختار محطتها'], ['rush', 'أولوية «مستعجل» — تتقدّم التذكرة في شاشة المطبخ'], ['prepRpt', 'تقرير أوقات التحضير — من وصول التذكرة حتى «جاهز» لكل محطة وصنف، مع تصدير Excel']];
   const KIND_AR = { card: 'شبكة', cash: 'نقدي', transfer: 'تحويل' };
   const setPm = (i, patch) => setF(x => ({ ...x, payMethods: x.payMethods.map((y, k) => k === i ? { ...y, ...patch } : y) }));
   const save = async () => {
@@ -21,8 +28,16 @@ export function PosSettings({ org, commitOrg, say, dev, me }) {
     for (const [b, L] of Object.entries(f.areas || {})) { const list = (L || []).filter(a => a && (String(a.name || '').trim() || a.from || a.to));
       if (!list.length || !tables[b]) continue; const e = areasErr(list, tables[b]); if (e) return say(((org.branches || []).find(x => x.id === b) || {}).name + ': ' + e, 'no');
       areas[b] = list.map(a => ({ id: a.id || uid('ar'), name: String(a.name).trim().slice(0, 40), from: Math.floor(Number(a.from)), to: Math.floor(Number(a.to)) })); }
+    // v56.52: المحطات — تحقق ثم حفظ الصالحة فقط (لكل فرع مفعّل)
+    const stations = {};
+    if (canCredit) for (const [b, L] of Object.entries(stns || {})) { const list = (L || []).filter(x => x && (String(x.name || '').trim() || (x.cats || []).length || (x.prods || []).length)); if (!list.length) continue;
+      const e = kdsStationsErr(list); if (e) return say(((org.branches || []).find(x => x.id === b) || {}).name + ': ' + e, 'no');
+      stations[b] = list.map(x => ({ id: x.id || uid('st'), name: String(x.name).trim().slice(0, 30), cats: x.cats || [], prods: x.prods || [] })); }
+    const pt = Math.floor(Number(rest.prepTarget) || 0); if (canCredit && rest.prepRpt && rest.prepTarget !== '' && !(pt >= 1 && pt <= 240)) return say('هدف التحضير بالدقائق من 1 إلى 240', 'no');
+    const restOut = { covers: !!rest.covers, waiters: !!rest.waiters, merge: !!rest.merge, split: !!rest.split, stations: !!rest.stations, rush: !!rest.rush, prepRpt: !!rest.prepRpt, ...(pt ? { prepTarget: pt } : {}) };
+    const restW = canCredit && (Object.values(restOut).some(Boolean) || c.rest != null), stW = canCredit && (Object.keys(stations).length > 0 || c.stations != null);
     setPosPaperDev(f.devPaper);   // v44.7: تخصيص هذا الجهاز (على الجهاز فقط)
-    const ok = await commitOrg(d => ({ ...d, posCfg: { ...(d.posCfg || {}), areas, drivers, paper: f.paper === '58' ? '58' : '80', noImg: !!f.noImg, tables, kds: !!f.kds, returns: !!f.returns, ...(canCredit ? { credit, ...(appPr || c.appPrices != null ? { appPrices: appPr } : {}) } : {}), branches: f.branches, footer: f.footer.trim(), autoPrint: !!f.autoPrint, maxDiscPct: Number(f.maxDiscPct) || 0, payMethods: f.payMethods.filter(x => (x.n || '').trim()).map(x => ({ id: x.id, n: x.n.trim(), kind: x.kind || 'card', active: x.active !== false })) } }), { actionType: 'update', targetType: 'settings', targetId: 'posCfg', need: 'edit', title: 'إعدادات نقطة البيع', details: 'الفروع: ' + f.branches.map(id => ((org.branches || []).find(b => b.id === id) || {}).name).join('، ') });
+    const ok = await commitOrg(d => ({ ...d, posCfg: { ...(d.posCfg || {}), areas, drivers, paper: f.paper === '58' ? '58' : '80', noImg: !!f.noImg, tables, kds: !!f.kds, returns: !!f.returns, ...(canCredit ? { credit, ...(appPr || c.appPrices != null ? { appPrices: appPr } : {}) } : {}), ...(restW ? { rest: restOut } : {}), ...(stW ? { stations } : {}), branches: f.branches, footer: f.footer.trim(), autoPrint: !!f.autoPrint, maxDiscPct: Number(f.maxDiscPct) || 0, payMethods: f.payMethods.filter(x => (x.n || '').trim()).map(x => ({ id: x.id, n: x.n.trim(), kind: x.kind || 'card', active: x.active !== false })) } }), { actionType: 'update', targetType: 'settings', targetId: 'posCfg', need: 'edit', title: 'إعدادات نقطة البيع', details: 'الفروع: ' + f.branches.map(id => ((org.branches || []).find(b => b.id === id) || {}).name).join('، ') });
     if (ok) say('حُفظت إعدادات نقطة البيع ✓');
   };
   return (
@@ -70,6 +85,24 @@ export function PosSettings({ org, commitOrg, say, dev, me }) {
       <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', margin: '4px 0 10px' }}><input type="checkbox" aria-label="تفعيل المرتجع" checked={!!f.returns} onChange={e => setF(x => ({ ...x, returns: e.target.checked }))} />تفعيل المرتجع (جزئي أو كلي) — لمدير الفرع فقط؛ الطبق المرتجع يُسجَّل هدرًا، ويُرد المبلغ بطريقة الدفع الأصلية أو نقدًا</label>
       {canCredit && <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', margin: '4px 0 10px', alignItems: 'flex-start' }}><input type="checkbox" aria-label="تفعيل البيع الآجل" checked={credit} onChange={e => setCredit(e.target.checked)} /><span>تفعيل البيع الآجل على حساب العميل (معطّل افتراضيًا) — للعملاء الموسومين «مؤهل للآجل من الكاشير» في جهات الاتصال بحد ائتمان، ومن غير المسجّلين ضريبيًا. يتطلب اتصالًا بالخادم عند كل بيع آجل (يتحقق من الحد)، ويُقيَّد على ذمم العملاء عند ترحيل إغلاق اليوم. كل تفويض يُسجَّل في سجل دائم على الخادم — شغّل «فحص تفويض الآجل» يوميًا من «فواتير المبيعات ← ذمم الكاشير» لكشف أي فاتورة آجلة بلا تفويض أو بمبلغ أو عميل مختلف.</span></label>}
       {canCredit && <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', margin: '4px 0 10px', alignItems: 'flex-start' }}><input type="checkbox" aria-label="تفعيل قوائم أسعار التطبيقات" checked={appPr} onChange={e => setAppPr(e.target.checked)} /><span>تفعيل قوائم أسعار تطبيقات التوصيل (معطّل افتراضيًا) — سعر لكل تطبيق في بطاقة المنتج (فارغ = سعر المطعم)، ويختار الكاشير «قائمة الأسعار» في السلة، والدفع بالتطبيق يطابق قائمته. المبيعات بالإجمالي كما هي.</span></label>}
+      {canCredit && <div className="note" data-restcfg style={{ margin: '4px 0 10px' }}>
+        <b style={{ fontSize: 13 }}>المطعم — كلها معطّلة افتراضيًا</b>
+        {REST_KEYS.map(([k, t]) => <label key={k} className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', marginTop: 6, alignItems: 'flex-start' }}><input type="checkbox" aria-label={'مطعم: ' + k} data-restkey={k} checked={!!rest[k]} onChange={e => setRest(x => ({ ...x, [k]: e.target.checked }))} /><span>{t}</span></label>)}
+        {rest.prepRpt && <Field label="هدف التحضير بالدقائق (المتأخر أكبر منه — فارغ = بلا نسبة تأخر)" style={{ marginTop: 8, marginBottom: 0 }}><input className="inp n" style={{ width: 90 }} inputMode="numeric" aria-label="هدف التحضير بالدقائق" value={rest.prepTarget} onChange={e => setRest(x => ({ ...x, prepTarget: e.target.value.replace(/[^\d]/g, '').slice(0, 3) }))} /></Field>}
+        {rest.stations && (org.branches || []).filter(b => b.isActive !== false && f.branches.includes(b.id)).map(b => { const L = (stns || {})[b.id] || [];
+          const setL = (fn) => setStns(x => ({ ...(x || {}), [b.id]: fn((x || {})[b.id] || []) }));
+          return <div key={b.id} data-stationed={b.name} style={{ marginTop: 8, paddingTop: 6, borderTop: '1px dashed var(--line)' }}>
+            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}><b style={{ fontSize: 12.5 }}>محطات {b.name} <small style={{ color: 'var(--faint)' }}>(المنتج المربوط أولًا ثم تصنيفه؛ غير المربوط ⇒ «عام»)</small></b>
+              <button className="btn sm gh" onClick={() => setL(l => [...l, { id: uid('st'), name: '', cats: [], prods: [] }])}>+ محطة</button></div>
+            {L.map((st, i) => { const up = (patch) => setL(l => l.map((y, k) => k === i ? { ...y, ...patch } : y));
+              return <div key={st.id || i} style={{ marginTop: 6 }}>
+                <div className="row" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap' }}><input className="inp" style={{ width: 150 }} aria-label="اسم المحطة" placeholder="مثال: الشواية" value={st.name || ''} onChange={e => up({ name: e.target.value })} />
+                  <button className="btn sm gh" aria-label="حذف المحطة" onClick={() => setL(l => l.filter((_, k) => k !== i))}>×</button></div>
+                <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 4 }}>{pCats.map(ct => <label key={ct} className="row" style={{ gap: 4, fontSize: 12, cursor: 'pointer' }}><input type="checkbox" aria-label={'تصنيف ' + ct + ' للمحطة ' + (i + 1)} checked={(st.cats || []).includes(ct)} onChange={e => up({ cats: e.target.checked ? [...(st.cats || []), ct] : (st.cats || []).filter(x => x !== ct) })} />{ct}</label>)}</div>
+                {pAll.length > 0 && <select multiple className="sel" style={{ marginTop: 4, minHeight: 64 }} aria-label={'منتجات المحطة ' + (i + 1)} value={st.prods || []} onChange={e => up({ prods: [...e.target.selectedOptions].map(o => o.value) })}>{pAll.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>}
+              </div>; })}
+          </div>; })}
+      </div>}
       <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', margin: '4px 0 10px' }}><input type="checkbox" checked={f.autoPrint} onChange={e => setF(x => ({ ...x, autoPrint: e.target.checked }))} />طباعة الفاتورة تلقائيًا بعد الدفع</label>
       <div className="lbl">طرق دفع إضافية (تمارا، تابي، STC Pay، قسائم…)</div>
       <div className="note" style={{ marginBottom: 6 }}>تظهر في شاشة الدفع وفي أزرار السلة. اختر كيف تُحتسب في الإغلاق اليومي والقيود: «شبكة» للمحافظ والتقسيط والبطاقات، «تحويل» للتحويل البنكي، «نقدي» لما يدخل الدرج.</div>
