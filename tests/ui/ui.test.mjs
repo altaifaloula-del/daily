@@ -4188,3 +4188,18 @@ test('v56.41 الدفعة 6 (T4): المصروف المدفوع مقدمًا —
   assert.match(await p.locator('[data-prepaid]').innerText(), /PP-0001[\s\S]*12,000\.00[\s\S]*معتمد/);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.42 الدفعة 8 (U3): خريطة أقسام مصروفات الوردية — الاقتراح والحفظ بتاريخ بدء، و«يحدده المحاسب» يظهر للمحاسب ليحدد القسم', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1200 } }, 'live/Accounting/admin/cc');
+  const td = await p.evaluate(() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); });
+  await p.evaluate(() => window.setOrg(o => ({ ...o, costDepts: { on: true, list: [{ id: 'k', name: 'المطبخ' }, { id: 'h', name: 'الصالة' }] } })));
+  await p.waitForSelector('[data-deptmap]'); await p.click('[data-deptmap-edit]'); await p.waitForSelector('[data-deptmap-editor]');
+  await p.click('[data-deptmap-save]'); await p.waitForFunction(() => ((window.curOrg.costDepts || {}).catMaps || []).length === 1);
+  const cat = await p.evaluate(() => { const m = window.curOrg.costDepts.catMaps[0].map; return Object.keys(m).find(k => m[k] === 'pick'); });
+  assert.ok(cat, 'الصيانة أو الكهرباء «يحدده المحاسب»');
+  await p.evaluate(({ td, cat }) => window.setOps(o => ({ ...o, closings: [...(o.closings || []), { id: 'cz', branchId: 'b1', branchName: 'العليا', date: td, status: 'approved', cash: 0, card: 0, totalRevenue: 0, expenses: [{ id: 'z1', categoryId: cat, categoryName: 'صيانة', amount: 75, paymentMethod: 'cash' }] }] })), { td, cat });
+  await p.waitForSelector('[data-deptmap-item="cz:z1"]');
+  await p.getByLabel('قسم المصروف cz:z1').selectOption('k'); await p.click('[data-deptmap-item="cz:z1"] [data-deptmap-pick]');
+  await p.waitForFunction(() => (window.cur.expDeptPicks || []).some(x => x.key === 'cz:z1' && x.deptId === 'k'));
+  assert.deepEqual(errs, []); await ctx.close();
+});
