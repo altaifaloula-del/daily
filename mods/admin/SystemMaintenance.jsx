@@ -653,11 +653,11 @@ function PosGlCard({ org, ops, me, commit, commitOrg, say, isAdm }) {
 function LateRetCard({ org, commitOrg, say, isAdm }) {
   const on = lrUnpaidOn(org);
   const flip = async () => { if (!isAdm) return; const ok = await commitOrg(o => ({ ...o, lateRet: { ...(o.lateRet || {}), unpaid: !on, at: nowISO() } }), { actionType: 'settings', targetType: 'system_settings', targetId: 'lateRet', title: on ? 'أوقف الغياب بلا أجر للتأخر عن المباشرة' : 'فعّل الغياب بلا أجر للتأخر عن المباشرة' });
-    if (ok) say(on ? 'أُوقف — يعود الخصم من الرصيد ولو صار سالبًا' : 'فُعّل ✓'); };
+    if (ok) say(on ? 'أُوقف — للمباشرات الجديدة: الخصم من الرصيد ولو صار سالبًا؛ وما اعتُمد يبقى كما هو ويبقى ظاهرًا للرواتب' : 'فُعّل — للمباشرات الجديدة ✓'); };
   return (<div className="card" data-lrcfg>
     <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />التأخر عن المباشرة بعد الإجازة</div><span className={'badge ' + (on ? 'b-sky' : 'b-dim')}>{on ? 'مفعّل' : 'غير مفعّل'}</span></div>
     <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>بقرار المجلس وفق نظام العمل ولائحة تنظيم العمل النموذجية: أيام التأخر تُخصم من رصيد السنوية بقدر المتاح، وما زاد عليه <b>غياب بلا أجر</b> بدل الرصيد السالب.
-      لا خصم آلي من الراتب: يظهر في «الإجازات» و«الرواتب» ليراجعه مُعدّ الرواتب، وتنبيه عند 15 يومًا فأكثر (المادة 80 — إنذار كتابي قبل أي إجراء). إن كانت لائحتكم المعتمدة تنص على غير ذلك فأوقفه.</div>
+      لا خصم آلي من الراتب: يظهر في «الإجازات» و«الرواتب» ليراجعه مُعدّ الرواتب، وتنبيه بحدود المادة 80 (إنذار كتابي عند 10 أيام متصلة أو 20 متفرقة في السنة، ويجيز الفصل فوق 15 متصلة أو 30 متفرقة) بلا أي إجراء آلي. يسري على المباشرات الجديدة؛ والكسر في الرصيد لا يغطي يومًا. إن كانت لائحتكم المعتمدة تنص على غير ذلك فأوقفه.</div>
     {isAdm && <button className={'btn sm ' + (on ? 'gh' : 'pri')} onClick={flip} data-lrcfg-toggle>{on ? 'إيقاف' : 'تفعيل'}</button>}
   </div>);
 }

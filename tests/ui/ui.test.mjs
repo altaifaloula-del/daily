@@ -4221,3 +4221,17 @@ test('v56.43 الدفعة 10 (E8): هبوط قيمة أصل — إنشاء بم�
   await p.waitForFunction(() => (window.cur.impairTests || []).length === 1);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.44 الدفعة 9 (H1): غياب بلا أجر — يظهر لمُعدّ الرواتب بأيام الشهر، ولا يظهر لفرع آخر', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Hub/admin/hr:leaves');
+  const D = await p.evaluate(() => { const iso = (k) => { const x = new Date(); x.setDate(x.getDate() + k); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); }; const t = new Date(); return { from: iso(-30), to: iso(-25), ret: t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(Math.min(t.getDate(), 28)).padStart(2, '0') }; });
+  await p.evaluate((D) => { window.setOrg(g => ({ ...g, lateRet: { unpaid: true } }));
+    window.setOps(o => ({ ...o, leaveRequests: [{ id: 'lvU', employeeId: 'e1', employeeName: 'أحمد علي', branchId: 'b1', branchName: 'عم قاسم طيبة', type: 'annual', from: D.from, to: D.to, days: 5, status: 'approved',
+      ret: { date: D.ret, kind: 'late', lateDays: 20, lateBal: 2, unpaidDays: 18, status: 'approved' } }] })); }, D);
+  await p.waitForSelector('[data-lr-unpaid]'); assert.match(await p.locator('[data-lr-unpaid]').innerText(), /أحمد علي · هذا الشهر \d+ يوم \(الإجمالي 18\)/);
+  assert.match(await p.locator('[data-lr-unpaid]').innerText(), /المادة 80/);
+  await p.evaluate(() => window.setOps(o => ({ ...o, leaveRequests: o.leaveRequests.map(r => ({ ...r, branchId: 'b-other' })) })));
+  await p.evaluate(() => window.as('bm')); await p.waitForTimeout(400);
+  assert.equal(await p.locator('[data-lr-unpaid]').count(), 0, 'مدير فرع آخر لا يرى');
+  assert.deepEqual(errs, []); await ctx.close();
+});

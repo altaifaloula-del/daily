@@ -1448,17 +1448,27 @@ const lrUnpaidOn = (org) => !!(org && org.lateRet && org.lateRet.unpaid);
 function lvLateSplit(org, ops, e, r) {
   const x = r && r.ret; const late = Number(x && x.lateDays) || 0; if (!(late > 0)) return { lateBal: 0, unpaidDays: 0 };
   if (!lrUnpaidOn(org)) return { lateBal: late, unpaidDays: 0 };
-  const b = leaveBalance(org, ops, e, x.date); const avail = b && b.ok ? Math.max(0, Math.floor(Number(b.balance) || 0)) : 0;
+  const b = leaveBalance(org, ops, e, x.date); if (!(b && b.ok)) return { lateBal: late, unpaidDays: 0 };   // (الجودة) رصيد غير معروف ⇒ كما كان، لا يُفترض الغياب
+  const avail = Math.max(0, Math.floor(Number(b.balance) || 0));   // قرار المجلس: الكسر لا يغطي يومًا
   const lateBal = Math.min(late, avail); return { lateBal, unpaidDays: late - lateBal };
 }
-/** أيام الغياب بلا أجر المعتمدة في شهر (لمراجعة مُعدّ الرواتب) — من اليوم التالي لاستنفاد الرصيد حتى اليوم السابق للمباشرة */
-function lvUnpaidFor(ops, month) {
-  const out = []; ((ops && ops.leaveRequests) || []).forEach(r => { const x = r.ret; if (r.status !== 'approved' || !x || x.status !== 'approved' || !(Number(x.unpaidDays) > 0)) return;
-    const from = lvAddD(r.to, 1 + (Number(x.lateBal) || 0)), to = lvAddD(x.date, -1); if (month && String(from).slice(0, 7) > month) return; if (month && String(to).slice(0, 7) < month) return;
-    out.push({ leaveId: r.id, employeeId: r.employeeId, employeeName: r.employeeName, branchName: r.branchName || '', from, to, days: Number(x.unpaidDays), art80: Number(x.unpaidDays) >= 15 }); });
+/** أيام الغياب بلا أجر المعتمدة في شهر (لمراجعة مُعدّ الرواتب) — من اليوم التالي لاستنفاد الرصيد حتى اليوم السابق للمباشرة.
+ *  daysInMonth = ما يقع في الشهر وحده (يُخصم يدويًا)، days = إجمالي الفترة. المادة 80 من نظام العمل: الغياب المتصل إنذار كتابي عند 10 أيام ويجيز الفصل فوق 15،
+ *  والمتفرق في السنة إنذار عند 20 ويجيز الفصل فوق 30 — تنبيه فقط بلا إجراء آلي. أيام التأخر المغطاة من الرصيد إجازة لا غياب. branchIds: تصفية الفروع (null = الكل). */
+function lvUnpaidFor(ops, month, branchIds) {
+  const out = []; const L = ((ops && ops.leaveRequests) || []).filter(r => r.status === 'approved' && r.ret && r.ret.status === 'approved' && Number(r.ret.unpaidDays) > 0 && (!branchIds || branchIds.includes(r.branchId)));
+  const yr = month ? String(month).slice(0, 4) : ''; const perYear = {};
+  L.forEach(r => { const from = lvAddD(r.to, 1 + (Number(r.ret.lateBal) || 0)); if (String(from).slice(0, 4) === yr) perYear[r.employeeId] = (perYear[r.employeeId] || 0) + Number(r.ret.unpaidDays); });
+  L.forEach(r => { const x = r.ret; const from = lvAddD(r.to, 1 + (Number(x.lateBal) || 0)), to = lvAddD(x.date, -1); if (month && String(from).slice(0, 7) > month) return; if (month && String(to).slice(0, 7) < month) return;
+    const ms = month ? month + '-01' : from, me = month ? lvAddD(String(Number(month.slice(0, 4)) + (month.slice(5) === '12' ? 1 : 0)) + '-' + (month.slice(5) === '12' ? '01' : String(Number(month.slice(5)) + 1).padStart(2, '0')) + '-01', -1) : to;
+    const a = from > ms ? from : ms, b = to < me ? to : me; const days = Number(x.unpaidDays), yearDays = perYear[r.employeeId] || days;
+    const art80 = days > 15 || yearDays > 30 ? 'exceed' : days >= 10 || yearDays >= 20 ? 'warn' : '';
+    out.push({ leaveId: r.id, employeeId: r.employeeId, employeeName: r.employeeName, branchId: r.branchId || '', branchName: r.branchName || '', from, to, days, daysInMonth: a <= b ? lvDays(a, b) : 0, yearDays, art80 }); });
   return out;
 }
-export { lrUnpaidOn, lvLateSplit, lvUnpaidFor };   // v56.44 الدفعة 9 (H1)
+const lvArt80Txt = (x) => x.art80 === 'exceed' ? 'تجاوز حد المادة 80 (أكثر من 15 يومًا متصلة أو 30 متفرقة في السنة) — يجيز الفصل إن سبقه إنذار كتابي؛ لا إجراء آلي'
+  : x.art80 === 'warn' ? 'بلغ حد الإنذار الكتابي في المادة 80 (10 أيام متصلة أو 20 متفرقة في السنة)' : '';
+export { lrUnpaidOn, lvLateSplit, lvUnpaidFor, lvArt80Txt };   // v56.44 الدفعة 9 (H1)
 /** مراحل الإجازة للعرض والتتبع: الطلب ← توقيع الموظف ← القرار ← البدء ← المباشرة ← اعتمادها */
 function lvTrack(r, signDocs, td) {
   const sd = (t) => (signDocs || []).find(d => d.refId === r.id && d.docType === t && d.status !== 'voided') || null;
