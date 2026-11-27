@@ -2,10 +2,11 @@
    الخريطة نطاق بتاريخ بدء (لا يتغير تقرير ما قبله)، و«يحدده المحاسب» يُختار لكل مصروف من هنا. القسم بُعد إداري لا يمس القيود. */
 import React, { useState } from 'react';
 import { Layers, Check } from 'lucide-react';
-import { DEPT_SHARED, DEPT_PICK, deptList, deptMapSuggest, deptMapAt, expDeptPending, money, nowISO, today, periodLocked } from '../../App.jsx';
+import { DEPT_SHARED, DEPT_PICK, deptList, deptMapSuggest, deptMapAt, expDeptPending, expCatsDeptable, ROLES, money, nowISO, today, periodLocked } from '../../App.jsx';
 
 export function DeptShiftMap({ org, ops, me, commit, commitOrg, say, canPost, from, to }) {
-  const L = deptList(org); const cats = (org.expenseCats || []).filter(c => !/سلف|مسحوبات/.test(c.n || ''));
+  const L = deptList(org); const CK = expCatsDeptable(org); const cats = CK.filter(c => c.kind !== 'adv'); const isAdm = !!(ROLES[(me || {}).role] || {}).admin;
+  const done = expDeptPending(org, ops, from, to, { all: true }).filter(x => x.deptId); const [showDone, setShowDone] = useState(false);
   const cur = deptMapAt(org, '9999-12-31'); const ranges = (org.costDepts && org.costDepts.catMaps) || [];
   const [m, setM] = useState(null); const [start, setStart] = useState(today());
   const pend = expDeptPending(org, ops, from, to); const [pick, setPick] = useState({});
@@ -21,20 +22,26 @@ export function DeptShiftMap({ org, ops, me, commit, commitOrg, say, canPost, fr
     if (ok) say('حُدد القسم ✓'); };
   return (<div className="card" data-deptmap>
     <div className="card-h"><div className="card-t"><Layers size={15} color="var(--brass)" />قسم مصروفات الوردية (من التصنيف)</div>
-      {canPost && !m && <button className="btn sm" onClick={() => setM({ ...(cur || deptMapSuggest(org)) })} data-deptmap-edit>{cur ? 'تعديل الخريطة' : 'إعداد الخريطة'}</button>}</div>
+      {isAdm && !m && <button className="btn sm" onClick={() => setM({ ...(cur || deptMapSuggest(org)) })} data-deptmap-edit>{cur ? 'تعديل الخريطة' : 'إعداد الخريطة'}</button>}</div>
     <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
       الكاشير لا يختار القسم: يُنسب من تصنيف المصروف. «يحدده المحاسب» (الصيانة والكهرباء بقرارك) يظهر أدناه ليحدد المحاسب قسمه. كل تعديل للخريطة يسري من تاريخه فلا يتغير ما قبله.
       {ranges.length > 0 && <div>النطاقات: {ranges.map(r => r.from).sort().join(' · ')}</div>}</div>
     {m ? <div data-deptmap-editor>
       {cats.map(c => <div key={c.id} className="row" style={{ gap: 8, marginBottom: 6, alignItems: 'center' }}><span style={{ flex: 1, fontSize: 12.5 }}>{c.n}</span>
-        <select className="sel" aria-label={'قسم ' + c.n} value={m[c.id] || ''} onChange={e => setM({ ...m, [c.id]: e.target.value })}>{opts}</select></div>)}
+        {c.kind === 'cogs' ? <span className="badge b-dim">تكلفة مبيعات — منفصلة عن الأقسام</span> : c.kind === 'payroll' ? <span className="badge b-dim">الرواتب لا تُقسَّم</span>
+          : <select className="sel" aria-label={'قسم ' + c.n} value={m[c.id] || ''} onChange={e => setM({ ...m, [c.id]: e.target.value })}>{opts}</select>}</div>)}
       <div className="row" style={{ gap: 6, marginTop: 8, alignItems: 'center' }}><span style={{ fontSize: 12 }}>تسري من</span>
         <input type="date" className="inp" aria-label="بدء الخريطة" value={start} onChange={e => setStart(e.target.value)} />
         <button className="btn sm gh" onClick={() => setM(null)}>إلغاء</button><button className="btn sm pri" onClick={saveMap} data-deptmap-save><Check size={13} />حفظ</button></div>
-    </div> : cur ? <div style={{ fontSize: 12 }}>{cats.map(c => <span key={c.id} className="badge b-dim" style={{ marginInlineEnd: 4 }}>{c.n}: {lbl(cur[c.id] || '')}</span>)}</div> : <div className="empty">لا خريطة — المصروفات «بلا قسم» كما كانت</div>}
+    </div> : cur ? <div style={{ fontSize: 12 }}>{cats.filter(c => c.kind === 'exp').map(c => <span key={c.id} className="badge b-dim" style={{ marginInlineEnd: 4 }}>{c.n}: {lbl(cur[c.id] || '')}</span>)}</div> : <div className="empty">لا خريطة — المصروفات «بلا قسم» كما كانت</div>}
     {pend.length > 0 && <div data-deptmap-pend style={{ marginTop: 10 }}><b style={{ fontSize: 12.5 }}>بانتظار تحديد القسم ({pend.length})</b>
       {pend.slice(0, 50).map(x => <div key={x.key} className="me-row" data-deptmap-item={x.key}><span className="me-a"><b>{x.cat} · <span className="num">{money(x.amount)}</span></b><small>{x.date} · {x.branchName}{x.note ? ' · ' + x.note : ''}</small></span>
         {canPost && <span className="row" style={{ gap: 4 }}><select className="sel" aria-label={'قسم المصروف ' + x.key} value={pick[x.key] || ''} onChange={e => setPick({ ...pick, [x.key]: e.target.value })}><option value="">— القسم —</option><option value={DEPT_SHARED}>مشترك</option>{L.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select>
           <button className="btn sm pri" onClick={() => savePick(x)} data-deptmap-pick>تحديد</button></span>}</div>)}</div>}
+    {done.length > 0 && <div style={{ marginTop: 10 }}><button className="btn sm gh" onClick={() => setShowDone(v => !v)} data-deptmap-done>المحدَّدة في الفترة ({done.length}) — مراجعة وتغيير</button>
+      {showDone && done.slice(0, 80).map(x => <div key={x.key} className="me-row" data-deptmap-doneitem={x.key}><span className="me-a"><b>{x.cat} · <span className="num">{money(x.amount)}</span> ← {lbl(x.deptId)}</b>
+        <small>{x.date} · {x.branchName} · {x.hist.map(h => lbl(h.deptId) + ' (' + (h.by || '') + ' ' + String(h.at || '').slice(0, 10) + ')').join(' ← ')}</small></span>
+        {canPost && !periodLocked(org, x.date) && <span className="row" style={{ gap: 4 }}><select className="sel" aria-label={'تغيير قسم ' + x.key} value={pick[x.key] || ''} onChange={e => setPick({ ...pick, [x.key]: e.target.value })}><option value="">— تغيير —</option><option value={DEPT_SHARED}>مشترك</option>{L.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select>
+          <button className="btn sm gh" onClick={() => savePick(x)}>حفظ</button></span>}</div>)}</div>}
   </div>);
 }

@@ -11570,30 +11570,40 @@ function deptPL(org, A, from, to, bf) {
    org.costDepts.catMaps = [{ from: 'YYYY-MM-DD', map: { <تصنيف>: <قسم> | 'shared' | '' | 'pick' } }] — نطاقات بتاريخ بدء (لا يتغير تقرير ما قبلها).
    'pick' ⇒ يحدده المحاسب لاحقًا لكل مصروف (ops.expDeptPicks: [{ key: '<الإغلاق>:<المصروف>', deptId, by, at }]، الأحدث يغلب). القسم بُعد إداري لا يمس القيود ولا بصمة الإقفال. */
 const DEPT_PICK = 'pick';
+/** (المراقب المالي) تصنيفات الوردية القابلة للتقسيم: لا السلف (1401) ولا تكلفة المبيعات (منفصلة خارج الأقسام) — بحسابها لا باسمها */
+function expCatsDeptable(org) {
+  const A = buildAccounting(org || {}, {}); const byCode = {}; (A.accounts || []).forEach(a => { byCode[String(a.code)] = a; });
+  return ((org && org.expenseCats) || []).map((c, i) => { const code = /سلف|مسحوبات/.test(c.n || '') ? '1401' : '51' + String(i + 1).padStart(2, '0'); const a = byCode[code] || { code, name: c.n };
+    return { ...c, code, kind: code === '1401' ? 'adv' : isCogsAcc(a) ? 'cogs' : /رواتب|أجور/.test(c.n || '') ? 'payroll' : 'exp' }; });
+}
 function deptMapSuggest(org) {
   const L = deptList(org); const find = (re) => (L.find(d => re.test(d.name)) || {}).id || ''; const M = {};
-  ((org && org.expenseCats) || []).forEach(c => { const n = c.n || ''; if (/سلف|مسحوبات/.test(n)) return;
+  const K = {}; expCatsDeptable(org).forEach(c => { K[c.id] = c.kind; });
+  ((org && org.expenseCats) || []).forEach(c => { const n = c.n || ''; if (K[c.id] === 'adv' || K[c.id] === 'cogs') return; if (K[c.id] === 'payroll') { M[c.id] = ''; return; }
     M[c.id] = /مواد خام|مشتريات/.test(n) ? find(/مطبخ/) : /نظافة|مستهلكات/.test(n) ? find(/صالة/) : /صيانة|كهرباء|مياه/.test(n) ? DEPT_PICK : /إيجار|نثري/.test(n) ? DEPT_SHARED : ''; });
   return M;
 }
 const deptMapAt = (org, date) => { const R = ((org && org.costDepts && org.costDepts.catMaps) || []).filter(r => r && r.from && String(r.from) <= String(date || '')).sort((a, b) => String(a.from).localeCompare(String(b.from)));
   return R.length ? (R[R.length - 1].map || {}) : null; };
-const expDeptKey = (c, e, ix) => c.id + ':' + (e.id || ix);
+const expDeptKey = (c, e, ix) => c.id + ':' + (e.id || ('i' + ix + ':' + (e.categoryId || '') + ':' + Math.round((Number(e.amount) || 0) * 100)));   // (المراقب) بلا معرّف: الترتيب مع التصنيف والمبلغ فلا ينتقل الاختيار لمصروف آخر
 const expDeptPick = (ops, key) => { const P = ((ops && ops.expDeptPicks) || []).filter(x => x && x.key === key); return P.length ? P[P.length - 1].deptId || '' : ''; };
 /** قسم مصروف الوردية: من نطاق الخريطة الساري بتاريخ الإغلاق؛ و«يحدده المحاسب» من اختياره (فارغ حتى يُحدَّد) */
 function expDeptOf(org, ops, c, e, ix) {
   if (!deptOn(org)) return ''; const M = deptMapAt(org, c.date); if (!M) return '';
-  const v = M[e.categoryId]; if (v === DEPT_PICK) return expDeptPick(ops, expDeptKey(c, e, ix)); return v || '';
+  const v = M[e.categoryId]; if (/رواتب|أجور/.test(e.categoryName || '')) return '';   // الرواتب لا تُقسَّم (قرار المالك)
+  if (v === DEPT_PICK) return expDeptPick(ops, expDeptKey(c, e, ix)); return v || '';
 }
 /** مصروفات الوردية التي تنتظر تحديد المحاسب لقسمها (المعتمدة، في نطاق الخريطة) */
-function expDeptPending(org, ops, from, to) {
-  if (!deptOn(org)) return []; const out = [];
+function expDeptPending(org, ops, from, to, opts) {
+  if (!deptOn(org)) return []; const out = []; const K = {}; expCatsDeptable(org).forEach(c => { K[c.id] = c.kind; });
   ((ops && ops.closings) || []).filter(c => c && c.status === 'approved' && (!from || c.date >= from) && (!to || c.date <= to)).forEach(c => { const M = deptMapAt(org, c.date); if (!M) return;
-    (c.expenses || []).forEach((e, ix) => { if (!(e.amount > 0) || M[e.categoryId] !== DEPT_PICK) return; const key = expDeptKey(c, e, ix);
-      if (!expDeptPick(ops, key)) out.push({ key, date: c.date, branchId: c.branchId, branchName: c.branchName || '', cat: e.categoryName || '', amount: e.amount, note: e.note || e.desc || '' }); }); });
+    (c.expenses || []).forEach((e, ix) => { if (!(e.amount > 0) || M[e.categoryId] !== DEPT_PICK || K[e.categoryId] !== 'exp') return; const key = expDeptKey(c, e, ix);
+      const cur = expDeptPick(ops, key); if (opts && opts.all) { out.push({ key, date: c.date, branchId: c.branchId, branchName: c.branchName || '', cat: e.categoryName || '', amount: e.amount, note: e.note || e.desc || '', deptId: cur,
+        hist: ((ops && ops.expDeptPicks) || []).filter(x => x && x.key === key) }); return; }
+      if (!cur) out.push({ key, date: c.date, branchId: c.branchId, branchName: c.branchName || '', cat: e.categoryName || '', amount: e.amount, note: e.note || e.desc || '' }); }); });
   return out;
 }
-export { DEPT_PICK, deptMapSuggest, deptMapAt, expDeptOf, expDeptPending, expDeptKey };   // v56.42 الدفعة 8
+export { DEPT_PICK, deptMapSuggest, deptMapAt, expDeptOf, expDeptPending, expDeptKey, expCatsDeptable };   // v56.42 الدفعة 8
 const projNextCode = (org) => { let mx = 0; ((org && org.projects) || []).forEach(p => { const g = /^PRJ-(\d+)$/.exec(p.code || ''); if (g) mx = Math.max(mx, +g[1]); }); return 'PRJ-' + String(mx + 1).padStart(3, '0'); };
 
 /* v47.3 FEFO عند الصرف: يوزّع الكمية على دفعات المستودع الأقرب انتهاءً أولًا (lots من expiryLots لنفس المستودع والصنف).

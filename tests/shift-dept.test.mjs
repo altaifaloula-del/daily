@@ -13,7 +13,7 @@ const base = { company: { name: 'اختبار' }, branches: [{ id: 'b1', name: '
 const cl = (id, date, ex) => ({ id, branchId: 'b1', branchName: 'العليا', date, status: 'approved', cash: 0, card: 0, totalRevenue: 0, expenses: ex });
 
 test('U3: الاقتراح من قرار المجلس والمالك', () => {
-  assert.deepEqual(E.deptMapSuggest(base), { ec1: 'k', ec2: '', ec4: E.DEPT_PICK, ec5: E.DEPT_PICK, ec6: 'shared', ec7: 'h', ec8: 'shared' });
+  assert.deepEqual(E.deptMapSuggest(base), { ec2: '', ec4: E.DEPT_PICK, ec5: E.DEPT_PICK, ec6: 'shared', ec7: 'h', ec8: 'shared' }, 'المواد الخام تكلفة مبيعات منفصلة، والسلف خارج');
 });
 
 test('U3: بلا خريطة كما كان؛ ومع الخريطة القسم من التصنيف بتاريخ الإغلاق، وما قبل البدء لا يتغير، و«يحدده المحاسب» من اختياره', () => {
@@ -30,4 +30,12 @@ test('U3: بلا خريطة كما كان؛ ومع الخريطة القسم م�
   const C = E.closeAutoChecks(A, ops, '2026-11', org); assert.equal(C.find(x => x.k === 'deptpick').n, 1);
   const R = E.deptPL(org, E.buildAccounting(org, ops2), '2026-11-01', '2026-11-30', ''); assert.equal(R.rows.find(r => r.id === 'k').v, 200); assert.equal(R.rows.find(r => r.id === 'h').v, 100);
   assert.equal(E.lockedLedgerSig(org, ops, '2026-11'), E.lockedLedgerSig(org, ops2, '2026-11'), 'القسم لا يمس بصمة الإقفال');
+});
+
+test('U3 (المراقب المالي): الرواتب لا تُقسَّم ولو في الخريطة، وتكلفة المبيعات لا تنتظر المحاسب، والمفتاح بلا معرّف لا ينتقل', () => {
+  const org = { ...base, costDepts: { ...base.costDepts, catMaps: [{ from: '2026-11-01', map: { ec2: 'k', ec1: E.DEPT_PICK } }] } };
+  const ops = { closings: [cl('c1', '2026-11-10', [{ id: 'x1', categoryId: 'ec2', categoryName: 'رواتب وأجور', amount: 100, paymentMethod: 'cash' }, { id: 'x2', categoryId: 'ec1', categoryName: 'مشتريات مواد خام', amount: 300, paymentMethod: 'cash' }])] };
+  assert.equal(E.buildAccounting(org, ops).entries.find(e => e.id === 'exp:c1:x1').deptId, undefined);
+  assert.deepEqual(E.expDeptPending(org, ops, '2026-11-01', '2026-11-30'), []);
+  const c = { id: 'c9' }; assert.notEqual(E.expDeptKey(c, { categoryId: 'ec4', amount: 10 }, 0), E.expDeptKey(c, { categoryId: 'ec4', amount: 20 }, 0));
 });
