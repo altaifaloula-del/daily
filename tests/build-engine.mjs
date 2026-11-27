@@ -37,7 +37,9 @@ export const ENGINE_EXPORTS = ['depBrRanges', 'depBrAt', 'depBrFrom', 'depBrOf',
   'FL_GROUPS', 'flLvl', 'flGroupOf', 'flUnclassified', 'flReversalOf',
   'flReadOn', 'flEntriesOf', 'flBalDiff',
   // v56.46 — البيع الآجل من نقطة البيع
-  'posCreditOn', 'posCreditOk', 'posCreditList', 'posCreditAmt', 'posCreditDue', 'posArCust', 'posArDayKeys', 'arDocs', 'posArRem', 'posArRefundMax', 'posCreditSnap', 'computeIncome'];
+  'posCreditOn', 'posCreditOk', 'posCreditList', 'posCreditAmt', 'posCreditDue', 'posArCust', 'posArDayKeys', 'arDocs', 'posArRem', 'posArRefundMax', 'posCreditSnap', 'computeIncome',
+  // v56.50 — إرسال الرسائل للعملاء
+  'COMMS_KINDS', 'COMMS_JOB_ST', 'commsSendOn', 'commsCanApprove', 'commsRiy', 'commsQuietRiy', 'commsPhoneOk', 'commsMask', 'commsFilterOf', 'commsApprCanon', 'commsJobErr', 'commsAudience', 'commsJobMove', 'commsNextNo'];
 
 export async function buildEngine() {
   fs.mkdirSync(cache, { recursive: true });

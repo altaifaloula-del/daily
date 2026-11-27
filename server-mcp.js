@@ -28,7 +28,9 @@ const DROP_BLOBS = (k, v) => (typeof v === 'string' && v.length > 1024 && v.star
  *  ثم تُحرَّر نصوصه، مع حذف المصفوفات غير المحاسبية والمرفقات المضمّنة. get(url, init?) ⇒ { ok, status, j } بحساب الخدمة. */
 // v56.46: opts.posCredit — يُبقي من فواتير نقطة البيع ما فيه دفعة آجلة فقط (ومن مستنداتها الشهرية) لتفويض البيع الآجل (server-poscredit.js)
 const posCreditOnly = (arr) => (Array.isArray(arr) ? arr : []).filter(o => o && Array.isArray(o.payments) && o.payments.some(p => p && p.m === 'credit'));
+// v56.50: opts.keep — مصفوفات إضافية تُبقى (لإرسال الرسائل: الموافقات والدمج والملفات والدفعات)؛ opts.loy — يُحمَّل مستند الولاء rms8_loy كما هو ويُعاد في loy
 export async function loadPlatformData(base, get, now = Date.now, opts = {}) {
+  const keep = new Set(Array.isArray(opts.keep) ? opts.keep : []);
   const prefix = base.replace(/^https:\/\/[^/]+\/v1\//, '') + '/platform/';
   const batch = async (ids) => { const out = {};
     for (let i = 0; i < ids.length; i += 10) {
@@ -47,15 +49,17 @@ export async function loadPlatformData(base, get, now = Date.now, opts = {}) {
       if (typeof text !== 'string' || !text) continue;
       let v; try { v = JSON.parse(text, id === 'rms8_org' ? undefined : DROP_BLOBS); } catch { bad.push(id); continue; } text = null;
       if (opts.posCredit && v && typeof v === 'object') { if (Array.isArray(v.posOrders)) v.posOrders = posCreditOnly(v.posOrders); if (Array.isArray(v.orders)) v.orders = posCreditOnly(v.orders); }
-      if (id !== 'rms8_org' && v && typeof v === 'object') Object.keys(v).forEach(k => { if (Array.isArray(v[k]) && !MCP_OPS_KEYS.has(k) && !(opts.posCredit && (k === 'posOrders' || k === 'orders' || k === 'posMonths'))) delete v[k]; });
+      if (id !== 'rms8_org' && id !== 'rms8_loy' && v && typeof v === 'object') Object.keys(v).forEach(k => { if (Array.isArray(v[k]) && !MCP_OPS_KEYS.has(k) && !keep.has(k) && !(opts.posCredit && (k === 'posOrders' || k === 'orders' || k === 'posMonths'))) delete v[k]; });
       values[id] = v; } };
   await load(['rms8_org', 'rms8_core']);
   const brs = (((values.rms8_org || {}).branches) || []).map(b => 'rms8_br_' + String((b && b.id) || '').replace(/[^\w-]/g, '_')).filter(x => x !== 'rms8_br_');
   for (const id of brs) await load([id]);   // فرع فرع — مستند واحد مفكوك في الذاكرة في كل مرة
   if (opts.posCredit) for (const id of brs) { const ms = ((values[id] || {}).posMonths) || []; const b = id.slice('rms8_br_'.length);
     for (const ym of ms) if (/^[0-9]{6}$/.test(String(ym))) await load(['rms8_pos_' + b + '_' + ym]); }
+  let loy;
+  if (opts.loy) { await load(['rms8_loy']); if (bad.includes('rms8_loy')) throw new Error('تعذّرت قراءة دفتر الولاء كاملًا'); loy = values.rms8_loy || { members: {}, tx: [] }; delete values.rms8_loy; }
   if (bad.length) console.error('mcp: مستندات لم تُقرأ كاملة:', bad.join(','));
-  const L = composeLogical(values); return { org: L.org || {}, ops: L.ops || {}, _at: new Date(now()).toISOString() };
+  const L = composeLogical(values); return { org: L.org || {}, ops: L.ops || {}, ...(opts.loy ? { loy } : {}), _at: new Date(now()).toISOString() };
 }
 
 
