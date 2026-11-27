@@ -12,6 +12,7 @@ import { loyPiiOn, loyPiiPlan, loyPiiCopy, loyPiiStrip, lypReleaseOk } from '../
 import { eclOn, eclAccs, eclAllowOk } from '../../App.jsx';
 import { budVOn, ppOn } from '../../App.jsx';   // v56.41 الدفعة 6
 import { impOn, impAccOk, impLossOk } from '../../App.jsx';   // v56.43 الدفعة 10
+import { depBrRanges, depBrFrom, depBrToggle } from '../../App.jsx';   // v56.48 توزيع الإهلاك على الفروع
 import { lrUnpaidOn } from '../../App.jsx';   // v56.44 الدفعة 9   // v56.40 الدفعة 7 (E6)   // v56.37 فصل أسماء عملاء الولاء
 import { grrOn, mkcCompare, lytCompare, grrLoad, grrSeed, grrState, mkmOn, mkmCompare, mkmViolations, mkmSeed, mkmSrcOn } from '../../App.jsx';
 import { posGlOpen, posGlRanges, posGlCheck } from '../../App.jsx';
@@ -334,6 +335,7 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
       <EclCfgCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <Batch6Card org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <ImpairCfgCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
+      <DepBrCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <LateRetCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <DsRouteCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <DsPreCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
@@ -696,6 +698,30 @@ function ImpairCfgCard({ org, commitOrg, say, isAdm }) {
       {isAdm && on && <button className="btn sm gh" onClick={() => save()}>حفظ الحسابين</button>}
       {isAdm && <button className={'btn sm ' + (on ? 'gh' : 'pri')} onClick={() => save(!on)} data-impcfg-toggle>{on ? 'إيقاف' : 'تفعيل'}</button>}
     </div>
+  </div>);
+}
+
+/* v56.48 — توزيع الإهلاك وهبوط القيمة على الفروع (قرار المجلس): سجل نطاقات بالأشهر لا يُمحى، يسري من الشهر الجاري غير المقفل */
+function DepBrCard({ org, commitOrg, say, isAdm }) {
+  const from = depBrFrom(org), rs = depBrRanges(org);
+  const funded = (org.assets || []).filter(a => !a.disposedDate && Number(a.cost) > 0 && a.fund && a.fund !== 'none');
+  const withBr = funded.filter(a => a.branchId).length;
+  const toggle = async () => { if (!isAdm) return; const m0 = today().slice(0, 7);
+    const pre = depBrToggle(org, m0, nowISO()); if (pre.err) return say(pre.err, 'no');
+    if (pre.on && !window.confirm('توزيع الإهلاك على الفروع من شهر ' + m0 + ': إهلاك كل أصل له مركز تكلفة فرع يُقيَّد في قيد لفرعه، والباقي في قيد المركز الرئيسي، والإجمالي نفسه. الأشهر السابقة وتقارير الفروع الماضية كما هي.')) return;
+    let err = ''; const ok = await commitOrg(o => { const r = depBrToggle(o, m0, nowISO()); if (r.err) { err = r.err; return o; } return { ...o, depBranch: { ...(o.depBranch || {}), ranges: r.ranges } }; },
+      { actionType: 'settings', targetType: 'system_settings', targetId: 'depBranch.ranges', title: from ? 'أوقف توزيع الإهلاك على الفروع' : 'فعّل توزيع الإهلاك على الفروع', details: from ? 'حتى ' + m0 : 'من ' + m0 });
+    if (err) return say(err, 'no'); if (ok) say(from ? 'أُوقف — ما بعد ' + m0 + ' على المركز الرئيسي' : 'فُعّل من ' + m0 + ' ✓'); };
+  return (<div className="card" data-depbr>
+    <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />توزيع الإهلاك وهبوط القيمة على الفروع</div>
+      <span className={'badge ' + (from ? 'b-sky' : 'b-dim')} data-depbr-st>{from ? 'مفعّل من ' + from : 'غير مفعّل'}</span></div>
+    <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
+      بقرار المجلس: من شهر التفعيل يُقسَم قيد الإهلاك الشهري بحسب مركز تكلفة الأصل — الأصل الذي له فرع يُقيَّد إهلاكه في قيد لذلك الفرع فيظهر في قائمة دخل الفرع، والأصول بلا فرع تبقى في قيد المركز الرئيسي، والإجمالي لا يتغير. وقيد هبوط القيمة واستبعاد الأصل بعد التفعيل يحملان فرع الأصل كذلك.
+      يسري من الشهر الجاري فقط (ولا يُفعَّل في فترة مقفلة)، فلا يتغير قيد إهلاك شهر سابق ولا تقارير الفروع الماضية. الإيقاف يغلق النطاق ولا يمحوه.
+      <div style={{ color: 'var(--amber)' }} data-depbr-hint>قبل التفعيل عبّئ «مركز التكلفة» لكل أصل من «المحاسبة ← الأصول والإهلاك» (تعديل الأصل) — الأصل بلا مركز تكلفة يبقى على المركز الرئيسي. الأصول المرسملة القائمة: {funded.length}، منها بمركز تكلفة فرع: {withBr}.</div>
+      {rs.length > 0 && <div data-depbr-ranges>السجل: {rs.map(r => r.from + (r.to ? ' ← ' + r.to : ' ← مستمر')).join(' · ')}</div>}
+    </div>
+    {isAdm && <button className={'btn sm ' + (from ? 'gh' : 'pri')} onClick={toggle} data-depbr-toggle>{from ? 'إيقاف' : 'تفعيل'}</button>}
   </div>);
 }
 

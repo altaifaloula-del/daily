@@ -3075,7 +3075,7 @@ function buildAccounting(org, ops) {
   const ymAdd = (ym, k) => { const pr = ym.split('-').map(Number); const t = pr[0] * 12 + (pr[1] - 1) + k; return String(Math.floor(t / 12)).padStart(4, '0') + '-' + String((t % 12) + 1).padStart(2, '0'); };
   const nowYm = today().slice(0, 7);
   const FUND_AR = { '1101': 'من الخزينة الرئيسية', '1201': 'من البنك', '3101': 'قيد افتتاحي (رصيد سابق)', none: '' };
-  const depByMonth = {};
+  const depByMonth = {}, depByBr = {};   // v56.48: depByBr[شهر][فرع] — إهلاك أصول الفروع داخل نطاق التوزيع (org.depBranch)
   const assetRows = (org.assets || []).map(a => {
     const cost = Number(a.cost) || 0;
     const nM = Math.max(1, Math.round((Number(a.lifeYears) || 0) * 12));
@@ -3096,14 +3096,16 @@ function buildAccounting(org, ops) {
         if (ym > nowYm) break;
         if (dispYm && ym >= dispYm) break;                 // لا إهلاك في شهر الاستبعاد وما بعده
         const amt = plan[k].amt; if (!(amt > 0)) continue;
-        depByMonth[ym] = Math.round(((depByMonth[ym] || 0) + amt) * 100) / 100;
+        const dBr = depBrOf(org, a, ym);                    // v56.48 (قرار المجلس): أصل له مركز تكلفة فرع داخل النطاق ⇒ قيد الفرع
+        if (dBr) { const o = depByBr[ym] || (depByBr[ym] = {}); o[dBr] = Math.round(((o[dBr] || 0) + amt) * 100) / 100; }
+        else depByMonth[ym] = Math.round(((depByMonth[ym] || 0) + amt) * 100) / 100;
         accum = Math.round((accum + amt) * 100) / 100; monthsDone++;
       }
     }
     // v56.43 (E8): قيود الهبوط وعكسه المعتمدة، ورصيد الهبوط لكل حساب مجمع
     const impBy = {}; let impBal = 0;
     aImps.forEach(x => { const v = impR2(x.amount); const s = x.kind === 'rev' ? -1 : 1; impBal = impR2(impBal + s * v); impBy[x.accAcc] = impR2((impBy[x.accAcc] || 0) + s * v);
-      /* (قرار المجلس) على المركز الرئيسي كالإهلاك المجمّع — فلا تتحمل قائمة الفرع الهبوط دون إهلاكه */ push({ id: 'imp:' + x.id, date: x.date, title: (x.kind === 'rev' ? 'عكس هبوط قيمة أصل — ' : 'هبوط قيمة أصل — ') + (a.name || '') + (x.no ? ' (' + x.no + ')' : ''),
+      /* (قرار المجلس) على المركز الرئيسي كالإهلاك المجمّع — فلا تتحمل قائمة الفرع الهبوط دون إهلاكه */ push({ id: 'imp:' + x.id, date: x.date, ...(depBrOf(org, a, x.date) ? { branchId: depBrOf(org, a, x.date) } : {}) /* v56.48: داخل نطاق التوزيع بفرع الأصل */, title: (x.kind === 'rev' ? 'عكس هبوط قيمة أصل — ' : 'هبوط قيمة أصل — ') + (a.name || '') + (x.no ? ' (' + x.no + ')' : ''),
         src: 'الأصول الثابتة', ref: a.id, lines: x.kind === 'rev' ? [L(x.accAcc, v, 0), L(x.lossAcc, 0, v)] : [L(x.lossAcc, v, 0), L(x.accAcc, 0, v)] }); });
     const book = Math.round((cost - accum - impBal) * 100) / 100;
     // بيع/استبعاد الأصل: إخراجه بالتكلفة + إقفال مجمّع إهلاكه، والفرق مع سعر البيع ربح (4201) أو خسارة (5801)
@@ -3122,20 +3124,24 @@ function buildAccounting(org, ops) {
       if (gain > 0.005) lines.push(L('4201', 0, gain));          // ربح بيع
       else if (gain < -0.005) lines.push(L('5801', -gain, 0));   // خسارة بيع/استبعاد
       push({
-        id: 'disp:' + a.id, date: a.disposedDate.slice(0, 10),
+        id: 'disp:' + a.id, date: a.disposedDate.slice(0, 10), ...(depBrOf(org, a, a.disposedDate) ? { branchId: depBrOf(org, a, a.disposedDate) } : {}),   // v56.48
         title: 'بيع/استبعاد أصل — ' + (a.name || '') + (gain > 0.005 ? ' (ربح ' + money(gain) + ')' : gain < -0.005 ? ' (خسارة ' + money(-gain) + ')' : ' (بلا ربح/خسارة)'),
         src: 'الأصول الثابتة', ref: a.id, lines
       });
     }
     return { ...a, cost, nM, monthly: Math.floor(cost / nM * 100) / 100, accum, impBal, book, monthsDone, done: monthsDone >= nM, disposed, gain, salePrice };
   });
-  Object.keys(depByMonth).sort().forEach(ym => {
-    if (depByMonth[ym] <= 0) return;
-    push({
-      id: 'dep:' + ym, date: ym + '-28', title: 'إهلاك شهر ' + ym + ' (قسط ثابت — كل الأصول)',
+  [...new Set([...Object.keys(depByMonth), ...Object.keys(depByBr)])].sort().forEach(ym => {
+    const split = depBrAt(org, ym);
+    if (depByMonth[ym] > 0) push({
+      id: 'dep:' + ym, date: ym + '-28', title: 'إهلاك شهر ' + ym + (split ? ' (قسط ثابت — أصول المركز الرئيسي)' : ' (قسط ثابت — كل الأصول)'),
       src: 'الأصول الثابتة', ref: 'dep-' + ym,
       lines: [L('5701', depByMonth[ym], 0), L('1791', 0, depByMonth[ym])]
     });
+    // v56.48: قيد لكل فرع dep:<شهر>:<فرع> — نفس الحسابين، والإجمالي = إجمالي الشهر قبل التقسيم
+    Object.keys(depByBr[ym] || {}).sort().forEach(b => { const v = depByBr[ym][b]; if (!(v > 0)) return;
+      push({ id: 'dep:' + ym + ':' + b, date: ym + '-28', branchId: b, title: 'إهلاك شهر ' + ym + ' (قسط ثابت — أصول ' + (((org.branches || []).find(x => x.id === b) || {}).name || b) + ')',
+        src: 'الأصول الثابتة', ref: 'dep-' + ym, lines: [L('5701', v, 0), L('1791', 0, v)] }); });
   });
 
   // v56.21 (E3) — إعادة تقييم شهرية لذمم الموردين بالعملات، وقيد عكسي أول الشهر التالي
@@ -4027,7 +4033,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.47';
+const APP_VER = 'v56.48';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -13014,6 +13020,48 @@ function impApprove(org, d, id, me, A) {
   return { next: { ...d, impairDocs: (d.impairDocs || []).map(y => y.id === id ? { ...y, status: 'approved', approvedBy: me.name, approvedById: me.id || '', approvedAt: nowISO(), lossAcc: ac.loss, accAcc: ac.acc } : y) } };
 }
 export { impOn, impAccs, impAccOk, impLossOk, assetDepPlan, assetBookOn, impCheck, impApprove };   // v56.43 الدفعة 10 (E8)
+/* ===== v56.48 — توزيع الإهلاك وهبوط القيمة على الفروع (قرار المجلس بتفويض المالك؛ معطّل افتراضيًا) =====
+   org.depBranch = { ranges: [{ from: 'YYYY-MM', to?: 'YYYY-MM', at, offAt? }] } — سجل نطاقات بالأشهر لا يُمحى (الإيقاف يغلق النطاق).
+   داخل النطاق: إهلاك الأصل الذي له مركز تكلفة فرع (asset.branchId) يُقيَّد في dep:<شهر>:<فرع> بفرعه، والأصول بلا فرع في dep:<شهر> كما هي؛
+   وقيد الهبوط imp: (بتاريخ المستند) والاستبعاد disp: (بتاريخه) يحملان فرع الأصل. خارج النطاق كل شيء كما كان حرفيًا.
+   التفعيل يسري من الشهر الجاري فقط وبشرط ألا يكون مقفلًا — فلا يتغير قيد إهلاك شهر سابق ولا تقارير الفروع الماضية. */
+const depBrRanges = (org) => ((org && org.depBranch && org.depBranch.ranges) || []).filter(r => r && /^\d{4}-\d{2}$/.test(String(r.from || '')));
+const depBrAt = (org, d) => { const m = String(d || '').slice(0, 7); return !!m && depBrRanges(org).some(r => m >= r.from && (!r.to || m <= String(r.to).slice(0, 7))); };
+const depBrFrom = (org) => (depBrRanges(org).find(r => !r.to) || {}).from || '';
+/** v56.48 (قرار المالك: نقل الأصل بين الفروع «من شهر النقل فصاعدًا»): سجل مركز تكلفة الأصل asset.brHist = [{ from: 'YYYY-MM', branchId }] ('' = المركز الرئيسي).
+ *  المركز في شهر = آخر إدخال from ≤ الشهر (وقبل أول إدخال: الأول)؛ والأصل بلا سجل ⇒ asset.branchId الحالي كما كان (توافق رجعي). */
+function assetBrAt(a, ym) {
+  const h = (Array.isArray(a && a.brHist) ? a.brHist : []).filter(x => x && /^\d{4}-\d{2}$/.test(String(x.from || ''))).slice().sort((x, y) => x.from.localeCompare(y.from));
+  if (!h.length) return String((a && a.branchId) || '');
+  const m = String(ym || '').slice(0, 7); let r = h[0]; h.forEach(x => { if (x.from <= m) r = x; }); return String(r.branchId || '');
+}
+/** فرع قيد الأصل في تاريخ/شهر: مركز الأصل في ذلك الشهر داخل النطاق، وإلا '' (المركز الرئيسي) */
+const depBrOf = (org, a, d) => (a && depBrAt(org, d) ? assetBrAt(a, d) : '');
+/** حفظ مركز تكلفة الأصل من شاشة الأصول (دالة نقية): يعيد { brHist? } أو { err }.
+ *  إن تغيّر المركز وكان للتوزيع نطاق (أو للأصل سجل): إدخال من الشهر الجاري غير المقفل، ويُحفظ أولًا القديم من شهر الشراء إن لم يوجد سجل — فلا تتغير الأشهر السابقة. */
+function assetBrSave(org, prev, nextBr, nowYm) {
+  const nx = String(nextBr || ''), h0 = (prev && Array.isArray(prev.brHist)) ? prev.brHist.map(x => ({ ...x })) : null;
+  if (!prev) return {};
+  if (String(prev.branchId || '') === nx || (!h0 && !depBrRanges(org).length)) return h0 ? { brHist: h0 } : {};
+  const m0 = String(nowYm || '').slice(0, 7); if (!/^\d{4}-\d{2}$/.test(m0)) return { err: 'شهر غير صالح' };
+  if (periodLocked(org, m0 + '-01')) return { err: 'الشهر ' + m0 + ' مقفل — لا يُنقل الأصل بين مراكز التكلفة في فترة مقفلة' };
+  const bm = String(prev.buyDate || '').slice(0, 7) || '0000-01';
+  const h = h0 || [{ from: bm < m0 ? bm : m0, branchId: String(prev.branchId || '') }];
+  if (h.some(x => String(x.from) > m0)) return { err: 'في سجل مركز التكلفة نقل بعد ' + m0 };
+  const last = h[h.length - 1]; if (last.from === m0) last.branchId = nx; else h.push({ from: m0, branchId: nx });   // تغيير ثانٍ في الشهر نفسه يستبدل إدخاله
+  return { brHist: h };
+}
+/** تفعيل/إيقاف (دالة نقية): يعيد { ranges } أو { err } — التفعيل من الشهر الجاري غير المقفل، ولا إعادة تفعيل في شهر أُوقف فيه */
+function depBrToggle(org, nowYm, at) {
+  const m0 = String(nowYm || '').slice(0, 7); if (!/^\d{4}-\d{2}$/.test(m0)) return { err: 'شهر غير صالح' };
+  const rs = depBrRanges(org).map(r => ({ ...r })); const open = rs.find(r => !r.to);
+  if (open) { open.to = m0 < open.from ? open.from : m0; open.offAt = at || ''; return { ranges: rs, on: false }; }
+  if (periodLocked(org, m0 + '-01')) return { err: 'الشهر ' + m0 + ' مقفل — لا يُفعَّل التوزيع في فترة مقفلة' };
+  const lastTo = rs.reduce((a, r) => (r.to && r.to > a ? r.to : a), '');
+  if (lastTo && m0 <= lastTo) return { err: 'أُوقف التوزيع هذا الشهر — يُعاد التفعيل من الشهر التالي' };
+  rs.push({ from: m0, at: at || '' }); return { ranges: rs, on: true };
+}
+export { depBrRanges, depBrAt, depBrFrom, depBrOf, depBrToggle, assetBrAt, assetBrSave };   // v56.48
 function deprSchedule(a) {
   const cost = Number(a && a.cost) || 0, salv = Math.min(cost, Math.max(0, Number(a && a.salvage) || 0)), D = Math.round((cost - salv) * 100) / 100;
   const nM = Math.max(1, Math.round((Number(a && a.lifeYears) || 0) * 12)), m = depMethod(a), out = [];
