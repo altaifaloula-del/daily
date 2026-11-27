@@ -4062,7 +4062,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.54';
+const APP_VER = 'v56.55';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -4122,6 +4122,7 @@ export { FL_START, flOn, flKey, flNo, flLines, flRecord, flScope, flCompare, flL
 export { FL_GROUPS, flLvl, flGroupOf, flUnclassified, flReversalOf, flCorrect };   // v56.11 D3
 export { flReadOn, flEntriesOf, flBalDiff, flDayBefore };   // v56.14 D4
 export { ctlBarOn };
+export { AI_INV_ROLES, AI_INV_FIELDS, AI_INV_FIELD_AR, aiInvOn, aiInvCheck, aiInvSim, aiInvEdited };   // v56.55 البند F — قراءة فاتورة المورد كمقترح
 export { mktCtlOn, mktCanExport, mktCanExportAll, mktUndoPending };   // v56.35
 export { loyMonthAdj, posLoyOpening, posMisLoyRanges, posMisLoyFrom, posMisLoyAt, posGlNote };   // v56.33
 export { cvLive, cvApprRanges, cvApprAt, cvApprOpenFrom, cvNeedsAppr, cvApprove };   // v56.32
@@ -11905,6 +11906,63 @@ const nextItemCode = (items) => { let mx = 0; itemsSeq(items).forEach(it => { co
 // v44.1 — الرقم الضريبي السعودي: 15 رقمًا يبدأ وينتهي بـ 3 (إلزامي لمورد الفاتورة الضريبية — قرار المالك)
 const vatNoOk = (v) => /^3\d{13}3$/.test(String(v || '').replace(/\s/g, ''));
 const supVatOf = (org, supplierId) => { const sp = (org.suppliers || []).find(x => x.id === supplierId) || {}; return String(sp.vatNo || sp.tax || '').replace(/\s/g, ''); };
+/* v56.55 — البند F: قراءة فاتورة المورد بالذكاء الاصطناعي كـ«مقترح» (docs/finance/07-AI-INVOICE-READ.md).
+   aiInvCheck نقية وحتمية: تفحص ما قرأه الذكاء الاصطناعي مقابل بيانات المنشأة ولا تحفظ شيئًا.
+   • المورد يُطابَق برقمه الضريبي المطابق تمامًا (أرقام فقط) وحده؛ غير ذلك قائمة مرشّحين بتشابه الاسم — لا اختيار آلي ولا إنشاء مورد.
+   • التحذيرات للمراجعة البشرية فقط؛ الحفظ يمر بفحوص النموذج القائمة نفسها (الرقم الضريبي، الرقم المكرر، طريقة الدفع، الإقفال…). */
+const AI_INV_ROLES = ['head_office', 'system_admin', 'general_management', 'finance_department'];   // من يفتح نموذج «فاتورة توريد جديدة» (المشتريات، النطاق الكامل، غير «عرض فقط») — نسخة الخادم في server-aiinv.js واختبار انجراف
+const AI_INV_FIELDS = ['supplierName', 'supplierVatNo', 'invoiceNo', 'date', 'currency', 'subtotal', 'vat', 'total'];
+const AI_INV_FIELD_AR = { supplierName: 'اسم المورد', supplierVatNo: 'الرقم الضريبي للمورد', invoiceNo: 'رقم الفاتورة', date: 'التاريخ', currency: 'العملة', subtotal: 'الصافي قبل الضريبة', vat: 'الضريبة', total: 'الإجمالي', lines: 'البنود' };
+const aiInvOn = (org) => !!(((org || {}).purchaseCfg) || {}).aiRead;
+const aiInvNum = (v) => { if (typeof v === 'string') v = normDigits(v).replace(/[,\s]/g, ''); if (v === '' || v == null || typeof v === 'boolean') return null; const n = Number(v); return isFinite(n) && Math.abs(n) < 1e10 ? Math.round(n * 100) / 100 : null; };
+const aiInvStr = (v, max = 200) => (typeof v === 'string' || typeof v === 'number') ? (String(v).trim().slice(0, max) || null) : null;
+const aiInvName = (s) => String(s || '').toLowerCase().replace(/[ً-ٰٟـ]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+const aiInvSim = (a, b) => { const A = aiInvName(a), B = aiInvName(b); if (!A || !B) return 0; if (A === B) return 1;
+  const ta = A.split(' ').map(w => w.replace(/^ال(?=..)/, '')), tb = B.split(' ').map(w => w.replace(/^ال(?=..)/, '')); const sb = new Set(tb);
+  const common = [...new Set(ta)].filter(w => sb.has(w)).length; const s = common / Math.max(new Set(ta).size, sb.size);
+  return Math.round(Math.max(s, (A.includes(B) || B.includes(A)) ? 0.8 : 0) * 100) / 100; };
+function aiInvCheck(read, ctx) {
+  const r = read && typeof read === 'object' && !Array.isArray(read) ? read : {}; const c = ctx && typeof ctx === 'object' ? ctx : {};
+  const cur0 = aiInvStr(r.currency, 10); const curU = cur0 ? cur0.toUpperCase().replace(/\s/g, '') : null;
+  const cur = curU && ['SAR', 'SR', 'ر.س', 'رس', 'ريال', 'ريالسعودي'].includes(curU) ? 'SAR' : curU;
+  const d0 = aiInvStr(r.date, 10); const date = d0 && /^\d{4}-\d{2}-\d{2}$/.test(d0) && (() => { const t = new Date(d0 + 'T12:00:00Z'); return !isNaN(t) && t.toISOString().slice(0, 10) === d0; })() ? d0 : null;
+  const vatDigits = (normDigits(aiInvStr(r.supplierVatNo, 30) || '').replace(/\D/g, '')) || null;
+  const lines = (Array.isArray(r.lines) ? r.lines : []).slice(0, 100).filter(l => l && typeof l === 'object')
+    .map(l => ({ desc: aiInvStr(l.desc, 200), qty: aiInvNum(l.qty), price: aiInvNum(l.price), amount: aiInvNum(l.amount) }));
+  const conf = {}; const cf = r.confidence && typeof r.confidence === 'object' ? r.confidence : {};
+  [...AI_INV_FIELDS, 'lines'].forEach(k => { const v = Number(cf[k]); if (cf[k] != null && cf[k] !== '' && isFinite(v)) conf[k] = Math.min(1, Math.max(0, v)); });
+  const fields = { supplierName: aiInvStr(r.supplierName, 200), supplierVatNo: vatDigits, invoiceNo: aiInvStr(r.invoiceNo, 60), date, currency: cur,
+    subtotal: aiInvNum(r.subtotal), vat: aiInvNum(r.vat), total: aiInvNum(r.total), lines, confidence: conf, notes: aiInvStr(r.notes, 500) };
+  const sups = (Array.isArray(c.suppliers) ? c.suppliers : []).filter(s => s && s.id && s.active !== false);
+  const W = []; const w = (code, text) => W.push({ code, text });
+  // المطابقة بالرقم الضريبي التام وحده
+  const byVat = vatDigits ? sups.filter(s => String(s.vatNo || s.tax || '').replace(/\D/g, '') === vatDigits) : [];
+  const supplierId = byVat.length === 1 ? byVat[0].id : null;
+  const cands = byVat.length > 1 ? byVat.map(s => ({ id: s.id, name: s.name || '', score: 1, byVat: true }))
+    : supplierId ? [] : sups.map(s => ({ id: s.id, name: s.name || '', score: aiInvSim(fields.supplierName, s.name) })).filter(x => x.score >= 0.34)
+      .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name) || String(a.id).localeCompare(String(b.id))).slice(0, 5);
+  if (!AI_INV_FIELDS.some(k => fields[k] != null) && !lines.length) w('empty', 'لم يُقرأ شيء من الصورة — أدخل الفاتورة يدويًا');
+  if (byVat.length > 1) w('vat_multi', 'أكثر من مورد بالرقم الضريبي نفسه — اختر المورد يدويًا');
+  else if (!supplierId && (fields.supplierName || vatDigits)) w('supplier_unmatched', 'لم يُطابَق المورد برقمه الضريبي — اختره يدويًا (لا يُنشأ مورد تلقائيًا)');
+  if (vatDigits && !vatNoOk(vatDigits)) w('vat_no_invalid', 'الرقم الضريبي المقروء غير صالح (15 رقمًا يبدأ وينتهي بـ 3): ' + vatDigits);
+  const { subtotal: st, vat, total } = fields;
+  if (st != null && vat != null && total != null && Math.abs(st + vat - total) > 0.05) w('sum_mismatch', 'الصافي + الضريبة (' + money(st + vat) + ') لا يساوي الإجمالي (' + money(total) + ')');
+  const rate = c.taxRate != null && isFinite(Number(c.taxRate)) ? Number(c.taxRate) : 15;
+  if (c.taxOn !== false && st != null && vat != null) { const exp = Math.round(st * rate) / 100;
+    if (Math.abs(vat - exp) > Math.max(0.05, Math.abs(exp) * 0.005)) w('vat_rate', 'الضريبة المقروءة ' + money(vat) + ' لا تساوي ' + rate + '% من الصافي (' + money(exp) + ')'); }
+  const td = String(c.today || '').slice(0, 10);
+  if (date && td && date > td) w('future_date', 'تاريخ الفاتورة ' + date + ' بعد اليوم');
+  if (date && periodLocked({ periodLocks: { lockedThrough: String(c.lockedThrough || '') } }, date)) w('locked_period', 'تاريخ الفاتورة في فترة مقفلة (حتى ' + c.lockedThrough + ') — لن يُقبل الحفظ');
+  if (supplierId && fields.invoiceNo) { const k0 = purKey({ supplierId, invoiceNo: fields.invoiceNo }); const o = k0 && (Array.isArray(c.invoices) ? c.invoices : []).find(i => i && purKey(i) === k0);
+    if (o) w('dup_invoice', 'رقم الفاتورة ' + fields.invoiceNo + ' مسجّل لهذا المورد' + (o.date ? ' بتاريخ ' + String(o.date).slice(0, 10) : '')); }
+  if (cur && cur !== 'SAR') w('currency', 'عملة الفاتورة ' + cur + ' ليست الريال السعودي');
+  const low = Object.keys(conf).filter(k => conf[k] < 0.6); if (low.length) w('low_conf', 'ثقة منخفضة في: ' + low.map(k => AI_INV_FIELD_AR[k] || k).join('، '));
+  if (st != null && lines.length) { const amts = lines.map(l => l.amount != null ? l.amount : (l.qty != null && l.price != null ? Math.round(l.qty * l.price * 100) / 100 : null));
+    if (amts.every(a => a != null)) { const s = Math.round(amts.reduce((a, b) => a + b, 0) * 100) / 100; if (Math.abs(s - st) > 0.05) w('lines_sum', 'مجموع البنود (' + money(s) + ') لا يساوي الصافي (' + money(st) + ')'); } }
+  return { fields, supplierId, supplierCandidates: cands, warnings: W };
+}
+/** حقول النموذج المقترحة التي عُدّلت بعد التطبيق (للسجل aiRead.edited) — vals قيم التطبيق، cur القيم عند الحفظ */
+const aiInvEdited = (applied, vals, cur) => (Array.isArray(applied) ? applied : []).filter(k => String(((vals || {})[k]) ?? '') !== String(((cur || {})[k]) ?? ''));
 /** اختيار صنف من الأصناف المضافة مرتّبة بالرمز التسلسلي — بحث بالرمز أو الاسم أو الباركود (المسح بالماسح يختار مباشرة) */
 // v45.2 — قراءة المسح بأي صيغة: الأرقام العربية-الهندية (٠١٢…) والفارسية (۰۱۲…) تُحوَّل للأرقام الإنجليزية،
 //   وإن كانت لوحة مفاتيح الجهاز عربية فالقارئ يكتب حروفًا عربية مكان الإنجليزية (P ⇐ «ح») — تُعاد لحروفها حسب تخطيط لوحة المفاتيح العربية القياسي.
