@@ -1425,7 +1425,7 @@ function leaveBalance(org, ops, e, D) {
   (ops.leaveRequests || []).filter(r => r.employeeId === e.id && r.status === 'approved' && r.type === 'annual' && (!op || r.from > op.date)).forEach(r => {
     if (r.from > D) return; used += lvDays(r.from, r.to < D ? r.to : D); });
   // v56.13 (قرار المالك): أيام التأخر عن المباشرة بعد إجازة (أي نوع) تُخصم من رصيد الإجازات السنوية بعد اعتماد المركز
-  (ops.leaveRequests || []).forEach(r => { const x = r.ret; if (r.employeeId !== e.id || r.status !== 'approved' || !x || x.status !== 'approved' || !(x.lateDays > 0) || (op && r.from <= op.date) || x.date > D) return; used += x.lateDays; });
+  (ops.leaveRequests || []).forEach(r => { const x = r.ret; if (r.employeeId !== e.id || r.status !== 'approved' || !x || x.status !== 'approved' || !(x.lateDays > 0) || (op && r.from <= op.date) || x.date > D) return; used += (x.lateBal != null ? Number(x.lateBal) || 0 : x.lateDays); });   // v56.44 H1: ما زاد على الرصيد غياب بلا أجر لا يُخصم من الرصيد
   const r2 = (n) => Math.round(n * 100) / 100;
   const yrs = e.hireDate ? eosYears(e.hireDate, D) : 0;
   return { ok: true, accrued: r2(accrued), used, balance: r2(accrued - used), rate: yrs >= 5 ? C.after5 : C.annual };
@@ -1440,6 +1440,25 @@ function lvReturnPlan(r, date) {
   if (date < due) return { kind: 'early', lastDay: lvAddD(date, -1), lateDays: 0, due };
   return { kind: 'late', lastDay: r.to, lateDays: lvDays(due, lvAddD(date, -1)), due };
 }
+/* v56.44 — الدفعة 9 (قرار المجلس H1 بتفويض المالك: «اترك المستشار يوضحها ويقوم بما يتناسب مع نظام العمل ولوائحه») — معطّل افتراضيًا (org.lateRet.unpaid):
+   أيام التأخر عن المباشرة تُخصم من رصيد السنوية بقدر المتاح (قرار المالك v56.13)، وما زاد عليه **غياب بلا أجر** بدل الرصيد السالب (الرصيد السالب إجازة مسبقة لم يوافق عليها أحد؛
+   والغياب بلا عذر مقبول بلا أجر وفق نظام العمل ولائحة تنظيم العمل النموذجية). لا خصم آلي من الراتب: يُعرض لمُعدّ الرواتب ليراجعه؛ وتنبيه عند 15 يومًا متصلة (المادة 80 — إنذار كتابي، لا إجراء آلي). */
+const lrUnpaidOn = (org) => !!(org && org.lateRet && org.lateRet.unpaid);
+/** تقسيم أيام التأخر عند اعتماد المباشرة: من الرصيد بقدر المتاح، والباقي بلا أجر */
+function lvLateSplit(org, ops, e, r) {
+  const x = r && r.ret; const late = Number(x && x.lateDays) || 0; if (!(late > 0)) return { lateBal: 0, unpaidDays: 0 };
+  if (!lrUnpaidOn(org)) return { lateBal: late, unpaidDays: 0 };
+  const b = leaveBalance(org, ops, e, x.date); const avail = b && b.ok ? Math.max(0, Math.floor(Number(b.balance) || 0)) : 0;
+  const lateBal = Math.min(late, avail); return { lateBal, unpaidDays: late - lateBal };
+}
+/** أيام الغياب بلا أجر المعتمدة في شهر (لمراجعة مُعدّ الرواتب) — من اليوم التالي لاستنفاد الرصيد حتى اليوم السابق للمباشرة */
+function lvUnpaidFor(ops, month) {
+  const out = []; ((ops && ops.leaveRequests) || []).forEach(r => { const x = r.ret; if (r.status !== 'approved' || !x || x.status !== 'approved' || !(Number(x.unpaidDays) > 0)) return;
+    const from = lvAddD(r.to, 1 + (Number(x.lateBal) || 0)), to = lvAddD(x.date, -1); if (month && String(from).slice(0, 7) > month) return; if (month && String(to).slice(0, 7) < month) return;
+    out.push({ leaveId: r.id, employeeId: r.employeeId, employeeName: r.employeeName, branchName: r.branchName || '', from, to, days: Number(x.unpaidDays), art80: Number(x.unpaidDays) >= 15 }); });
+  return out;
+}
+export { lrUnpaidOn, lvLateSplit, lvUnpaidFor };   // v56.44 الدفعة 9 (H1)
 /** مراحل الإجازة للعرض والتتبع: الطلب ← توقيع الموظف ← القرار ← البدء ← المباشرة ← اعتمادها */
 function lvTrack(r, signDocs, td) {
   const sd = (t) => (signDocs || []).find(d => d.refId === r.id && d.docType === t && d.status !== 'voided') || null;
@@ -3852,7 +3871,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.43';
+const APP_VER = 'v56.44';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };

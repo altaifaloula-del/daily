@@ -2,6 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { Wallet, FileBarChart, ChevronDown, Printer, Check, Landmark, Banknote, Signature, Plus, TrendingDown, ShieldCheck, AlertTriangle, Users, PenLine, Receipt, Download } from 'lucide-react';
 import { ibanNorm, ibanStatus, loadIbanSigs, requestIban } from '../../App.jsx';
+import { lrUnpaidOn, lvUnpaidFor } from '../../App.jsx';   // v56.44 H1
 import { tbCss, tenantBrand } from '../../App.jsx';   // v56.0 ألوان مستندات المنشأة
 import { tbLogo } from '../../App.jsx';   // v56.0 شعار المستند من هوية المنشأة   // v40.9
 import { gosiNewSched, gosiNewAuto } from '../../App.jsx';   // v47.2
@@ -304,6 +305,7 @@ export function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, s
 
   return (
     <div className="grid" style={{ gap: 14 }}>
+      {lrUnpaidOn(org) && lvUnpaidFor(ops, month).length > 0 && <div className="note" data-pay-unpaid style={{ borderColor: 'var(--amber)' }}>غياب بلا أجر في {month} (من التأخر عن المباشرة بعد استنفاد الرصيد) — راجعه وطبّق الخصم يدويًا إن انطبق، فلا خصم آلي: {lvUnpaidFor(ops, month).map(x => x.employeeName + ' ' + x.days + ' يوم').join('، ')}</div>}
       {/* شريط التطبيق — v9.5 */}
       <div className="abar">
         <div className="abar-id"><span className="abar-ic"><Wallet size={17} /></span>الرواتب والسلف<small>مسير الرواتب · السلف والخصومات</small></div>

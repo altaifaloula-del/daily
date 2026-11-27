@@ -11,7 +11,8 @@ import { MKT_BR_CV, mktBrOn } from '../../App.jsx';
 import { loyPiiOn, loyPiiPlan, loyPiiCopy, loyPiiStrip, lypReleaseOk } from '../../App.jsx';
 import { eclOn, eclAccs, eclAllowOk } from '../../App.jsx';
 import { budVOn, ppOn } from '../../App.jsx';   // v56.41 الدفعة 6
-import { impOn, impAccOk, impLossOk } from '../../App.jsx';   // v56.43 الدفعة 10   // v56.40 الدفعة 7 (E6)   // v56.37 فصل أسماء عملاء الولاء
+import { impOn, impAccOk, impLossOk } from '../../App.jsx';   // v56.43 الدفعة 10
+import { lrUnpaidOn } from '../../App.jsx';   // v56.44 الدفعة 9   // v56.40 الدفعة 7 (E6)   // v56.37 فصل أسماء عملاء الولاء
 import { grrOn, mkcCompare, lytCompare, grrLoad, grrSeed, grrState, mkmOn, mkmCompare, mkmViolations, mkmSeed, mkmSrcOn } from '../../App.jsx';
 import { posGlOpen, posGlRanges, posGlCheck } from '../../App.jsx';
 import { loyMonthAdj, posLoyOpening, posMisLoyRanges, posMisLoyFrom, posGlNote, jeOwner, posGlFrom } from '../../App.jsx';   // v56.33 (الدفعة 2 — P1/P2)
@@ -331,6 +332,7 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
       <EclCfgCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <Batch6Card org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <ImpairCfgCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
+      <LateRetCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <DsRouteCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <CvApprCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <MktCtlCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
@@ -644,6 +646,19 @@ function PosGlCard({ org, ops, me, commit, commitOrg, say, isAdm }) {
         {lmDone && <span className="badge b-sky">مسجّلة</span>}
         {la && isAdm && !lmDone && <>{(la.occ || la.expOcc) ? <select className="sel" aria-label="حساب المصروف الترويجي" value={promoAcc} onChange={e => setPromoAcc(e.target.value)} data-loymonth-acc><option value="">— حساب المصروف الترويجي —</option>{expAccs.map(a => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}</select> : null}
           <button className="btn sm pri" onClick={lmPost} data-loymonth-post>إنشاء قيد التسوية</button></>}</div></div>
+  </div>);
+}
+
+/* v56.44 — الدفعة 9 (H1): التأخر عن المباشرة بعد استنفاد الرصيد غياب بلا أجر بدل الرصيد السالب — بقرار المجلس وفق نظام العمل ولائحة تنظيم العمل */
+function LateRetCard({ org, commitOrg, say, isAdm }) {
+  const on = lrUnpaidOn(org);
+  const flip = async () => { if (!isAdm) return; const ok = await commitOrg(o => ({ ...o, lateRet: { ...(o.lateRet || {}), unpaid: !on, at: nowISO() } }), { actionType: 'settings', targetType: 'system_settings', targetId: 'lateRet', title: on ? 'أوقف الغياب بلا أجر للتأخر عن المباشرة' : 'فعّل الغياب بلا أجر للتأخر عن المباشرة' });
+    if (ok) say(on ? 'أُوقف — يعود الخصم من الرصيد ولو صار سالبًا' : 'فُعّل ✓'); };
+  return (<div className="card" data-lrcfg>
+    <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />التأخر عن المباشرة بعد الإجازة</div><span className={'badge ' + (on ? 'b-sky' : 'b-dim')}>{on ? 'مفعّل' : 'غير مفعّل'}</span></div>
+    <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>بقرار المجلس وفق نظام العمل ولائحة تنظيم العمل النموذجية: أيام التأخر تُخصم من رصيد السنوية بقدر المتاح، وما زاد عليه <b>غياب بلا أجر</b> بدل الرصيد السالب.
+      لا خصم آلي من الراتب: يظهر في «الإجازات» و«الرواتب» ليراجعه مُعدّ الرواتب، وتنبيه عند 15 يومًا فأكثر (المادة 80 — إنذار كتابي قبل أي إجراء). إن كانت لائحتكم المعتمدة تنص على غير ذلك فأوقفه.</div>
+    {isAdm && <button className={'btn sm ' + (on ? 'gh' : 'pri')} onClick={flip} data-lrcfg-toggle>{on ? 'إيقاف' : 'تفعيل'}</button>}
   </div>);
 }
 
