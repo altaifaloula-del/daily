@@ -1,7 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useEffect } from 'react';
 import { ClipboardCheck, Printer, Lock } from 'lucide-react';
-import { posDocView, Field, Modal, Num, _xe, businessDay, money, nowISO, posOrdersStats, posPrint, posR2, posShiftHtml, posZHtml, printA4, dtLocal, posOffOn, posChainGaps, posConflicts, posConflictResolve, tabConflictMark, POS_CONFLICT_ROLES, posConflictOn, pcrWrite, pcrLoad } from '../../App.jsx';
+import { posDocView, Field, Modal, Num, _xe, businessDay, money, nowISO, posOrdersStats, posPrint, posR2, posShiftHtml, posZHtml, printA4, dtLocal, posOffOn, posChainGaps, posConflicts, posConflictResolve, tabConflictMark, POS_CONFLICT_ROLES, posConflictOn, pcrWrite, pcrLoad, pcfLoad, pcfMissing, pcfWrite } from '../../App.jsx';
 
 export function PosShifts({ org, ops, me, brs, commit, say }) {
   const [bid, setBid] = useState('all'); const [d, setD] = useState(businessDay()); const [rc, setRc] = useState(null);
@@ -41,9 +41,14 @@ export function PosShifts({ org, ops, me, brs, commit, say }) {
   // v56.56 (قرار المالك): تعارضات الفواتير بعد عودة الاتصال (مع العمل دون اتصال) — يحسمها مدير الفرع قبل الإغلاق اليومي: «إبقاء» أو «إلغاء بمرتجع»
   // v56.56 (قرار المجلس E/F): الحسم في سجل محمي للإضافة فقط (pos_conflict_res) يُقرأ منه وحده؛ التعارض المسجّل دون اتصال يبقى ظاهرًا ولو أُطفئ المفتاح
   const [resList, setResList] = useState(null); const [resVer, setResVer] = useState(0);
-  const anyConf = (ops.posTabs || []).some(t => (t.conflicts || []).length);
-  useEffect(() => { if (!anyConf) return; let on = true; pcrLoad(ids, brs.length > 1 && (me || {}).role === 'system_admin').then(L => { if (on) setResList(L); }); return () => { on = false; }; }, [anyConf, resVer, ids.join(',')]);   // eslint-disable-line react-hooks/exhaustive-deps
-  const confl = posConflicts(ops, null, null, resList).filter(c => posConflictOn(org, c) && ids.includes(c.branchId) && (bid === 'all' || c.branchId === bid) && (!c.res || c.date === d));
+  // m1: قائمة التعارضات من السجل المحمي pos_conflicts (مع تعارضات الحساب) — وما لم يُكتب بعد يُكتب هنا (مصالحة)؛ تعذّر القراءة ⇒ تنبيه
+  const offOn = posOffOn(org); const [pcf, setPcf] = useState(undefined);   // undefined = لم يُحمَّل بعد، null = تعذّرت القراءة
+  const anyConf = offOn || (ops.posTabs || []).some(t => (t.conflicts || []).length);
+  useEffect(() => { if (!anyConf) return; let on = true; const cen = brs.length > 1 && (me || {}).role === 'system_admin';
+    pcrLoad(ids, cen).then(L => { if (on) setResList(L); });
+    pcfLoad(ids, cen).then(async L => { if (!on) return; setPcf(L); if (L) { const miss = pcfMissing(ops, L, ids); if (miss.length) { for (const r of miss) await pcfWrite(r); const L2 = await pcfLoad(ids, cen); if (on && L2) setPcf(L2); } } }); return () => { on = false; }; }, [anyConf, resVer, ids.join(',')]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const pcfErr = anyConf && pcf === null;
+  const confl = posConflicts(ops, null, null, resList, pcf || []).filter(c => posConflictOn(org, c) && ids.includes(c.branchId) && (bid === 'all' || c.branchId === bid) && (!c.res || c.date === d));
   const canRes = POS_CONFLICT_ROLES.includes((me || {}).role);
   const resolve = async (c, act) => {
     const pre = posConflictResolve(ops, c.tabId, c.orderId, act, me, resList || []); if (pre.err) return say(pre.err, 'no');
@@ -57,6 +62,7 @@ export function PosShifts({ org, ops, me, brs, commit, say }) {
     <div className="grid" style={{ gap: 12 }}>
       {gaps.length > 0 && <div className="note" role="alert" data-chaingaps style={{ borderColor: 'var(--rose)' }}><b>تنبيه: {gaps.length} خلل في سلسلة فواتير نقطة البيع</b> — قد يدل على فاتورة لم تصل أو مسح لبيانات جهاز. راجعه قبل اعتماد الإغلاق.
         {gaps.slice(0, 20).map((g, i) => <div key={i} style={{ fontSize: 12, marginTop: 4 }} data-chaingap={g.kind}>{bOf(g.branchId).name} · جهاز {g.dev} · {KIND[g.kind]}: <span className="num">{g.prevNo} (#{g.prevIcv}) ← {g.no} (#{g.icv})</span></div>)}</div>}
+      {pcfErr && <div className="note" data-pcferr style={{ borderColor: 'var(--rose)' }}>تعذّر قراءة سجل تعارضات نقطة البيع المحمي — لا يُرحَّل إغلاق يوم فيه العمل دون اتصال حتى تُقرأ (تحقق من الاتصال).</div>}
       {confl.length > 0 && <div className="note" data-conflictlist style={{ borderColor: 'var(--rose)' }}><b>تعارضات فواتير بعد عودة الاتصال — يحسمها مدير الفرع قبل الإغلاق اليومي</b>
         <div className="hint">فاتورة صدرت لحساب طاولة لم تُختم عليه (دُفع الحساب أو الجزء من جهاز آخر، أو أُعيد التقسيم). «إبقاء»: الفاتورتان صحيحتان. «إلغاء بمرتجع»: بعد إصدار مرتجع كامل للفاتورة (أو إلغائها بإشعار دائن) من «المبيعات» — لا تُحذف فاتورة. لا يحسمه من أصدر الفاتورة.</div>
         {confl.map(c => <div key={c.tabId + c.orderId} className="row" data-conflict={c.orderNo} style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap', fontSize: 12.5, marginTop: 6 }}>

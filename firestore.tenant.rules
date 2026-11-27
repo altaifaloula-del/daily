@@ -497,6 +497,11 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/pos_orders/$(d.retId)).data.branchId == d.branchId
         && get(/databases/$(database)/documents/pos_orders/$(d.retId)).data.data.matches('.*"refId":"' + id + '".*');
     }
+    // m2: بريد مُصدِر الفاتورة المسجّل داخل محتوى سجلها المحمي ("byEmail":"…" — يُكتب على الفواتير الجديدة)، وإلا ''
+    function porIssuer(op) {
+      let parts = get(op).data.data.split('"byEmail":"');
+      return parts.size() > 1 ? parts[1].split('"')[0] : '';
+    }
     function pcrCreate(id, d) {
       let m = memOf();
       let adm = admOf(m);
@@ -504,8 +509,31 @@ service cloud.firestore {
       return okUser(m, adm) && pcrShape(d, id) && branchOf(m, adm, d.branchId)
         && roleIn(['branch_manager', 'system_admin'], roleOf(m), adm)
         && exists(op) && get(op).data.branchId == d.branchId && get(op).data.kind == 'sale'
-        && get(op).data.by != userEmail()
+        && get(op).data.by != userEmail() && porIssuer(op) != userEmail()   // m2: لا كاتب السجل المحمي ولا مُصدِر الفاتورة (byEmail داخل محتواه)
         && (d.act == 'keep' || get(op).data.status == 'void' || pcrRetOk(d, id));
+    }
+    /* v56.56 (قرار المجلس m1) — قائمة التعارضات نفسها سجل محمي للإضافة فقط pos_conflicts/{orderId}: يكتبه أي عضو للفرع (غير العرض فقط) متى رُصد التعارض،
+       بشرط وجود السجل المحمي للفاتورة للفرع نفسه، والكاتب = الحساب ووقت الخادم؛ لا تعديل ولا حذف — فحذف tab.conflicts من مستند الفرع لا يخفي تعارضًا. */
+    function pcfCreate(id, d) {
+      let m = memOf();
+      let adm = admOf(m);
+      let ro = m != null && m.get('role', '') in ['accountant_view'];
+      let op = /databases/$(database)/documents/pos_orders/$(id);
+      return okUser(m, adm) && (adm || !ro)
+        && d.keys().hasOnly(['branchId', 'orderId', 'tabId', 'date', 'table', 'orderNo', 'why', 'total', 'by', 'at', 'cv'])
+        && d.keys().hasAll(['branchId', 'orderId', 'tabId', 'date', 'by', 'at', 'cv'])
+        && d.branchId is string && d.branchId.matches('^[A-Za-z0-9_-]{1,80}$')
+        && id.matches('^[A-Za-z0-9_-]{1,120}$') && d.orderId == id && shortStr(d.tabId, 120)
+        && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && (!('table' in d) || shortStr(d.table, 20)) && (!('orderNo' in d) || shortStr(d.orderNo, 60)) && (!('why' in d) || shortStr(d.why, 400))
+        && (!('total' in d) || d.total is int || d.total is float)
+        && d.by == userEmail() && d.at == request.time && cvOk(d)
+        && branchOf(m, adm, d.branchId) && exists(op) && get(op).data.branchId == d.branchId;
+    }
+    match /pos_conflicts/{id} {
+      allow read: if sigRead(resource.data.branchId);
+      allow create: if subOk() && (pcfCreate(id, request.resource.data));
+      allow update, delete: if false;
     }
     match /pos_conflict_res/{id} {
       allow read: if sigRead(resource.data.branchId);

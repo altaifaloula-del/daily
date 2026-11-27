@@ -433,3 +433,37 @@ test('v56.56 (قرار المجلس E) حسم تعارضات نقطة البيع
   await assertSucceeds(getDoc(doc(as('fin'), 'pos_conflict_res', 'pc1')));
   await assertFails(getDoc(doc(as('bmB'), 'pos_conflict_res', 'pc1')), 'فرع آخر لا يقرأ');
 });
+
+test('v56.56 (قرار المجلس m1) قائمة التعارضات المحمية pos_conflicts: أي عضو للفرع بسجل فاتورة محمي للفرع نفسه، للإضافة فقط', async () => {
+  const po = (by, x = {}) => ({ branchId: 'A', date: '2026-11-26', kind: 'sale', status: 'paid', no: 'ف1-Y', dev: 'AB', total: 50, vat: 6.52, digest: HEX, data: '{"id":"y"}', by: U[by], at: Timestamp.now(), cv: 400000, ...x });
+  await env.withSecurityRulesDisabled(async (ctx) => { const d = ctx.firestore(); await setDoc(doc(d, 'pos_orders', 'cf1'), po('cash')); await setDoc(doc(d, 'pos_orders', 'cf2'), po('cash')); await setDoc(doc(d, 'pos_orders', 'cfB'), po('bmB', { branchId: 'B' })); });
+  const rec = (k, oid, x = {}) => ({ branchId: 'A', orderId: oid, tabId: 't1', date: '2026-11-26', table: '5', orderNo: 'ف1-Y', why: 'الحساب لم يعد مفتوحًا', total: 50, by: U[k], at: serverTimestamp(), cv: 400000, ...x });
+  const put = (k, oid, x) => setDoc(doc(as(k), 'pos_conflicts', oid), rec(k, oid, x));
+  await assertFails(put('view', 'cf1'), 'العرض فقط لا يكتب');
+  await assertFails(put('bmB', 'cf1'), 'عضو فرع آخر');
+  await assertFails(put('cash', 'cfB', { branchId: 'B' }), 'فرع ليس فرعه');
+  await assertFails(put('cash', 'cf1', { branchId: 'B' }), 'فرع لا يطابق سجل الفاتورة');
+  await assertFails(put('cash', 'cfX'), 'بلا سجل محمي للفاتورة');
+  await assertFails(put('cash', 'cf1', { by: U.bm }), 'باسم غيره');
+  await assertFails(put('cash', 'cf1', { at: Timestamp.now() }), 'وقت من الجهاز');
+  await assertFails(put('cash', 'cf1', { extra: 1 }), 'حقل غير متوقع');
+  await assertSucceeds(put('cash', 'cf1'), 'الكاشير يسجّل التعارض لفرعه');
+  await assertSucceeds(put('bm', 'cf2'), 'المدير كذلك');
+  await assertFails(setDoc(doc(as('cash'), 'pos_conflicts', 'cf1'), rec('cash', 'cf1', { why: 'تغيير' })), 'لا استبدال');
+  await assertFails(updateDoc(doc(as('bm'), 'pos_conflicts', 'cf1'), { why: 'x' }), 'لا تعديل');
+  await assertFails(deleteDoc(doc(as('bm'), 'pos_conflicts', 'cf1')), 'لا حذف');
+  await assertFails(deleteDoc(doc(as('owner'), 'pos_conflicts', 'cf1')), 'ولا للمدير');
+  await assertSucceeds(getDoc(doc(as('cash'), 'pos_conflicts', 'cf1'))); await assertSucceeds(getDoc(doc(as('fin'), 'pos_conflicts', 'cf1')));
+  await assertFails(getDoc(doc(as('bmB'), 'pos_conflicts', 'cf1')), 'فرع آخر لا يقرأ');
+});
+
+test('v56.56 (قرار المجلس m2) فصل المهام بالمُصدِر: سجل الفاتورة كتبه مستخدم آخر لكن مُصدِرها (byEmail في محتواه) هو الحاسم ⇒ رفض', async () => {
+  const po = (by, data) => ({ branchId: 'A', date: '2026-11-26', kind: 'sale', status: 'paid', no: 'ف1-Z', dev: 'AB', total: 50, vat: 6.52, digest: HEX, data, by: U[by], at: Timestamp.now(), cv: 400000 });
+  await env.withSecurityRulesDisabled(async (ctx) => { const d = ctx.firestore();
+    await setDoc(doc(d, 'pos_orders', 'is1'), po('cash', '{"id":"is1","by":"خالد","byEmail":"' + U.bm + '","total":50}'));   // أصدرها المدير وكتب السجلَّ جهاز الكاشير
+    await setDoc(doc(d, 'pos_orders', 'is2'), po('cash', '{"id":"is2","byEmail":"' + U.cash + '","total":50}')); });
+  const rec = (k, oid) => ({ branchId: 'A', orderId: oid, tabId: 't1', act: 'keep', by: U[k], at: serverTimestamp(), cv: 400000 });
+  await assertFails(setDoc(doc(as('bm'), 'pos_conflict_res', 'is1'), rec('bm', 'is1')), 'المُصدِر لا يحسم ولو كتب السجلَّ غيره');
+  await assertSucceeds(setDoc(doc(as('bm2'), 'pos_conflict_res', 'is1'), rec('bm2', 'is1')), 'مدير آخر');
+  await assertSucceeds(setDoc(doc(as('bm'), 'pos_conflict_res', 'is2'), rec('bm', 'is2')), 'مُصدِرها الكاشير ⇒ المدير يحسم');
+});

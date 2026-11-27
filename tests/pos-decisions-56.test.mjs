@@ -403,3 +403,49 @@ test('(G) حد الكاش يشمل الصفحات: الممتلئ لا يُضا�
   assert.match(W.join(' '), /مقصوص \(75/);
   assert.match(fs.readFileSync(new URL('../vite.config.js', import.meta.url), 'utf8'), /truncated: true, total: all\.length/);
 });
+
+test('(قرار المجلس) خصومات الجزء المتساوي تُقيَّد وتُعرض كفاتورة كاملة: طاولة 100 بكوبون 6 على جزأين ⇒ 4101 86.96 · 4104 5.22 · 2301 12.26 كالفاتورة الواحدة', () => {
+  const ta = tab({ rounds: [{ at: AT, lines: [{ productId: 'x', name: 'طبق', qty: 2, price: 50 }] }] });
+  const prs = [{ id: 'cp', name: 'كوبون 6', type: 'order', mode: 'amt', value: 6, code: 'T6', maxUses: 5 }];
+  const P = E.posPriceCart(cart(ta), [{ id: 'x' }], prs, { now, code: 'T6', uses: {} }); assert.equal(P.orderDisc, 6);
+  const T = E.posTotals(P.lines, P.orderDisc, 15);
+  const whole = { id: 'w', branchId: 'b1', date: D, status: 'paid', kind: 'sale', lines: P.lines, gross: T.gross, disc: T.disc, orderDisc: 6, orderPromo: P.orderPromo, coupon: 'T6', total: T.total, vat: T.vat, net: T.net, rate: 15 };
+  const S = E.tabSplitEqual(ta, 2, P, 15);
+  const parts = S.parts.map((p, i) => ({ id: 'p' + i, branchId: 'b1', date: D, status: 'paid', kind: 'sale', lines: p.lines, eqItems: p.eqItems, tabEq: p.eq, gross: p.gross, disc: 0, manualDisc: 0, total: p.total, vat: p.vat, net: p.net, rate: 15 }));
+  assert.deepEqual(parts.map(o => [o.total, o.vat, o.gross, o.disc]), [[47, 6.13, 47, 0], [47, 6.13, 47, 0]], 'حقول الفاتورة نفسها لا تُمس');
+  const gl = (os) => E.posGlLines(E.posGlDay(os, 'b1', D, 0, 15)).map(l => l.join(':'));
+  // الفاتورة الواحدة: الضريبة 12.26 والصافي 81.74 والخصم 6 × 81.74/94 = 5.22 ⇒ 4101 = 86.96
+  assert.deepEqual(gl([whole]), ['4101:0:86.96', '4104:5.22:0', '2301:0:12.26']);
+  // الجزآن: ضريبة كل جزء round(47×15/115) = 6.13 (مجموعهما 12.26 كالواحدة في هذا المثال)، والخصم 3 × 40.87/47 = 2.61 لكل جزء ⇒ 5.22
+  assert.deepEqual(gl(parts), gl([whole]), 'القيد نفسه');
+  const st = E.posOrdersStats(parts), sw = E.posOrdersStats([whole]);
+  assert.deepEqual([st.gross, st.odisc, st.promo], [sw.gross, sw.odisc, sw.promo]); assert.deepEqual(st.promo, { 'كوبون 6': 6 });
+  assert.deepEqual(E.posDiscOf(parts[0]), { lines: parts[0].eqItems, od: 3, orderPromo: P.orderPromo, disc: 3, gross: 50, coupon: 'T6' });
+  // فاتورة عادية ⇒ كما كان حرفيًا
+  assert.deepEqual([E.posDiscOf(whole).disc, E.posDiscOf(whole).gross, E.posDiscOf(whole).od], [6, 100, 6]);
+  // في أمثلة أخرى قد تختلف ضريبة الأجزاء عن ضريبة فاتورة واحدة بهللات (كل جزء فاتورة مستقلة — قرار المجلس B): 2301 = ضرائب الفواتير الصادرة، و4101 يقابلها
+  const t3 = tab({ rounds: [{ at: AT, lines: [{ productId: 'x', name: 'طبق', qty: 1, price: 10 }] }] }); const P3 = E.posPriceCart(cart(t3), [{ id: 'x' }], [], { now });
+  const S3 = E.tabSplitEqual(t3, 3, P3, 15).parts.map((p, i) => ({ id: 'q' + i, branchId: 'b1', date: D, status: 'paid', kind: 'sale', lines: p.lines, eqItems: p.eqItems, tabEq: p.eq, total: p.total, vat: p.vat, rate: 15 }));
+  const d3 = E.posGlDay(S3, 'b1', D, 0, 15); assert.deepEqual([d3.total, d3.vat], [10, R2(S3.reduce((a, o) => a + o.vat, 0))], 'الضريبة = مجموع ضرائب الفواتير الصادرة'); assert.equal(H(d3.net) + H(d3.vat), 1000);
+});
+
+test('(m1) قائمة التعارضات المحمية: حذف tab.conflicts أو تعديلها لا يخفي تعارضًا مسجّلًا، وتعذّر القراءة يمنع، والمصالحة تكتب الناقص', async () => {
+  const ops = ops0(); const pcf = [{ branchId: 'b1', orderId: 'o2', tabId: 't9', table: '9', date: D, orderNo: 'ف1-B-0001', why: 'الحساب لم يعد مفتوحًا', total: 50 }];
+  const wiped = { ...ops, posTabs: [{ ...ops.posTabs[0], conflicts: [] }] };
+  assert.equal(E.posConflictBlock({}, wiped, 'b1', D, [], []).length, 0, 'بلا السجل المحمي يُخفيه الحذف (ما عالجه القرار)');
+  assert.deepEqual(E.posConflictBlock({}, wiped, 'b1', D, [], pcf).map(c => [c.orderNo, c.table, c.rec]), [['ف1-B-0001', '9', true]], 'السجل المحمي يُظهره');
+  const altered = { ...ops, posTabs: [{ ...ops.posTabs[0], conflicts: [{ ...ops.posTabs[0].conflicts[0], off: false, at: '2026-01-01' }] }] };
+  assert.equal(E.posConflictBlock({}, altered, 'b1', D, [], pcf).length, 1, 'تعديل الوسم أو التاريخ لا يُخفيه');
+  assert.equal(E.posConflictBlock({}, wiped, 'b1', D, [R0()], pcf).length, 0, 'المحسوم في pos_conflict_res');
+  assert.equal(E.posConflictBlock({}, ops, 'b1', D, [], pcf).length, 1, 'لا تكرار بين السجل والحساب');
+  assert.deepEqual(E.posConflictBlock(offOrg, ops, 'b1', D, [], null).map(c => c.readErr), [true], 'فشل مغلق');
+  assert.deepEqual(E.posConflictLate({}, { ...wiped, closings: [{ id: 'c1', branchId: 'b1', date: D, status: 'approved' }] }, [], pcf), [{ closingId: 'c1', branchId: 'b1', date: D, n: 1 }]);
+  assert.equal(E.closeAutoChecks({ entries: [] }, { ...wiped, posConflictRes: [], posConflictRecs: pcf }, '2026-11', {}).find(x => x.k === 'posconf').n, 1);
+  // المصالحة: الموسوم دون اتصال بلا سجل محمي ⇒ يُكتب
+  assert.deepEqual(E.pcfMissing(ops, [], ['b1']), [{ branchId: 'b1', orderId: 'o2', tabId: 't9', date: D, table: '9', orderNo: 'ف1-B-0001', why: 'الحساب لم يعد مفتوحًا', total: 50 }]);
+  assert.deepEqual(E.pcfMissing(ops, pcf, ['b1']), []); assert.deepEqual(E.pcfMissing(ops, [], ['b2']), []);
+  const W = []; let fails = 2; const c = { email: 'c@t.sa', f: { db: 'DB', doc: (db, k, id) => ({ k, id }), serverTimestamp: () => 'TS', setDoc: async (r, d) => { if (fails-- > 0) { const e = new Error('x'); e.code = 'permission-denied'; throw e; } W.push([r, d]); } } };
+  assert.deepEqual(await E.pcfPut(E.pcfRec(pcf[0]), c, [0, 1, 1]), { ok: true }, 'يُعاد حتى يصل السجل المحمي للفاتورة');
+  assert.deepEqual([W[0][0], W[0][1].by, W[0][1].at], [{ k: 'pos_conflicts', id: 'o2' }, 'c@t.sa', 'TS']);
+  assert.match(fs.readFileSync(new URL('../mods/pos/PosApp.jsx', import.meta.url), 'utf8'), /if \(ok && clash && offOn\) pcfPut\(pcfRec\(/, 'يُكتب عند الرصد');
+});
