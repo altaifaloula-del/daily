@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { ShieldAlert, Check, X } from 'lucide-react';
 import { eclAllowBal, eclCheck, eclApprove, eclWoOf, eclRecOf, canApproveJe, siRem, arDocs, Field, Modal, money, uid, nowISO, today } from '../../App.jsx';
+import { bdvOn, bdvMonths, bdvAmtOf, bdvDocOf, bdvAddMonths, bdvRecOf } from '../../App.jsx';   // v56.51 (4) تعديل ضريبة الدين المعدوم
 
 const KIND = { prov: 'تكوين مخصص', rel: 'عكس مخصص زائد', wo: 'شطب دين معدوم', rec: 'استرداد دين مشطوب' };
 
@@ -20,6 +21,7 @@ export function EclCard({ org, ops, A, me, commit, say, arRows, canPost }) {
   const save = async () => {
     const x = { id: uid('ecl'), kind: f.kind, customerKey: f.customerKey, custName: f.custName, amount: Math.round((Number(String(f.amount).replace(/[^\d.]/g, '')) || 0) * 100) / 100,
       date: f.date, reason: f.reason.trim(), ...(f.kind === 'wo' || f.kind === 'rec' ? { siId: f.siId } : (f.branchId ? { branchId: f.branchId } : {})), status: 'pending', by: me.name, byId: me.id || '', at: nowISO() };
+    if (f.kind === 'wo' && f.bdvOn) { x.bdv = bdvAmtOf(ops, org, x); x.bdvRef = String(f.bdvRef || '').trim().slice(0, 120); }   // v56.51 (4) — اختياري، والمستند بلا الحقلين كما كان
     const e = eclCheck(org, ops, x, A); if (e) return say(e, 'no');
     // الترقيم داخل الحفظ على أحدث نسخة (لا يتكرر بين مستخدمين)
     const ok = await commit(d => { const n = (d.eclDocs || []).reduce((m, y) => Math.max(m, Number(String(y.no || '').replace(/\D/g, '')) || 0), 0) + 1; return { ...d, eclDocs: [...(d.eclDocs || []), { ...x, no: 'ECL-' + String(n).padStart(4, '0') }] }; }, { actionType: 'create', targetType: 'journal_entry', targetId: x.id, need: 'post', title: KIND[x.kind] + ' — ' + x.custName, details: money(x.amount) + ' · ' + x.reason });
@@ -38,7 +40,7 @@ export function EclCard({ org, ops, A, me, commit, say, arRows, canPost }) {
       الأعمار أعلاه من <b>تاريخ الاستحقاق</b>. عند دليل على تعثر عميل (تأخر طويل، نزاع، إفلاس) كوّن مخصصًا بقيمة المتوقع عدم تحصيله؛ والشطب يكون على المخصص وعلى فاتورة بعينها.
       كل مستند يعتمده غير منشئه، ولا يُقيَّد قبل الاعتماد. راجع المخصص شهريًا عند الإقفال.</div>
     {pend.length > 0 && <div data-ecl-pend style={{ marginBottom: 8 }}>
-      {pend.map(x => <div key={x.id} className="me-row" data-ecl-doc={x.id}><span className="me-a"><b>{KIND[x.kind]} · {x.custName} · <span className="num">{money(x.amount)}</span></b><small>{x.date} · {x.reason} · أنشأه {x.by}</small></span>
+      {pend.map(x => <div key={x.id} className="me-row" data-ecl-doc={x.id}><span className="me-a"><b>{KIND[x.kind]} · {x.custName} · <span className="num">{money(x.amount)}</span></b><small>{x.date} · {x.reason} · أنشأه {x.by}{x.bdv > 0 ? ' · تعديل ضريبة المخرجات ' + money(x.bdv) + ' (مرجع: ' + (x.bdvRef || '') + ')' : ''}</small></span>
         {canApproveJe(me, x) ? <span className="row" style={{ gap: 4 }}><button className="btn sm pri" onClick={() => decide(x, true)} data-ecl-ok><Check size={13} />اعتماد</button><button className="btn sm gh" onClick={() => decide(x, false)} data-ecl-no><X size={13} />رفض</button></span>
           : <span className="badge b-amber" data-ecl-wait>بانتظار الاعتماد</span>}</div>)}</div>}
     <div className="tw"><table className="tb">
@@ -63,6 +65,15 @@ export function EclCard({ org, ops, A, me, commit, say, arRows, canPost }) {
         <option value="">— اختر —</option>{woInvs(f.customerKey).map(x => <option key={x.id} value={x.id}>{x.no} · مشطوب غير مسترد {money(eclWoOf(ops, x.id) - eclRecOf(ops, x.id))}</option>)}</select></Field>}
       {f.kind === 'wo' && <Field label="الفاتورة المشطوبة"><select className="sel" aria-label="الفاتورة المشطوبة" value={f.siId} onChange={e => setF({ ...f, siId: e.target.value, amount: f.amount || String(siRem(ops, (ops.salesInvoices || []).find(x => x.id === e.target.value) || {})) })}>
         <option value="">— اختر —</option>{invs(f.customerKey).map(x => <option key={x.id} value={x.id}>{x.no} · {x.date} · متبقٍّ {money(siRem(ops, x))}</option>)}</select></Field>}
+      {f.kind === 'wo' && bdvOn(org) && f.siId && (() => { const mm = bdvMonths(org); const sd = bdvDocOf(ops, org, f.siId); const amt = Math.round((Number(String(f.amount).replace(/[^\d.]/g, '')) || 0) * 100) / 100;
+        const from = mm && sd ? bdvAddMonths(sd.date, mm) : ''; const ok = !!from && f.date >= from; const v = bdvAmtOf(ops, org, { siId: f.siId, amount: amt });
+        return (<div className="note" style={{ marginBottom: 6 }} data-ecl-bdv>
+          <label className="row" style={{ gap: 6, fontSize: 12.5 }}><input type="checkbox" aria-label="تعديل ضريبة المخرجات" disabled={!ok} checked={!!f.bdvOn && ok} onChange={e => setF({ ...f, bdvOn: e.target.checked })} />تعديل ضريبة المخرجات = ضريبة الجزء المشطوب <b className="num">{money(v)}</b></label>
+          <div className="hint">{!mm ? 'المدة لم تُدخل أو لم يؤكّدها المختص — التعديل غير متاح' : ok ? 'مضت ' + mm + ' شهرًا من تاريخ الفاتورة ' + sd.date : 'متاح من ' + from + ' (بعد ' + mm + ' شهرًا من تاريخ الفاتورة)'}. القيد الإضافي بعد الاعتماد: مدين 2301 / دائن مصروف الخسائر الائتمانية، ويُعكس بنسبته عند الاسترداد.</div>
+          {f.bdvOn && ok && <Field label="مرجع شهادة المحاسب القانوني أو المستند البديل"><input className="inp" aria-label="مرجع شهادة الدين المعدوم" value={f.bdvRef || ''} onChange={e => setF({ ...f, bdvRef: e.target.value })} /></Field>}
+        </div>); })()}
+      {f.kind === 'rec' && f.siId && (() => { const amt = Math.round((Number(String(f.amount).replace(/[^\d.]/g, '')) || 0) * 100) / 100; const rv = amt > 0 ? bdvRecOf({ ...ops, eclDocs: [...(ops.eclDocs || []), { id: '_new', kind: 'rec', siId: f.siId, amount: amt, date: f.date, status: 'approved' }] }, { id: '_new', kind: 'rec', siId: f.siId }) : 0;
+        return rv > 0 ? <div className="hint" data-ecl-bdvrec>يُعكس تلقائيًا تعديل ضريبة المخرجات بنسبته: <b className="num">{money(rv)}</b> (مدين المصروف / دائن 2301)</div> : null; })()}
       <Field label="الدليل أو السبب (إلزامي)"><input className="inp" aria-label="سبب المخصص" value={f.reason} onChange={e => setF({ ...f, reason: e.target.value })} placeholder="مثال: متأخر 6 أشهر ورفض السداد كتابيًا" /></Field>
       <div className="note" style={{ marginTop: 8 }}>{f.kind === 'rec' ? 'القيد بعد الاعتماد: مدين ذمة العميل 1380 / دائن مصروف الخسائر الائتمانية (عكس الخسارة عبر الأرباح والخسائر)، فتعود الفاتورة مستحقة وتُحصَّل من «فواتير المبيعات».' : f.kind === 'prov' ? 'القيد بعد الاعتماد: مدين مصروف الخسائر الائتمانية / دائن المخصص.' : f.kind === 'rel' ? 'القيد بعد الاعتماد: مدين المخصص / دائن مصروف الخسائر الائتمانية (عند تحصيل أو زوال الدليل).' : 'القيد بعد الاعتماد: مدين المخصص / دائن ذمة العميل 1380 — لا يتجاوز رصيد مخصص العميل ولا متبقي الفاتورة. لا أثر ضريبي هنا.'}</div>
     </Modal>}

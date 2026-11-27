@@ -4434,3 +4434,45 @@ test('v56.50 الرسائل: مفتاح مسار الإرسال لمسؤول ا�
   assert.match(await p.locator('[data-cmsres]').innerText(), /تجريبي/);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.51 المقترحات الضريبية: تحويل المبسّطة إلى ضريبية (إشعار + ضريبية مرتبطتان)، والاحتساب العكسي على سند صرف غير المقيم، وبطاقة الإعداد', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/SalesHub/admin');
+  await p.evaluate(() => window.setOrg(g => ({ ...g, taxCfg: { enabled: true, rate: 15 }, partners: [...(g.partners || []), { id: 'cx', key: 'cust:cx', name: 'شركة مسجّلة تجريبية', type: 'customer', tax: '300000000000003', address: 'عنوان وطني تجريبي' }] }))); await p.waitForTimeout(150);
+  await p.locator('button:has-text("فواتير المبيعات")').first().click(); await p.waitForTimeout(300);
+  await p.evaluate(() => window.setOps(o => ({ ...o, salesInvoices: [{ id: 'sx', no: 'فاتورة-2026-00001', seq: 1, icv: 1, pih: '0', hash: 'h', kind: 'invoice', type: 'simplified', terms: 'cash', fund: '1201', buyer: { name: 'زبون' }, date: '2026-11-02', lines: [{ desc: 'وجبات', qty: 2, price: 100, vatRate: 15, net: 200, vat: 30 }], net: 200, vat: 30, total: 230, receipts: [] }] }))); await p.waitForTimeout(250);
+  assert.equal(await p.locator('[data-siconv]').count(), 0, 'معطّل افتراضيًا: لا زر');
+  await p.evaluate(() => window.setOrg(g => ({ ...g, siConv: { on: true } }))); await p.waitForTimeout(200);
+  await p.locator('[data-siconv]').click(); await p.waitForSelector('[data-siconv-note]');
+  assert.equal(await p.locator('[data-siconv-save]').isDisabled(), true, 'بلا عميل لا إصدار');
+  await p.selectOption('select[aria-label="عميل الفاتورة الضريبية"]', 'cust:cx');
+  await p.locator('[data-siconv-save]').click(); await p.waitForFunction(() => (window.cur.salesInvoices || []).length === 3);
+  const r = await p.evaluate(() => window.cur.salesInvoices.map(x => [x.kind, x.type, x.total, x.refId || '', x.convFrom || '', !!x.convTo, x.reason || '', (x.buyer || {}).vat || '']));
+  assert.deepEqual(r, [['invoice', 'simplified', 230, '', '', false, '', ''], ['credit', 'simplified', 230, 'sx', '', true, 'إعادة إصدار بفاتورة ضريبية للمشتري المسجل', ''], ['invoice', 'standard', 230, '', 'sx', false, '', '300000000000003']]);
+  assert.equal(await p.evaluate(() => window.cur.salesInvoices[1].convTo === window.cur.salesInvoices[2].id), true, 'مرتبطتان');
+  await p.locator('.mz-docv button', { hasText: 'إغلاق' }).click().catch(() => {}); await p.waitForTimeout(200);
+  assert.equal(await p.locator('[data-siconv]').count(), 0, 'لا تُحوَّل مرتين'); assert.equal(await p.locator('[data-siconv-tag]').count(), 3);
+  assert.deepEqual(errs, []); await ctx.close();
+  // الاحتساب العكسي على سند صرف لمورد غير مقيم (مع الاستقطاع): الأساس الإجمالي قبل الاستقطاع
+  { const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Hub/admin/finhub:treasury');
+    await p.evaluate(() => { window.setOrg(g => ({ ...g, taxCfg: { enabled: true, rate: 15 }, rcm: { on: true }, wht: { on: true, types: [{ id: 'wt1', name: 'خدمات فنية (تجريبي)', rate: 5, ok: true }] },
+      suppliers: (g.suppliers || []).map(s => s.id === 's1' ? { ...s, nonResident: true, country: 'دولة تجريبية' } : s) })); window.setOps(o => ({ ...o, cashVouchers: [], invoices: [] })); });
+    await p.waitForTimeout(300);
+    await p.locator('[data-tabcv]').click(); await p.waitForTimeout(200);
+    await p.locator('[data-newcv="pv"]').click(); await p.waitForTimeout(150);
+    await p.locator('[data-cvpt="sup"]').click(); await p.selectOption('select[aria-label="جهة السند"]', 'sup:s1');
+    await p.locator('[data-cvpm="bank"]').click(); await p.fill('input[aria-label="مبلغ السند"]', '10000'); await p.fill('input[aria-label="بيان السند"]', 'خدمة تجريبية');
+    await p.waitForSelector('[data-cv-rcm]'); assert.match(await p.locator('[data-cv-rcmcalc]').innerText(), /1,500/);
+    await p.selectOption('[data-cv-whttype]', 'wt1');
+    await p.locator('[data-cvsave]').click(); await p.waitForFunction(() => (window.cur.cashVouchers || []).length === 1);
+    assert.deepEqual(await p.evaluate(() => { const v = window.cur.cashVouchers[0]; return [v.whtAmt, v.rcm]; }), [500, { rate: 15, base: 10000, vat: 1500 }]);
+    assert.deepEqual(errs, []); await ctx.close(); }
+  // بطاقة الإعداد في الضريبة: معطّلة افتراضيًا، والتفعيل بتأكيد صريح
+  { const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Accounting/admin/vat');
+    await p.waitForSelector('[data-taxadj-card]');
+    assert.deepEqual(await p.evaluate(() => [!!(window.curOrg.rcm || {}).on, !!(window.curOrg.siConv || {}).on, !!(window.curOrg.badDebtVat || {}).on]), [false, false, false]);
+    await p.click('[data-taxadj-toggle="badDebtVat"]'); await p.waitForFunction(() => (window.curOrg.badDebtVat || {}).on === true);
+    await p.fill('input[aria-label="مدة الدين المعدوم بالأشهر"]', '6'); await p.click('[data-taxadj-save]');
+    await p.waitForFunction(() => (window.curOrg.badDebtVat || {}).minMonths === 6);
+    assert.equal(await p.evaluate(() => window.curOrg.badDebtVat.ok), false, 'لا يؤكَّد إلا بوسم صريح');
+    assert.deepEqual(errs, []); await ctx.close(); }
+});

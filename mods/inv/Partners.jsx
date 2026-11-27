@@ -4,6 +4,7 @@ import { authApi } from '../../storage';
 import { Trash2, ChevronRight, Plus, Printer, Settings, ArrowUp, Check, Bell, X, TrendingUp, TrendingDown, ArrowLeftRight, Users, Search } from 'lucide-react';
 import { DocLink, ibanNorm, requestIban } from '../../App.jsx';   // v40.9
 import { whtOn, whtTypes } from '../../App.jsx';   // v56.47 (E7) ضريبة الاستقطاع
+import { rcmOn } from '../../App.jsx';   // v56.51 (1) الوسم نفسه للاحتساب العكسي
 // v56.47 (E7): وسم «غير مقيم» والدولة ونوع الاستقطاع الافتراضي على بطاقة المورد — يُحفظ فقط إن وُسم (البطاقة بلا وسم كما كانت)
 const whtOfSup = (s) => (s && s.nonResident ? { nonResident: true, country: s.country || '', whtType: s.whtType || '' } : {});
 const whtPatch = (c) => (c.nonResident ? { nonResident: true, ...(String(c.country || '').trim() ? { country: String(c.country).trim().slice(0, 60) } : {}), ...(c.whtType ? { whtType: c.whtType } : {}) } : {});
@@ -447,8 +448,8 @@ export function Partners({ org, ops, me, commit, commitOrg, say }) {
               ? <Field label="حد الائتمان (ر.س)"><input className="inp n" inputMode="decimal" value={addP.creditLimit || ''} onChange={e => setAddP({ ...addP, creditLimit: e.target.value.replace(/[^\d.]/g, '') })} /></Field>
               : <Field label="البنك"><input className="inp" value={addP.bankName || ''} onChange={e => setAddP({ ...addP, bankName: e.target.value })} /></Field>}
           </div>
-          {addP.type === 'supplier' && (whtOn(org) || addP.nonResident) && <div className="note" style={{ margin: '4px 0 8px' }} data-sup-wht>
-            <label className="row" style={{ gap: 6, fontSize: 12.5, cursor: 'pointer' }}><input type="checkbox" aria-label="مورد غير مقيم" checked={!!addP.nonResident} onChange={e => setAddP({ ...addP, nonResident: e.target.checked })} />مورد غير مقيم (ضريبة الاستقطاع — يُسدَّد بسند صرف فقط)</label>
+          {addP.type === 'supplier' && (whtOn(org) || rcmOn(org) || addP.nonResident) && <div className="note" style={{ margin: '4px 0 8px' }} data-sup-wht>
+            <label className="row" style={{ gap: 6, fontSize: 12.5, cursor: 'pointer' }}><input type="checkbox" aria-label="مورد غير مقيم" checked={!!addP.nonResident} onChange={e => setAddP({ ...addP, nonResident: e.target.checked })} />مورد غير مقيم ({whtOn(org) ? 'ضريبة الاستقطاع — يُسدَّد بسند صرف فقط' : 'الاحتساب العكسي'}{whtOn(org) && rcmOn(org) ? '، والاحتساب العكسي' : ''})</label>
             {addP.nonResident && <div className="grid g2" style={{ marginTop: 6 }}>
               <Field label="الدولة"><input className="inp" aria-label="دولة المورد" value={addP.country || ''} onChange={e => setAddP({ ...addP, country: e.target.value })} /></Field>
               <Field label="نوع الاستقطاع الافتراضي (اختياري)"><select className="sel" aria-label="نوع الاستقطاع الافتراضي" value={addP.whtType || ''} onChange={e => setAddP({ ...addP, whtType: e.target.value })}><option value="">—</option>{whtTypes(org).map(t => <option key={t.id} value={t.id}>{t.name}{t.rate !== '' && t.rate != null ? ' — ' + t.rate + '%' : ''}{t.ok ? '' : ' (غير مؤكَّد)'}</option>)}</select></Field>

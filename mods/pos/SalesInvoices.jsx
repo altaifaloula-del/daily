@@ -4,6 +4,7 @@ import { FileText, Wallet, AlertTriangle, ShieldCheck, Plus, Printer, Check, X, 
 import { DocLink, RowGrip, moveIdx, projList, Field, Kpi, LOCK_MSG, Modal, Num, ROLES, branchBanks, buildPartners, entityList, isoD, money, naMissing, nowISO, periodLocked, printSalesInvoice, rolePost, siCredited, siRem, siSorted, siStamp, siVerify, sum, today, uid } from '../../App.jsx';
 import { eclWoOf } from '../../App.jsx';   // v56.40
 import { arDocs, posCreditExceptionsApi } from '../../App.jsx';   // v56.46 ذمم الكاشير (للاطلاع) وفحص التفويض
+import { siConvOn, siConvOf, siConvCheck, siConvert, SI_CONV_REASON } from '../../App.jsx';   // v56.51 (3) تحويل المبسّطة إلى ضريبية
 
 export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
   const all = ops.salesInvoices || [];
@@ -20,6 +21,7 @@ export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
   const chain = useMemo(() => siVerify(all), [all]);
   const [q, setQ] = useState(''); const [flt, setFlt] = useState('all');
   const [f, setF] = useState(null); const [rc, setRc] = useState(null); const [cn, setCn] = useState(null); const [dn, setDn] = useState(null);
+  const [cv, setCv] = useState(null);   // v56.51 (3) { id, key, date }
   const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
   const byId = (id) => all.find(x => x.id === id);
   const custOf = (key) => customers.find(c => c.key === key);
@@ -92,6 +94,18 @@ export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
     if (ok && made) { setCn(null); say('صدر ' + made.no + ' (إشعار دائن) ✓'); printSalesInvoice(org, made, o); }
   };
 
+  // v56.51 (3) تحويل المبسّطة إلى ضريبية: إشعار دائن كامل + فاتورة ضريبية جديدة ذريًا على أحدث نسخة — الأصل لا يُعدَّل
+  const convOn = siConvOn(org);
+  const saveCv = async () => {
+    const x = byId(cv.id); const c = custOf(cv.key); const date = cv.date || today(), time = new Date().toTimeString().slice(0, 5);
+    const e0 = siConvCheck(org, ops, x, c, date); if (e0) return say(e0, 'no');
+    let made = null, err = '';
+    const ok = await commit(d => { const r = siConvert(org, d, x.id, c, me, { date, time }); if (r.err) { err = r.err; return d; } made = r; return r.next; },
+      { actionType: 'create', targetType: 'sales_invoice', targetId: x.id, need: 'post', title: 'حوّل فاتورة مبسّطة إلى ضريبية', details: x.no + ' · ' + money(x.total) + ' · ' + (c.name || '') + ' (' + (c.tax || '') + ')' });
+    if (err) return say(err, 'no');
+    if (ok && made) { setCv(null); say('صدر الإشعار الدائن ' + made.cn.no + ' والفاتورة الضريبية ' + made.inv.no + ' ✓'); printSalesInvoice(org, made.inv); }
+  };
+
   // v47.3 الإشعار المدين: زيادة على فاتورة صادرة (فرق سعر، رسوم إضافية، خطأ بالنقص) — يرفع الإيراد والضريبة والذمة أو يُحصَّل نقدًا
   const saveDn = async () => {
     const o = byId(dn.id); const reason = (dn.reason || '').trim(); if (!reason) return say('اكتب سبب الإشعار المدين', 'no');
@@ -158,7 +172,7 @@ export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
             <tr key={x.id}>
               <td><DocLink to={{ si: x.id }} title="استعراض الفاتورة"><span className="num" style={{ fontSize: 11.5, fontWeight: 700 }}>{x.no}</span></DocLink><div style={{ fontSize: 9.5, color: 'var(--faint)' }}>{x.date} · {x.by}</div></td>
               <td style={{ fontSize: 12.5 }}>{(x.buyer || {}).name || <span style={{ color: 'var(--faint)' }}>عميل نقدي</span>}{(x.buyer || {}).vat ? <div className="num" style={{ fontSize: 9.5, color: 'var(--faint)' }}>{x.buyer.vat}</div> : null}</td>
-              <td><span className="badge b-dim">{x.kind === 'credit' ? 'إشعار دائن' + (o ? ' عن ' + o.no : '') : x.kind === 'debit' ? 'إشعار مدين' + (o ? ' عن ' + o.no : '') + (x.terms === 'credit' ? ' · آجل' : ' · نقدي') : (x.type === 'standard' ? 'ضريبية' : 'مبسّطة') + ' · ' + (x.terms === 'credit' ? 'آجل' : 'نقدي')}</span>{x.inClosing && <div><span className="badge b-dim" style={{ marginTop: 3 }}>ضمن إغلاق وردية</span></div>}</td>
+              <td>{(x.convFrom || x.convTo || siConvOf(all, x.id)) && <div><span className="badge b-sky" data-siconv-tag style={{ marginBottom: 3 }}>{x.convFrom ? 'ضريبية بدل ' + ((byId(x.convFrom) || {}).no || '') : x.convTo ? 'إلغاء للتحويل إلى ' + ((byId(x.convTo) || {}).no || '') : 'حُوّلت إلى ' + (siConvOf(all, x.id).no || '')}</span></div>}<span className="badge b-dim">{x.kind === 'credit' ? 'إشعار دائن' + (o ? ' عن ' + o.no : '') : x.kind === 'debit' ? 'إشعار مدين' + (o ? ' عن ' + o.no : '') + (x.terms === 'credit' ? ' · آجل' : ' · نقدي') : (x.type === 'standard' ? 'ضريبية' : 'مبسّطة') + ' · ' + (x.terms === 'credit' ? 'آجل' : 'نقدي')}</span>{x.inClosing && <div><span className="badge b-dim" style={{ marginTop: 3 }}>ضمن إغلاق وردية</span></div>}</td>
               <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: x.kind === 'credit' ? 'var(--rose)' : undefined }}>{x.kind === 'credit' ? '−' : ''}{money(x.total)}</td>
               <td className="num" style={{ textAlign: 'end' }}>{x.kind !== 'credit' && x.terms === 'credit' ? money(rem) : '—'}</td>
               <td>{x.kind === 'credit' ? <span className="badge b-amber">{x.reason || 'مرتجع'}</span>
@@ -171,6 +185,7 @@ export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
                 <button className="btn sm gh" title="طباعة" onClick={() => printSalesInvoice(org, x, o)}><Printer size={12} /></button>
                 {canIssue && x.kind !== 'credit' && x.terms === 'credit' && rem > 0.004 && <button className="btn sm" onClick={() => setRc({ id: x.id, amount: String(rem), date: today(), fund: '1201' })}>تحصيل</button>}
                 {canIssue && x.kind === 'invoice' && crd < x.total - 0.004 && <button className="btn sm gh" onClick={() => setCn({ id: x.id, date: today(), reason: '', settle: 'credit', fund: x.fund || '1101', qtys: x.lines.map(() => '') })}>إشعار دائن</button>}
+                {convOn && canIssue && x.kind === 'invoice' && x.type === 'simplified' && crd < 0.005 && !siConvOf(all, x.id) && <button className="btn sm gh" data-siconv onClick={() => setCv({ id: x.id, key: x.terms === 'credit' ? (x.customerKey || '') : ((custOf(x.customerKey) || {}).tax ? x.customerKey : ''), date: today() })}>تحويل إلى ضريبية</button>}
                 {canIssue && x.kind === 'invoice' && <button className="btn sm gh" data-copysi title="نسخة مطابقة بتاريخ اليوم" onClick={() => copySi(x)}>⧉ نسخ</button>}
                 {canIssue && x.kind === 'invoice' && <button className="btn sm gh" data-dn onClick={() => setDn({ id: x.id, date: today(), reason: '', settle: x.customerKey ? (x.terms === 'credit' ? 'credit' : 'cash') : 'cash', fund: x.fund || '1101', lines: [{ desc: '', amount: '', vatRate: String((x.lines[0] || {}).vatRate ?? 15) }] })}>إشعار مدين</button>}
               </div></td>
@@ -280,6 +295,18 @@ export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
           <button className="btn sm gh" onClick={() => setDn(r => ({ ...r, lines: [...r.lines, { desc: '', amount: '', vatRate: '15' }] }))}><Plus size={12} />بند</button>
           <div className="row" style={{ gap: 8, marginTop: 8, flexWrap: 'wrap' }}><span className="badge b-dim">قبل الضريبة {money(DT.n)}</span><span className="badge b-dim">الضريبة {money(DT.v)}</span><span className="badge b-sky" data-dn-total>الإجمالي {money(DT.t)}</span></div>
           <div className="note">الإشعار المدين يزيد قيمة الفاتورة الأصلية (إيراد + ضريبة مخرجات) ويُرقَّم في سجل الفواتير المتسلسل نفسه.</div>
+        </Modal>); })()}
+      {cv && (() => { const x = byId(cv.id); const c = custOf(cv.key); const e0 = x ? siConvCheck(org, ops, x, c, cv.date) : 'الفاتورة غير موجودة'; return (
+        <Modal title={'تحويل ' + (x ? x.no : '') + ' إلى فاتورة ضريبية'} icon={FileText} onClose={() => setCv(null)}
+          foot={<><button className="btn gh" onClick={() => setCv(null)}>إلغاء</button><button className="btn pri" data-siconv-save disabled={!!e0} onClick={saveCv}><Check size={14} />إصدار الإشعار والفاتورة</button></>}>
+          <div className="grid g2">
+            <Field label="العميل المسجّل (رقم ضريبي وعنوان وطني)"><select className="sel" aria-label="عميل الفاتورة الضريبية" value={cv.key} disabled={x && x.terms === 'credit'} onChange={e => setCv(z => ({ ...z, key: e.target.value }))}>
+              <option value="">— اختر العميل —</option>{customers.filter(c0 => (c0.tax || '').trim() || c0.key === cv.key).map(c0 => <option key={c0.key} value={c0.key}>{c0.name}{c0.tax ? ' — ' + c0.tax : ''}</option>)}</select></Field>
+            <Field label="تاريخ الإصدار"><input type="date" className="inp" aria-label="تاريخ التحويل" value={cv.date} onChange={e => setCv(z => ({ ...z, date: e.target.value }))} /></Field>
+          </div>
+          {x && <div className="note" data-siconv-note>يصدر <b>إشعار دائن كامل</b> عن المبسّطة {x.no} بسبب «{SI_CONV_REASON}»، و<b>فاتورة ضريبية جديدة</b> بالبنود والمبالغ نفسها ({money(x.total)}) و{x.terms === 'credit' ? 'آجلة على العميل نفسه بالاستحقاق نفسه' : 'نقدية على الحساب نفسه'} — مرتبطتان، وصافي الأثر على الإيراد والضريبة صفر. المبسّطة نفسها لا تُعدَّل.</div>}
+          {e0 && cv.key && <div className="badge b-rose" style={{ whiteSpace: 'normal', marginTop: 6 }} data-siconv-err>{e0}</div>}
+          {x && x.terms === 'credit' && <div className="hint">الفاتورة الآجلة تُحوَّل للعميل نفسه فقط (أكمل رقمه الضريبي وعنوانه من جهات الاتصال).</div>}
         </Modal>); })()}
     </div>
   );
