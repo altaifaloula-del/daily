@@ -590,12 +590,16 @@ function PosGlCard({ org, ops, me, commit, commitOrg, say, isAdm }) {
   const expAccs = useMemo(() => buildAccounting(org, {}).accounts.filter(a => a.kind === 'exp').map(a => ({ code: String(a.code), name: a.name })), [org]);
   const lmDone = (ops.journalManual || []).some(j => j.loyMonth === lm && j.status !== 'rejected');
   const first6a = R.reduce((a, r) => (!a || r.from < a ? r.from : a), '');
-  const manFrom = ((org.posGl || {}).manLoyFrom) || ''; const manOn = !!manFrom && lm >= manFrom;   // v56.47 النقاط اليدوية (قرار المالك)
-  const lmPrev = async () => { const doc = await cloud.get(KEYS.loy, null).catch(() => null); setLa(loyMonthAdj(org, doc || {}, lm, { orders: ops.posOrders || [], promos: org.posPromos || [], from: first6a, manOn, ...(manFrom ? { manFrom } : {}) })); };
+  // v56.47 النقاط اليدوية (قرار المالك) — (التحقق المستقل) سجل نطاقات بالأشهر لا يُمحى: الإيقاف يغلق النطاق، فيبقى انتهاء ما قُيِّد مصروفًا عكسًا له
+  const manR = ((org.posGl || {}).manLoyRanges) || []; const manOpen = manR.find(r => !r.to); const manFrom = manOpen ? manOpen.from : '';
+  const manOn = manR.some(r => lm >= r.from && (!r.to || lm <= r.to)); const manLastTo = manR.reduce((a, r) => (r.to && r.to > a ? r.to : a), '');
+  const lmPrev = async () => { const doc = await cloud.get(KEYS.loy, null).catch(() => null); setLa(loyMonthAdj(org, doc || {}, lm, { orders: ops.posOrders || [], promos: org.posPromos || [], from: first6a, manOn, manRanges: manR })); };
   const manToggle = async () => { if (!isAdm) return; const m0 = today().slice(0, 7);
+    if (!manFrom && manLastTo && m0 <= manLastTo) return say('أُوقف هذا الشهر — يُعاد التفعيل من الشهر التالي', 'no');
     if (!manFrom && !window.confirm('النقاط اليدوية (هدية أو تصحيح من شاشة الولاء) تُقيَّد في التسوية الشهرية من شهر ' + m0 + ': مدين الحساب الترويجي / دائن 2106، والتصحيح السالب يعكسه. الأشهر السابقة كما هي.')) return;
-    const ok = await commitOrg(o => { const g = { ...(o.posGl || {}) }; if (manFrom) delete g.manLoyFrom; else g.manLoyFrom = m0; return { ...o, posGl: g }; },
-      { actionType: 'settings', targetType: 'system_settings', targetId: 'posGl.manLoyFrom', title: manFrom ? 'أوقف قيد النقاط اليدوية' : 'فعّل قيد النقاط اليدوية مصروف تسويق', details: manFrom ? '' : 'من ' + m0 });
+    const ok = await commitOrg(o => { const g = { ...(o.posGl || {}) }; const rs = (g.manLoyRanges || []).map(r => ({ ...r }));
+      if (manFrom) { const x = rs.find(r => !r.to); if (x) { x.to = m0; x.offAt = nowISO(); } } else rs.push({ from: m0, at: nowISO() }); g.manLoyRanges = rs; return { ...o, posGl: g }; },
+      { actionType: 'settings', targetType: 'system_settings', targetId: 'posGl.manLoyRanges', title: manFrom ? 'أوقف قيد النقاط اليدوية' : 'فعّل قيد النقاط اليدوية مصروف تسويق', details: manFrom ? '' : 'من ' + m0 });
     if (ok) { setLa(null); say(manFrom ? 'أُوقف' : 'فُعّل من ' + m0 + ' ✓'); } };
   const lmPost = async () => {
     if (!la) return; if (!R.length || lm < first6a.slice(0, 7)) return say('الشهر قبل تفعيل قيد نقطة البيع — لا التزام ولاء في الدفاتر له', 'no');
@@ -657,7 +661,7 @@ function PosGlCard({ org, ops, me, commit, commitOrg, say, isAdm }) {
         {la && <span data-loymonth-res>منتهية {la.expPts} = <b className="num">{la.exp}</b> · منتهية من المناسبات {la.expOccPts} = <b className="num">{la.expOcc}</b> · جوائز مُسلَّمة {la.rwPts} = <b className="num">{la.rw}</b> · مناسبات {la.occPts} = <b className="num">{la.occ}</b> ر.س{la.man != null ? <> · يدوية {la.manNetPts} = <b className="num" data-loymonth-man>{la.man}</b></> : la.manPts > 0 ? ' · ⚠ ' + la.manPts + ' تعديل يدوي للنقاط خارج التسوية' : ''}</span>}
         {isAdm && <button className={'btn sm ' + (manFrom ? 'gh' : '')} data-loyman-toggle onClick={manToggle}>{manFrom ? 'إيقاف قيد النقاط اليدوية (مفعّل من ' + manFrom + ')' : 'تفعيل قيد النقاط اليدوية مصروف تسويق'}</button>}
         {lmDone && <span className="badge b-sky">مسجّلة</span>}
-        {la && isAdm && !lmDone && <>{(la.occ || la.expOcc) ? <select className="sel" aria-label="حساب المصروف الترويجي" value={promoAcc} onChange={e => setPromoAcc(e.target.value)} data-loymonth-acc><option value="">— حساب المصروف الترويجي —</option>{expAccs.map(a => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}</select> : null}
+        {la && isAdm && !lmDone && <>{(la.occ || la.expOcc || la.man) ? <select className="sel" aria-label="حساب المصروف الترويجي" value={promoAcc} onChange={e => setPromoAcc(e.target.value)} data-loymonth-acc><option value="">— حساب المصروف الترويجي —</option>{expAccs.map(a => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}</select> : null}
           <button className="btn sm pri" onClick={lmPost} data-loymonth-post>إنشاء قيد التسوية</button></>}</div></div>
   </div>);
 }

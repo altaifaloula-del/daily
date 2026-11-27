@@ -2484,7 +2484,12 @@ function loyMonthAdj(org, loyDoc, month, ctx) {
     const ms = (t) => { const v = Date.parse(t.at || ''); return isNaN(v) ? 0 : v; };   // ترتيب بالزمن الفعلي لا بنص التاريخ
     const H = ALL.filter(t => t.phone === ex.phone && t !== ex && ms(t) <= ms(ex)).slice().sort((a, b) => ms(a) - ms(b));
     // مناسبة مُنحت قبل بداية 6a دخلت الرصيد الافتتاحي لا المصروف الترويجي ⇒ انتهاؤها إيراد
-    const lots = []; let neg = 0; H.forEach(t => { const p = Number(t.pts) || 0; if (p > 0) lots.push({ occ: (isOcc(t) && (!from || ld(t) >= from)) || (!!ctx.manFrom && /^la/.test(String(t.id || '')) && ld(t).slice(0, 7) >= ctx.manFrom), left: p }); else neg += -p; });   // v56.47: انتهاء نقاط يدوية قُيّدت مصروفًا يعكسه
+    // v56.47: نقاط يدوية في نطاق تفعيل قيدها (سجل نطاقات لا يُمحى) قُيّدت مصروفًا ⇒ انتهاؤها يعكسه؛ والتصحيح اليدوي السالب يُنقص الهدايا اليدوية أولًا (قرار المجلس)
+    const manR = Array.isArray(ctx.manRanges) ? ctx.manRanges : (ctx.manFrom ? [{ from: ctx.manFrom }] : []);
+    const manIn = (t) => /^la/.test(String(t.id || '')) && manR.some(r => { const m = ld(t).slice(0, 7); return m >= r.from && (!r.to || m <= r.to); });
+    const lots = []; let neg = 0, negMan = 0; H.forEach(t => { const p = Number(t.pts) || 0; const mi = manIn(t);
+      if (p > 0) lots.push({ occ: (isOcc(t) && (!from || ld(t) >= from)) || mi, man: mi, left: p }); else if (mi) negMan += -p; else neg += -p; });
+    lots.filter(l => l.man).forEach(l => { const u = Math.min(l.left, negMan); l.left -= u; negMan -= u; }); neg += negMan;
     lots.forEach(l => { const u = Math.min(l.left, neg); l.left -= u; neg -= u; });
     let left = -(Number(ex.pts) || 0); lots.forEach(l => { if (left <= 0) return; const u = Math.min(l.left, left); if (l.occ) expOccPts += u; else expRevPts += u; left -= u; });
     if (left > 0) expRevPts += left; });

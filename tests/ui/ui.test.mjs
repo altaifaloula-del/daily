@@ -4357,3 +4357,12 @@ test('v56.47 (P4): قائمة أسعار التطبيق في الكاشير — 
   assert.deepEqual(o, ['jahez', 65, 65, 'app', 'jahez']);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.47 النقاط اليدوية: التفعيل ثم الإيقاف يحفظ سجل النطاق ولا يمحوه', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Admin/admin');
+  await p.click('button:has-text("صيانة النظام")'); await p.waitForSelector('[data-loyman-toggle]');
+  await p.click('[data-loyman-toggle]'); await p.waitForFunction(() => (((window.curOrg.posGl || {}).manLoyRanges) || []).length === 1);
+  await p.click('[data-loyman-toggle]'); await p.waitForFunction(() => !!((((window.curOrg.posGl || {}).manLoyRanges) || [])[0] || {}).to);
+  assert.equal(await p.evaluate(() => window.curOrg.posGl.manLoyRanges.length), 1, 'الإيقاف يغلق النطاق ولا يحذفه');
+  assert.deepEqual(errs, []); await ctx.close();
+});
