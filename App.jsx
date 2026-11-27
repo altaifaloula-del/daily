@@ -2894,7 +2894,7 @@ function buildAccounting(org, ops) {
         src: 'فاتورة مورد', ref: i.invoiceNo || i.id, ...(i.jeNo ? { fix: i.jeNo } : {}),
         lines: [L('2101', a, 0), ...(stockCr > 0 ? [L(whAccOf(i.whId), 0, stockCr)] : []), ...(restCr > 0.004 ? [L(exC, 0, restCr)] : []), ...(v ? [L('1501', 0, v)] : [])],
         vat: v ? { out: 0, inn: -v, netSales: 0, netPurch: -n } : null,
-        reg: { k: 'p', doc: i.debitNote ? 'إشعار مدين للمورد' : 'إشعار دائن من مورد', party: i.supplierName || '', pvat: ((org.suppliers || []).find(x => x.id === i.supplierId) || {}).vatNo || '', supplierId: i.supplierId || '', no: i.invoiceNo || '', pm: 'deferred', net: -n, vat: -v, gross: -a }
+        reg: { k: 'p', doc: i.debitNote ? 'إشعار مدين للمورد' : 'إشعار دائن من مورد', party: i.supplierName || '', pvat: ((org.suppliers || []).find(x => x.id === i.supplierId) || {}).vatNo || '', supplierId: i.supplierId || '', no: i.invoiceNo || '', pm: 'deferred', net: -n, vat: -v, gross: -a, ...(i.appliesTo && (ops.invoices || []).some(x => x && x.id === i.appliesTo && x.rcm) ? { rc: true } : {}) }   // v56.51: إشعار على فاتورة احتساب عكسي — في بند 9 لا 10–11
       });
       // v56.51 (مراجعة المجلس 4): إشعار على فاتورة احتساب عكسي (appliesTo) يعكس قيده بنسبة الإشعار إلى الفاتورة — الإشعار على فاتورة بلا الحقل كما هو
       const ro = i.appliesTo ? (ops.invoices || []).find(x => x && x.id === i.appliesTo && x.rcm && (Number(x.amount) || 0) > 0) : null;
@@ -12416,7 +12416,8 @@ function rcmApply(org, doc, opt = {}) {
   if (opt.on === false) return { doc: { ...doc, rcmSkip: 'out' } };
   const rate = rcmRate(org); if (!rate) return { err: 'حدّد نسبة ضريبة القيمة المضافة في إعدادها (أو نسبة الاحتساب العكسي) قبل الاحتساب العكسي' };
   let base, pre = 0;
-  if (isCv) base = Math.max(0, t4R2((Number(doc.amount) || 0) - (doc.alloc || []).reduce((a, x) => a + (Number(x && x.amount) || 0), 0) - Math.max(0, Number(opt.owed) || 0)));   // الجزء «على الحساب» الزائد على المستحق — الموزَّع على فواتير احتُسب عند الفاتورة
+  if (isCv) { const al = (doc.alloc || []).reduce((a, x) => a + (Number(x && x.amount) || 0), 0);   // المستحق قبل السند بلا ما وُزِّع عليه السند نفسه (لا يُخصم مرتين)
+    base = Math.max(0, t4R2((Number(doc.amount) || 0) - al - Math.max(0, (Number(opt.owed) || 0) - al))); }   // الجزء «على الحساب» الزائد على المستحق — الموزَّع على فواتير احتُسب عند الفاتورة
   else { if (!((Number(doc.amount) || 0) > 0)) return { doc }; if (Math.abs(Number(doc.vatAmt) || 0) > 0.004) return { err: 'فاتورة المورد غير المقيم تحمل ضريبة مدخلات — لا يجتمع معها الاحتساب العكسي' };
     const g = t4R2(doc.amount); pre = opt.ops ? Math.min(g, rcmPrepaidAvail(org, opt.ops, s.id, String(doc.date || '').slice(0, 10), doc.id)) : 0; base = t4R2(g - pre); }
   if (!(base > 0.004) && !(pre > 0)) return { doc };

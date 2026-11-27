@@ -316,3 +316,14 @@ test('مراجعة 6: بداية مدة الدين المعدوم من الاس�
   assert.match(E.eclCheck(od, ops0, wo), /تاريخ الاستحقاق 2026-02-14 — التعديل متاح من 2026-08-14/);
   assert.equal(E.eclCheck(od, ops0, { ...wo, date: '2026-08-14' }), '');
 });
+
+test('إعادة التحقق: إشعار المورد على فاتورة احتساب عكسي خارج بند 10–11 (بند 12 = 7,500)، والمستحق لا يشمل ما وُزِّع عليه السند نفسه', () => {
+  const o = ON(); const i = E.rcmApply(o, inv()).doc;
+  const cn = { id: 'cn1', creditNote: true, invoiceNo: 'CN-1', supplierId: 's1', supplierName: 'مورد خارجي تجريبي', amount: -2500, vatAmt: 0, date: '2026-03-15', appliesTo: 'i1', accCode: '5310', reason: 'خصم' };
+  const R = E.vatRegister(o, { invoices: [i, cn] });
+  assert.equal(R.boxes.find(b => b.n === '10–11').net, 0); assert.equal(R.boxes.find(b => b.n === '12').net, 7500); assert.equal(R.boxes.find(b => b.n === '9').net, 7500);
+  assert.equal('rc' in E.vatRegister(o, { invoices: [inv(), cn] }).purch.find(r => r.no === 'CN-1'), false, 'إشعار على فاتورة بلا احتساب كما كان');
+  // سند 10,000 منه 6,000 موزَّع على فاتورة، والمستحق للمورد 6,000 ⇒ وعاء السند 4,000
+  assert.equal(E.rcmApply(o, pv({ alloc: [{ id: 'i1', no: 'INV-1', amount: 6000 }] }), { owed: 6000 }).doc.rcm.base, 4000);
+  assert.equal(E.rcmApply(o, pv({ alloc: [{ id: 'i1', no: 'INV-1', amount: 6000 }] }), { owed: 7000 }).doc.rcm.base, 3000, 'مستحق آخر 1,000 غير موزَّع يُخصم');
+});
