@@ -715,6 +715,8 @@ const BR_COLS = ['posTabs', 'kdsTickets', 'posDeliveries', 'closings', 'transfer
   'stockCounts',
   // v33.0 — نقطة البيع: الفواتير المبسّطة والورديات (يكتبها جهاز الفرع)
   'posOrders', 'posShifts',
+  // v56.53 — مراجعات المرتجع دون اتصال (المدير يعتمد بعد عودة الاتصال)
+  'posOffRevs',
   // v33.1 — مبيعات نقاط البيع المستوردة من Excel (ملخص يومي لكل فرع)
   'posImports',
   // v41.4 — سجل سلامة الغذاء (قراءات درجات الحرارة يكتبها الفرع)
@@ -3807,6 +3809,7 @@ function closeAutoChecks(A, ops, month, org) {
   const arChk = org && posCreditOn(org) ? (() => { const gl = r2((A.entries || []).filter(e => String(e.date || '') <= end).reduce((t, e) => t + (e.lines || []).filter(l => l.code === '1380').reduce((a, l) => a + l.debit - l.credit, 0), 0));
     const sub = r2(-buildPartners(org, ops).filter(p => p.type === 'customer').reduce((a, p) => a + (p.txns || []).filter(t => !t.date || String(t.date) <= end).reduce((x, t) => x + (t.credit || 0) - (t.debit || 0), 0), 0));
     return { gl, sub, d: r2(gl - sub) }; })() : null;
+  const offUnrev = posOffRetPending(ops.posOrders, ops.posOffRevs).filter(o => String(o.date || '') <= end);   // v56.53 (المراجعة): مرتجعات دون اتصال لم يعتمد المدير مراجعتها
   const impYear = org && impOn(org) && month.slice(5, 7) === '12' ? !(ops.impairTests || []).some(t => String(t.year) === month.slice(0, 4)) : false;   // 27.7: اختبار المؤشرات في كل إقفال سنوي   // v56.40 (E6.3): مراجعة المخصص بند في الإقفال
   return [
     { k: 'drafts', ar: 'لا إغلاقات مسودة أو مرفوضة حتى نهاية الشهر', n: cls.filter(c => c.status === 'draft' || c.status === 'rejected').length },
@@ -3818,6 +3821,7 @@ function closeAutoChecks(A, ops, month, org) {
     ...(pecl.length || (org && eclOn(org)) ? [{ k: 'ecl', ar: 'مخصص الخسائر الائتمانية: رُوجعت ذمم العملاء المتأخرة ولا مستند مخصص أو شطب بانتظار الاعتماد', n: pecl.length }] : []),
     ...(ppp.length || (org && ppOn(org)) ? [{ k: 'ppd', ar: 'المصروفات المدفوعة مقدمًا: لا مستند بانتظار الاعتماد (الإطفاء الشهري آلي بعد الاعتماد)', n: ppp.length }] : []),
     ...(pimp.length || impYear ? [{ k: 'impair', ar: 'هبوط قيمة الأصول: سُجّل اختبار مؤشرات السنة ولا مستند هبوط بانتظار الاعتماد', n: pimp.length + (impYear ? 1 : 0) }] : []),
+    ...(offUnrev.length ? [{ k: 'posoffret', ar: 'كل مرتجعات نقطة البيع دون اتصال حتى نهاية الشهر رُوجعت واعتُمدت من المدير (نقطة البيع ← مرتجعات دون اتصال للمراجعة)', n: offUnrev.length, amt: posR2(offUnrev.reduce((a, o) => a + Math.abs(Number(o.total) || 0), 0)) }] : []),
     ...(pdp.length ? [{ k: 'deptpick', ar: 'كل مصروفات الوردية التي يحدد المحاسب قسمها (الصيانة والكهرباء) محدَّدة القسم', n: pdp.length }] : []),
     ...(arChk ? [{ k: 'arsub', ar: 'ذمم العملاء 1380 في الأستاذ (' + arChk.gl + ') = مجموع أرصدة العملاء في السجل الفرعي (' + arChk.sub + ')', n: Math.abs(arChk.d) > 0.004 ? 1 : 0, amt: arChk.d }] : []),
     ...(org && whtDueDay(org) ? (() => { const pm = t4PrevYm(month), u = whtUnpaidAt(A, pm + '-31', end);   // v56.51 (2-أ): بموعد يُدخله المالك ويؤكّده المختص فقط
@@ -4047,7 +4051,7 @@ function emptyOrg(company) {
 }
 
 function emptyOps() {
-  return { impairDocs: [], impairTests: [], expDeptPicks: [], budgets: [], prepaids: [], eclDocs: [], rfqs: [], posDeliveries: [], cashVouchers: [], jeRecurring: [], mktConsents: [], mktMerges: [], mktProfiles: [], mktReferrals: [], commsJobs: [], actions: [], countSessions: [], wasteRequests: [], posImports: [], posOrders: [], posShifts: [], ledgerSnaps: [], stockCounts: [], leaveRequests: [], productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
+  return { impairDocs: [], impairTests: [], expDeptPicks: [], budgets: [], prepaids: [], eclDocs: [], rfqs: [], posDeliveries: [], cashVouchers: [], jeRecurring: [], mktConsents: [], mktMerges: [], mktProfiles: [], mktReferrals: [], commsJobs: [], actions: [], countSessions: [], wasteRequests: [], posImports: [], posOrders: [], posShifts: [], posOffRevs: [], ledgerSnaps: [], stockCounts: [], leaveRequests: [], productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
     attendanceEvents: [], hrPins: [], shiftTemplates: [], shiftAssignments: [], shiftSwapRequests: [], branchTransferRequests: [], taskTemplates: [], taskAssignments: [], taskCompletions: [], pointsEntries: [], qualityReviews: [], rewardRequests: [], hrSignDocs: [], hrCorrective: [], hrPips: [], hrTraining: [], hrKpiEntries: [], hrScoreSnapshots: [], purchaseReqs: [], poInbox: [], poReceipts: [] };
 }
 
@@ -4058,7 +4062,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.52';
+const APP_VER = 'v56.53';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -9686,6 +9690,171 @@ export { eclOn, eclAccs, eclLive, eclAllowBal, eclWoOf, eclRecOf, eclAllowOk, ec
 export { loyPiiOn, lypSetOn, lynReset, lypReleaseOk, loyNamesByBr, loyStrip, loyWithNames, loyPiiPlan, loyGet, loyPiiCopy, loyPiiStrip };
 const posQueue = () => { try { return JSON.parse(localStorage.getItem(POS_Q_KEY) || '[]'); } catch { return []; } };
 const posQueueSet = (a) => { try { localStorage.setItem(POS_Q_KEY, JSON.stringify(a)); } catch { } };
+/* ===== v56.53 — نقطة البيع المرحلة 5أ: العمل دون اتصال (docs/pos/POS_AUDIT_REPORT.md §8، قرارا المالك 2026-11-26) =====
+   مُطفأ افتراضيًا (org.posCfg.offline، يضبطه مسؤول النظام). بلا تفعيل: الطابور القديم (posQueue/loyQ/pendShifts في localStorage) كما هو حرفيًا.
+   مع التفعيل: صندوق صادر في IndexedDB (قاعدة muktasab-pos: المخزنان outbox وsynclog) بواجهة واحدة posStore (get/put/del/list)،
+   والرجوع تلقائيًا إلى localStorage إن تعذّر IndexedDB (متصفح خاص). المفتاح = «النوع:المعرّف» ⇒ الترحيل وإعادة المحاولة بلا تكرار.
+   لا يُحذف عنصر من الصادر إلا بعد تأكيد الكتابة (send ⇒ true)، ولا يُمسح الطابور القديم إلا بعد التحقق بالقراءة من وصول كل عنصر. */
+const posOffOn = (org) => !!(org && org.posCfg && org.posCfg.offline);
+const POS_IDB = 'muktasab-pos', POS_IDB_VER = 1, POS_OB_KINDS = ['order', 'shift', 'loy', 'ticket'];   // ترتيب الاعتماد: الفواتير ← الورديات ← الولاء (كالإرسال الحالي)
+const POS_OB_LS = 'mizan:posOb:', POS_OB_USED = 'mizan:posObUsed', POS_SYNCLOG_MAX = 300, POS_OB_CHUNK = 200;
+const posObKey = (kind, id) => kind + ':' + id;
+const posObItem = (kind, data, seq) => ({ key: posObKey(kind, data.id), kind, id: String(data.id), at: String(data.at || data.closedAt || data.openedAt || ''), seq: Number(seq) || 0, tries: 0, data });
+/** الترتيب الزمني داخل النوع (ثم ترتيب الإدخال ثم المفتاح — ثابت) */
+const posObSort = (a) => [...(a || [])].sort((x, y) => String(x.at).localeCompare(String(y.at)) || (x.seq || 0) - (y.seq || 0) || String(x.key).localeCompare(String(y.key)));
+/** رسالة خطأ منقّاة للسجل: بلا بريد ولا روابط ولا أرقام طويلة (جوال/هوية) ولا رموز وصول — بحد 120 حرفًا */
+const posSyncErr = (e) => String((e && (e.code || e.message)) || e || 'error').replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, '[email]').replace(/https?:\/\/\S+/g, '[url]')
+  .replace(/[A-Za-z0-9_-]{24,}/g, '[token]').replace(/\d{6,}/g, '[#]').replace(/\s+/g, ' ').trim().slice(0, 120) || 'error';
+/** التباعد المتزايد بعد الإخفاقات المتتالية: 20 ث ثم 40 ثم 80… بحد 5 دقائق (0 = لا انتظار) */
+const posSyncDelay = (fails) => { const n = Math.floor(Number(fails) || 0); return n <= 0 ? 0 : Math.min(20000 * Math.pow(2, n - 1), 300000); };
+const posIdbReq = (r) => new Promise((ok, no) => { r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error || new Error('idb')); });
+function posIdbOpen(idb) {
+  return new Promise((ok, no) => { let r; try { r = idb.open(POS_IDB, POS_IDB_VER); } catch (e) { no(e); return; }
+    r.onupgradeneeded = () => { const db = r.result; ['outbox', 'synclog'].forEach(s => { if (!db.objectStoreNames.contains(s)) db.createObjectStore(s, { keyPath: 'key' }); }); };
+    r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error || new Error('idb-open')); r.onblocked = () => no(new Error('idb-blocked')); });
+}
+/** المعاملة تُعدّ ناجحة عند اكتمالها (oncomplete) لا عند نجاح الطلب — أي بعد الكتابة الدائمة */
+function posStoreIdb(db) {
+  const tx = (s, mode, fn) => new Promise((ok, no) => { let t, rq; try { t = db.transaction(s, mode); rq = fn(t.objectStore(s)); } catch (e) { no(e); return; }
+    let res; rq.onsuccess = () => { res = rq.result; }; t.oncomplete = () => ok(res); t.onerror = () => no(t.error || rq.error || new Error('idb-tx')); t.onabort = () => no(t.error || new Error('idb-abort')); });
+  return { mode: 'idb', get: (s, k) => tx(s, 'readonly', st => st.get(k)), put: (s, v) => tx(s, 'readwrite', st => st.put(v)).then(() => v),
+    del: (s, k) => tx(s, 'readwrite', st => st.delete(k)).then(() => true), list: (s) => tx(s, 'readonly', st => st.getAll()).then(a => a || []) };
+}
+/** البديل: localStorage (مخزن = مفتاح JSON واحد). إخفاق الكتابة (امتلاء) يُرمى للمستدعي فلا يُعدّ محفوظًا */
+function posStoreLs(ls) {
+  const rd = (s) => { try { const v = JSON.parse(ls.getItem(POS_OB_LS + s) || '{}'); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; } catch { return {}; } };
+  const wr = (s, m) => { if (Object.keys(m).length) ls.setItem(POS_OB_LS + s, JSON.stringify(m)); else ls.removeItem(POS_OB_LS + s); };
+  return { mode: 'ls', get: async (s, k) => rd(s)[k], put: async (s, v) => { const m = rd(s); m[v.key] = v; wr(s, m); return v; },
+    del: async (s, k) => { const m = rd(s); delete m[k]; wr(s, m); return true; }, list: async (s) => Object.values(rd(s)) };
+}
+function posStoreMem() { const M = {}; const S = (s) => (M[s] = M[s] || new Map());
+  return { mode: 'mem', get: async (s, k) => S(s).get(k), put: async (s, v) => { S(s).set(v.key, JSON.parse(JSON.stringify(v))); return v; }, del: async (s, k) => { S(s).delete(k); return true; }, list: async (s) => [...S(s).values()].map(v => JSON.parse(JSON.stringify(v))) }; }
+/** فتح posStore: IndexedDB إن توفّر وفُتح، وإلا localStorage، وإلا ذاكرة (env قابل للحقن في الاختبار) */
+async function posStoreOpen(env) {
+  const e = env || (typeof window !== 'undefined' ? { idb: window.indexedDB, ls: window.localStorage } : {});
+  if (e.idb) { try { return posStoreIdb(await posIdbOpen(e.idb)); } catch { /* متصفح خاص أو محظور ⇒ البديل */ } }
+  if (e.ls) { try { e.ls.setItem(POS_OB_LS + 'probe', '1'); e.ls.removeItem(POS_OB_LS + 'probe'); return posStoreLs(e.ls); } catch { } }
+  return posStoreMem();
+}
+/** محوّل الطابور القديم (localStorage) — نفس المفاتيح والدوال الحالية */
+const posLegacyQ = () => ({ read: () => ({ order: posQueue(), shift: pendShiftsGet(), loy: loyQ() }),
+  write: (kind, a) => { if (kind === 'order') posQueueSet(a); else if (kind === 'shift') pendShiftsSet(a); else if (kind === 'loy') loyQSet(a); } });
+/** الترحيل الآمن: القديم ⇒ الصادر. يُكتب الغائب فقط (لا تكرار)، ثم يُقرأ الصادر للتحقق، ثم يُزال من القديم ما ثبت وصوله فقط (لا فقد).
+    يُعاد بأمان إن انقطع في منتصفه. { moved, skipped, cleared, ok } */
+async function posObMigrate(store, legacy) {
+  const L = legacy.read() || {}; const have = new Set((await store.list('outbox')).map(x => x.key)); let moved = 0, skipped = 0;
+  for (const kind of ['order', 'shift', 'loy']) { const a = Array.isArray(L[kind]) ? L[kind] : [];
+    for (let i = 0; i < a.length; i++) { const d = a[i]; if (!d || d.id == null || d.id === '') continue; const it = posObItem(kind, d, i);
+      if (have.has(it.key)) { skipped++; continue; } await store.put('outbox', it); have.add(it.key); moved++; } }
+  const after = new Set((await store.list('outbox')).map(x => x.key)); const L2 = legacy.read() || {}; let cleared = 0, ok = true;
+  for (const kind of ['order', 'shift', 'loy']) { const a = Array.isArray(L2[kind]) ? L2[kind] : []; if (!a.length) continue;
+    const rest = a.filter(d => !(d && d.id != null && after.has(posObKey(kind, d.id)))); if (rest.length) ok = false;
+    if (rest.length !== a.length) { legacy.write(kind, rest); cleared += a.length - rest.length; } }
+  return { moved, skipped, cleared, ok };
+}
+/** الرجوع بعد الإيقاف: ما بقي في الصادر يعود إلى الطابور القديم (بلا تكرار بالمعرّف) ثم يُحذف من الصادر بعد التحقق — فلا يُفقد بالإيقاف */
+async function posObRestore(store, legacy) {
+  const items = posObSort(await store.list('outbox')); let moved = 0, kept = 0;
+  for (const kind of ['order', 'shift', 'loy']) { const mine = items.filter(x => x.kind === kind); if (!mine.length) continue;
+    const cur = (legacy.read() || {})[kind] || []; const ids = new Set(cur.map(d => d && d.id)); const add = mine.filter(x => !ids.has(x.data.id)).map(x => x.data);
+    if (add.length) legacy.write(kind, [...cur, ...add]);
+    const back = new Set(((legacy.read() || {})[kind] || []).map(d => d && d.id));
+    for (const x of mine) { if (back.has(x.data.id)) { await store.del('outbox', x.key); moved++; } else kept++; } }
+  kept += items.filter(x => !['order', 'shift', 'loy'].includes(x.kind)).length;
+  return { moved, kept, ok: !kept };
+}
+let _posLogN = 0;
+/** سجل المزامنة: الوقت، النوع، المعرّف، النتيجة، رسالة الخطأ المنقّاة — يُبقي آخر POS_SYNCLOG_MAX */
+async function posSyncLog(store, rows, max) {
+  for (const r of rows) await store.put('synclog', { key: r.at + '|' + String(++_posLogN).padStart(6, '0'), at: r.at, kind: r.kind, ref: String(r.ref || ''), ok: !!r.ok, ...(r.ok ? {} : { err: posSyncErr(r.err) }) });
+  const all = (await store.list('synclog')).sort((a, b) => String(a.key).localeCompare(String(b.key))); const cut = all.length - (max || POS_SYNCLOG_MAX);
+  for (let i = 0; i < cut; i++) await store.del('synclog', all[i].key);
+}
+const posSyncLogList = async (store) => (await store.list('synclog')).sort((a, b) => String(b.key).localeCompare(String(a.key)));
+/** محرك المزامنة: الأنواع بترتيب الاعتماد (فواتير ← ورديات ← ولاء ← تذاكر)، وداخل النوع بالترتيب الزمني، بدفعات حتى POS_OB_CHUNK.
+    send(kind, list) ⇒ true عند تأكيد الكتابة فقط؛ عندها يُحذف العنصر. أي إخفاق يوقف ما بعده (لا قفز فوق عنصر أقدم) ويُسجَّل.
+    منع التكرار على الجهة المستقبلة بالمعرّف (كما الحالي). { sent, failed, left, err, done:[مفاتيح المؤكَّد] } */
+async function posSyncRun(store, send, opt) {
+  const now = (opt && opt.now) || Date.now; const items = await store.list('outbox'); let sent = 0; const done = [];
+  for (const kind of POS_OB_KINDS) { const L = posObSort(items.filter(x => x.kind === kind));
+    for (let i = 0; i < L.length; i += POS_OB_CHUNK) { const chunk = L.slice(i, i + POS_OB_CHUNK); let ok = false, err = '';
+      try { ok = (await send(kind, chunk.map(x => x.data))) === true; if (!ok) err = 'not-confirmed'; } catch (e) { err = e || 'error'; }
+      const at = new Date(now()).toISOString();
+      if (ok) { for (const x of chunk) { await store.del('outbox', x.key); sent++; done.push(x.key); } await posSyncLog(store, chunk.map(x => ({ at, kind, ref: x.id, ok: true })), opt && opt.max); continue; }
+      const msg = posSyncErr(err);
+      for (const x of chunk) { const cur = await store.get('outbox', x.key); if (!cur) continue;   // v56.53 (المراجعة): حُذف أثناء الإرسال (تبويب آخر أكّده) ⇒ لا يُعاد
+        await store.put('outbox', { ...cur, tries: (cur.tries || 0) + 1, lastErr: msg, lastAt: at }); }
+      await posSyncLog(store, chunk.map(x => ({ at, kind, ref: x.id, ok: false, err: msg })), opt && opt.max);
+      return { sent, failed: chunk.length, left: items.length - sent, err: msg, done }; } }
+  return { sent, failed: 0, left: items.length - sent, err: '', done };
+}
+/* v56.53 (المراجعة الأمنية، قرار المجلس): قفل بين التبويبات حول الترحيل والاسترجاع والمزامنة — navigator.locks إن توفّر،
+   وإلا علامة في localStorage بمهلة (تنتهي تلقائيًا إن أُغلق التبويب وهو يحملها). تعذّر الحصول على القفل ⇒ لا تشغيل (يُعاد لاحقًا) لا تشغيل بلا قفل. */
+const POS_LOCK = 'muktasab-pos', POS_LOCK_LS = 'mizan:posObLock', POS_ON_LS = 'mizan:posObOnAt';
+async function posLockRun(fn, env) {
+  const e = env || (typeof navigator !== 'undefined' || typeof window !== 'undefined' ? { locks: typeof navigator !== 'undefined' ? navigator.locks : null, ls: typeof window !== 'undefined' ? window.localStorage : null } : {});
+  if (e.locks && typeof e.locks.request === 'function') return e.locks.request(POS_LOCK, () => fn());
+  const ls = e.ls; if (!ls) return null;
+  const now = e.now || Date.now, sleep = e.sleep || ((ms) => new Promise(r => setTimeout(r, ms))), ttl = e.ttl || 60000, wait = e.wait == null ? 15000 : e.wait;
+  const me = 'L' + Math.random().toString(36).slice(2, 10); const t0 = now();
+  const rd = () => { try { return JSON.parse(ls.getItem(POS_LOCK_LS) || 'null'); } catch { return null; } };
+  for (;;) {
+    const cur = rd();
+    if (!cur || !(Number(cur.until) > now())) { try { ls.setItem(POS_LOCK_LS, JSON.stringify({ id: me, until: now() + ttl })); } catch { return null; }
+      await sleep(e.settle == null ? 30 : e.settle); const chk = rd(); if (chk && chk.id === me) break; }   // تأكيد بعد مهلة قصيرة: من كتب أخيرًا يملكه
+    if (now() - t0 > wait) return null;
+    await sleep(e.step || 100);
+  }
+  try { return await fn(); } finally { const cur = rd(); if (cur && cur.id === me) { try { ls.removeItem(POS_LOCK_LS); } catch { } } }
+}
+/** تبويب مفعّل يعلن نفسه (كل فتح ومزامنة)؛ الاسترجاع يُمنع إن أعلن تبويبٌ **آخر** التفعيلَ خلال المهلة، ويزيل التبويب إعلانه عند الإيقاف */
+const POS_TAB = 'T' + Math.random().toString(36).slice(2, 10);
+const posOnMark = (ls, now, tab) => { try { ls.setItem(POS_ON_LS, JSON.stringify({ t: (now || Date.now)(), tab: tab || POS_TAB })); } catch { } };
+const posOnRead = (ls) => { try { const v = JSON.parse(ls.getItem(POS_ON_LS) || 'null'); return v && typeof v === 'object' ? v : null; } catch { return null; } };
+const posOnFresh = (ls, now, ms, tab) => { const v = posOnRead(ls); return !!v && v.tab !== (tab || POS_TAB) && (now || Date.now)() - (Number(v.t) || 0) < (ms || 90000); };
+const posOnClear = (ls, tab) => { const v = posOnRead(ls); if (v && v.tab === (tab || POS_TAB)) { try { ls.removeItem(POS_ON_LS); } catch { } } };
+/** بصمة المرتجع: كما كانت حرفيًا، ويُضاف offline وbyId للمرتجعات الجديدة دون اتصال فقط */
+const posRetHashSrc = (r) => [r.no, r.at, r.retLines, r.total, r.vat, r.payments, r.icv, r.pih, r.refId, ...(r.offline === true ? [{ offline: true, byId: r.byId || '' }] : [])];
+/** قيد سجل التدقيق لمرتجع دون اتصال عند مزامنته */
+const posOffRetAudit = (r, branchName) => ({ actionType: 'create', targetType: 'pos_order', targetId: r.id, branchName: branchName || '', title: 'مزامنة مرتجع دون اتصال ' + (r.no || '') + ' عن الفاتورة ' + (r.refNo || ''),
+  details: (r.retLines || []).map(l => l.name + ' ×' + l.qty).join('، ') + ' · ' + posR2(Math.abs(Number(r.total) || 0)).toFixed(2) + ' · سجّله ' + (r.by || '') + ' في ' + String(r.at || '').slice(0, 16).replace('T', ' ') + ' · للمراجعة' });
+/** فحص كاشف لسلسلة الفوترة لكل فرع/جهاز: icv متتالٍ وpih = بصمة الحلقة السابقة (الفواتير والمرتجعات وإشعارات الإلغاء). تنبيه لا منع.
+    أول حلقة معروفة لا تُفحص (ما قبلها قد يكون مؤرشفًا)، والسجلات القديمة بلا icv خارج الفحص. [{ branchId, dev, kind:'gap'|'dup'|'pih', no, icv, prevIcv, prevNo }] */
+function posChainGaps(orders, branchId) {
+  const G = {};
+  (orders || []).forEach(o => { if (!o || (branchId && o.branchId !== branchId)) return;
+    [o.dev ? { dev: o.dev, x: o } : null, o.voidNote ? { dev: o.voidNote.dev || o.dev, x: o.voidNote } : null].forEach(e => { if (!e || !e.x.hash || !(Number(e.x.icv) > 0)) return;
+      const k = o.branchId + '|' + e.dev; (G[k] = G[k] || []).push({ branchId: o.branchId, dev: e.dev, no: e.x.no || '', icv: Number(e.x.icv), pih: String(e.x.pih || ''), hash: e.x.hash }); }); });
+  const out = [];
+  Object.values(G).forEach(L => { L.sort((a, b) => a.icv - b.icv || String(a.no).localeCompare(String(b.no)));
+    for (let i = 1; i < L.length; i++) { const a = L[i - 1], b = L[i]; const base = { branchId: b.branchId, dev: b.dev, no: b.no, icv: b.icv, prevIcv: a.icv, prevNo: a.no };
+      if (b.icv === a.icv) { out.push({ ...base, kind: 'dup' }); continue; }
+      if (b.icv !== a.icv + 1) { out.push({ ...base, kind: 'gap' }); continue; }
+      if (b.pih !== a.hash) out.push({ ...base, kind: 'pih' }); } });
+  return out;
+}
+/* المرتجع دون اتصال (قرار المالك): مسموح حتى حد يحدده المدير لكل فرع (org.posCfg.offRetLimit[فرع])، والافتراضي صفر = ممنوع.
+   الحد على مجموع مرتجعات الفرع دون اتصال التي لم تُراجَع بعد (لا لكل مرتجع وحده) — يُوسم offline:true ويظهر للمدير «للمراجعة بعد الاتصال». */
+const posOffRetLimit = (org, brId) => { const v = Number(((((org || {}).posCfg || {}).offRetLimit) || {})[brId]); return v > 0 && isFinite(v) ? posR2(v) : 0; };
+const posOffRetPending = (orders, revs, brId) => (orders || []).filter(o => o && o.kind === 'return' && o.offline === true && (!brId || o.branchId === brId) && !(revs || []).some(r => r && r.retId === o.id));
+function posOffRetCheck(org, orders, revs, brId, amt) {
+  const lim = posOffRetLimit(org, brId); if (!lim) return { err: 'المرتجع دون اتصال غير مسموح لهذا الفرع — يحدد المدير حده من إعدادات نقطة البيع', lim: 0, used: 0 };
+  const a = posR2(amt); if (!(a > 0)) return { err: 'مبلغ المرتجع غير صحيح', lim, used: 0 };
+  const used = posR2(posOffRetPending(orders, revs, brId).reduce((s, o) => s + Math.abs(Number(o.total) || 0), 0));
+  if (used + a > lim + 0.004) return { err: 'يتجاوز حد المرتجع دون اتصال لهذا الفرع (' + lim.toFixed(2) + ') — غير المراجَع ' + used.toFixed(2) + '؛ انتظر عودة الاتصال', lim, used };
+  return { ok: true, lim, used, left: posR2(lim - used - a) };
+}
+/** اعتماد مراجعة مرتجع دون اتصال: للإدارة التشغيلية (أدوار الإلغاء)، ولا يعتمده من سجّله (فصل المهام)، ومرة واحدة */
+function posOffRetReview(ops, ret, me) {
+  const R = ROLES[(me || {}).role] || {}; if (!(R.admin || POS_VOID_ROLES.includes((me || {}).role))) return { err: 'المراجعة للإدارة التشغيلية (مدير الفرع فأعلى)' };
+  if (!ret || ret.kind !== 'return' || ret.offline !== true) return { err: 'ليس مرتجعًا دون اتصال' };
+  if (ret.pending) return { err: 'لم يصل المرتجع للسحابة بعد' };
+  if (((ops && ops.posOffRevs) || []).some(r => r && r.retId === ret.id)) return { err: 'رُوجع هذا المرتجع سابقًا' };
+  if (ret.byId ? ret.byId === me.id : ret.by === me.name) return { err: 'لا يعتمد المرتجع من سجّله — يعتمده مدير آخر' };
+  return { rev: { id: uid('orv'), branchId: ret.branchId, retId: ret.id, retNo: ret.no || '', amount: posR2(Math.abs(Number(ret.total) || 0)), by: me.name, byId: me.id || '', at: nowISO() } };
+}
+export { posLockRun, posOnMark, posOnFresh, posOnClear, POS_ON_LS, posRetHashSrc, posOffRetAudit, posChainGaps };
+export { posOffOn, POS_IDB, POS_OB_KINDS, POS_OB_USED, posObKey, posObItem, posObSort, posSyncErr, posSyncDelay, posStoreIdb, posStoreLs, posStoreMem, posStoreOpen, posLegacyQ, posObMigrate, posObRestore, posSyncLog, posSyncLogList, posSyncRun, posOffRetLimit, posOffRetPending, posOffRetCheck, posOffRetReview };
 /* v56.0 (GAP-007): تعليق طلب سفري واستدعاؤه — مسودة على الجهاز لكل فرع (تعمل دون اتصال)، لا رقم فاتورة ولا عدّاد ولا بصمة
    قبل الدفع، فتبقى سلسلة الفوترة الإلكترونية بلا فجوات. الاستدعاء يعيد التسعير بسعر المنتج الحالي ويُسقط المنتج المحذوف. */
 const POS_HOLD_MAX = 20;

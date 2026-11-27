@@ -43,7 +43,11 @@ export const ENGINE_EXPORTS = ['depBrRanges', 'depBrAt', 'depBrFrom', 'depBrOf',
   // v56.51 — المقترحات الضريبية الأربعة
   'rcmOn', 'rcmRate', 'rcmSupOf', 'rcmInvAcc', 'rcmPrepaidAvail', 'rcmApply', 'rcmLines', 'whtSummary', 'whtDueDay', 'whtUnpaidAt', 'whtDueAlert', 'whtSettleWarn', 'siConvOn', 'SI_CONV_REASON', 'siConvOf', 'siConvCheck', 'siConvert', 'bdvOn', 'bdvMonths', 'bdvBasis', 'bdvStartOf', 'bdvAddMonths', 'bdvDocOf', 'bdvAmtOf', 'bdvCheck', 'bdvRecOf',
   // v56.52 — نقطة البيع المرحلة 3: المطعم
-  'restCfg', 'coversOf', 'posWaiters', 'coversEff', 'salesByWaiter', 'tabRemain', 'tabSplitItems', 'tabSplitSet', 'tabPartPriced', 'tabSplitReset', 'tabPayPart', 'tabMerge', 'kdsStations', 'kdsStationOf', 'kdsStationsErr', 'kdsSplit', 'kdsPrepReport', 'kdsPrepSheets'];
+  'restCfg', 'coversOf', 'posWaiters', 'coversEff', 'salesByWaiter', 'tabRemain', 'tabSplitItems', 'tabSplitSet', 'tabPartPriced', 'tabSplitReset', 'tabPayPart', 'tabMerge', 'kdsStations', 'kdsStationOf', 'kdsStationsErr', 'kdsSplit', 'kdsPrepReport', 'kdsPrepSheets',
+  // v56.53 — نقطة البيع المرحلة 5أ: العمل دون اتصال
+  'posOffOn', 'POS_OB_KINDS', 'posObKey', 'posObItem', 'posObSort', 'posSyncErr', 'posSyncDelay', 'posStoreIdb', 'posStoreLs', 'posStoreMem', 'posStoreOpen', 'posObMigrate', 'posObRestore', 'posSyncLog', 'posSyncLogList', 'posSyncRun', 'posOffRetLimit', 'posOffRetPending', 'posOffRetCheck', 'posOffRetReview',
+  // v56.53 — معالجة المراجعة الأمنية
+  'posLockRun', 'posOnMark', 'posOnFresh', 'posOnClear', 'posRetHashSrc', 'posOffRetAudit', 'posChainGaps'];
 
 export async function buildEngine() {
   fs.mkdirSync(cache, { recursive: true });
