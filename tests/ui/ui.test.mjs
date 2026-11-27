@@ -4089,3 +4089,23 @@ test('v56.37 نقطة البيع مع فصل الأسماء: النقاط في �
   assert.match(await p.locator('.pos-cart').innerText(), /ريم الفرع/, 'الكاشير يرى اسم عميل فرعه');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.37 (مراجعة الأمن): أسماء نطاق المستخدم وحده — المحمّل لمستخدم مركزي لا يظهر لكاشير الفرع، وطابور الأسماء لا يضيع اسمًا', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Admin/admin');
+  await p.evaluate(() => window.setOrg(o => ({ ...o, loyPii: { on: true } }))); await p.waitForTimeout(200);
+  const r = await p.evaluate(async () => {
+    const M = window.__M;
+    localStorage.setItem('rms8:loy', JSON.stringify({ members: { '511': { since: '1' }, '522': { since: '1' } }, tx: [{ id: 'a', phone: '511', pts: 1, br: 'b1' }, { id: 'b', phone: '522', pts: 1, br: 'b2' }] }));
+    localStorage.setItem('rms8:lyb_b1', JSON.stringify({ names: { '511': 'عميل ب1' } })); localStorage.setItem('rms8:lyb_b2', JSON.stringify({ names: { '522': 'عميل ب2' } }));
+    const all = await M.loyGet(['b1', 'b2'], true); const br = await M.loyGet(['b1'], false);
+    const out = { all: [all.members['511'].name, all.members['522'].name], br: [br.members['511'].name, br.members['522'].name || ''] };
+    return out;
+  });
+  assert.deepEqual(r.all, ['عميل ب1', 'عميل ب2']); assert.deepEqual(r.br, ['عميل ب1', ''], 'فرع ب1 لا يرى اسم ب2 حتى بعد تحميل المركز');
+  const q = await p.evaluate(async () => {
+    const M = window.__M; localStorage.setItem('mizan:lynQ', JSON.stringify([{ qid: 'q1', br: 'b1', names: { '533': 'من الطابور' } }]));
+    await M.loyGet(['b1'], false); return [localStorage.getItem('mizan:lynQ'), JSON.parse(localStorage.getItem('rms8:lyb_b1')).names['533']];
+  });
+  assert.deepEqual(q, [null, 'من الطابور'], 'الطابور يُفرَّغ بعد الحفظ');
+  assert.deepEqual(errs, []); await ctx.close();
+});
