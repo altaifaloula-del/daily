@@ -8874,6 +8874,9 @@ function OdooBar({ groups, cur, onPick, extra, sw, showSub, subEnd, crumb }) {
   // v56.0 (DESIGN-V56-008): على الجوال الشريط سطر قابل للتمرير — القسم الحالي يُمرَّر ليظهر
   const obRef = useRef(null);
   useEffect(() => { const c = obRef.current; if (!c || c.scrollWidth <= c.clientWidth + 2) return; const el = c.querySelector('.ob-it.on'); if (el && el.scrollIntoView) { try { el.scrollIntoView({ inline: 'center', block: 'nearest' }); } catch { } } }, [cur]);
+  // v56.38 (مراجعة التصميم): وصف الأقسام على الجوال يُمرَّر ليظهر القسم الحالي — بتمرير الحاوية نفسها فلا تتحرك الصفحة عموديًا
+  useEffect(() => { try { const w = obRef.current && obRef.current.parentElement; const sc = w && w.querySelector('.ob-sub'); const el = sc && sc.querySelector('.ob-si.on');
+    if (el && sc.scrollWidth > sc.clientWidth + 2) { const r = el.getBoundingClientRect(), rs = sc.getBoundingClientRect(); sc.scrollLeft += (r.left + r.width / 2) - (rs.left + rs.width / 2); } } catch { } }, [cur]);
   const [vars, setVars] = useState({});
   const [ftOpen, setFtOpen] = useState(false);   // v56.24: لوحة المرشحات على الجوال
   useEffect(() => { setFtOpen(false); }, [cur]);   // تُطوى عند تغيير القسم

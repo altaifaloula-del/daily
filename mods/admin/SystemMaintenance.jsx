@@ -656,7 +656,7 @@ function CtlBarCard({ org, commitOrg, say, isAdm }) {
     <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
       الوضع الافتراضي بقرار المالك بعد التجربة. يُظهر سطرًا أعلى المحاسبة والمبيعات والمخزون والموردين والإجازات ومراكز التطبيقات فيه مسار الموقع (التطبيق › المجموعة › القسم الحالي) وأزرار الإجراء، وصفًّا بأقسام المجموعة الحالية، ومرشحات تقارير المحاسبة، ويكبّر الأزرار للمس. يسري على وضع العرض «قوائم».
       تغيير في الشكل فقط — لا يمس أي قيد أو رصيد، ويمكن إيقافه في أي وقت. يسري على كل مستخدمي المنشأة.</div>
-    {isAdm && <button className={'btn sm ' + (on ? 'gh' : 'pri')} onClick={toggle} data-ctlbar-toggle>{on ? 'إيقاف (الشكل السابق)' : 'إعادة التشغيل'}</button>}
+    {isAdm && <button className={'btn sm ' + (on ? 'gh' : 'pri')} onClick={toggle} data-ctlbar-toggle>{on ? 'الرجوع إلى الشكل السابق' : 'إعادة التشغيل'}</button>}
   </div>);
 }
 

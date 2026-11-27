@@ -1805,7 +1805,7 @@ table.tb.rc-tb{min-width:0}
 .secpager .sp-cur{color:var(--txt);font-weight:700}
 .secpager.sp-compact{gap:2px}.secpager.sp-compact .btn{padding-inline:8px}
 @media (max-width:640px){.ob-sub{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:8px}.ob-sub::-webkit-scrollbar{display:none}.ob-subend{margin-inline-start:8px}.ob-sub .secpager .sp-pos{display:none}}
-@media print{.ob-sub{display:none !important}}
+@media print{.ob-sub,.ob,.ob-crumb{display:none !important}}
 /* v56.23 (G2 — النموذج 2، المرحلة 1، معطّل افتراضيًا): سطر مسار الموقع والإجراء الأساسي + أهداف لمس 44px على اللمس — ألوان من الرموز فقط */
 .ob-crumb{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 2px 2px;min-height:36px}
 .ob-path{display:flex;align-items:center;gap:6px;min-width:0;flex:1 1 auto;font-size:13px;color:var(--dim)}
@@ -1813,6 +1813,7 @@ table.tb.rc-tb{min-width:0}
 .ob-path .obp-cur{min-width:0;flex:0 1 auto;color:var(--txt);font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ob-act{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-inline-start:auto}
 .ob-act .btn{margin-inline-start:0 !important}
+@media (pointer:coarse){.ob.ctl2 .acct-mode button{min-height:44px;min-width:44px}}
 @media (pointer:coarse){.ob.ctl2 .ob-it,.ob-sub.ctl2 .ob-si,.rms .ob-sub.ctl2 .btn,.rms .ob-sub.ctl2 .btn.sm,.rms .ob-act .btn,.rms .ob-act .btn.sm{min-height:44px}}
 /* v56.23: المرقّم في نهاية صف الأقسام على الجوال كان يكدّس أزراره عموديًا (فراغ ~78px) — سطر واحد */
 @media (max-width:640px){.ob-sub .secpager{flex-wrap:nowrap}}
