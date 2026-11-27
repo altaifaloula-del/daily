@@ -4204,3 +4204,20 @@ test('v56.42 الدفعة 8 (U3): خريطة أقسام مصروفات الور�
   await p.waitForFunction(() => (window.cur.expDeptPicks || []).some(x => x.key === 'cz:z1' && x.deptId === 'k'));
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.43 الدفعة 10 (E8): هبوط قيمة أصل — إنشاء بمستند، اعتماد غير المنشئ، واختبار المؤشرات السنوي', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1200 } }, 'live/Accounting/acc/ast');
+  await p.evaluate(() => window.setOrg(o => ({ ...o, impair: { on: true, lossAcc: '5806', accAcc: '1792' },
+    customAccounts: [...(o.customAccounts || []), { code: '1792', name: 'مجمع خسائر الهبوط', kind: 'asset' }, { code: '5806', name: 'خسارة هبوط قيمة الأصول', kind: 'exp' }],
+    assets: [...(o.assets || []), { id: 'az', name: 'فرن الاختبار', cost: 12000, buyDate: '2025-01-10', lifeYears: 5, fund: '1201', branchId: 'b1' }] })));
+  await p.waitForSelector('[data-imp-row="az"]'); await p.locator('[data-imp-row="az"] [data-imp-new]').click();
+  await p.getByLabel('مبلغ الهبوط').fill('1000'); await p.getByLabel('سبب الهبوط').fill('تلف جزئي — تقرير فني');
+  await p.click('[data-imp-save]'); await p.waitForFunction(() => (window.cur.impairDocs || []).length === 1);
+  assert.equal(await p.locator('[data-imp-wait]').count(), 1);
+  await p.evaluate(() => window.as('admin')); await p.waitForSelector('[data-imp-ok]'); await p.click('[data-imp-ok]');
+  await p.waitForFunction(() => window.cur.impairDocs[0].status === 'approved');
+  assert.match(await p.locator('[data-imp-row="az"]').innerText(), /1,000\.00/);
+  await p.click('[data-imt-new]'); await p.getByLabel('ملاحظات الاختبار').fill('لا فروع خاسرة ولا إغلاقات'); await p.click('[data-imt-save]');
+  await p.waitForFunction(() => (window.cur.impairTests || []).length === 1);
+  assert.deepEqual(errs, []); await ctx.close();
+});

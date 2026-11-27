@@ -10,6 +10,8 @@ import { EclCard } from './EclCard.jsx';   // v56.40 الدفعة 7 (E6)
 import { BudgetV } from './BudgetV.jsx';   // v56.41 الدفعة 6 (E5)
 import { PrepaidCard } from './PrepaidCard.jsx';   // v56.41 الدفعة 6 (T4)
 import { DeptShiftMap } from './DeptShiftMap.jsx';   // v56.42 الدفعة 8 (U3)
+import { ImpairCard } from './ImpairCard.jsx';   // v56.43 الدفعة 10 (E8)
+import { impOn } from '../../App.jsx';
 import { budVOn, ppOn } from '../../App.jsx';
 import { eclOn } from '../../App.jsx';
 import { deptOn, deptList, DEPT_SHARED } from '../../App.jsx';
@@ -573,7 +575,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
     if (!(Number(f.lifeYears) > 0)) return say('أدخل العمر الإنتاجي بالسنوات', 'no');
     const salv = Number(f.salvage) || 0; if (salv < 0 || salv >= cost) return say('القيمة المتبقية يجب أن تكون أقل من التكلفة', 'no');
     const rec = { id: f.id || uid('as'), name: f.name.trim(), cost, buyDate: f.buyDate || today(), lifeYears: Number(f.lifeYears), fund: f.fund || 'none', note: f.note || '',
-      ...(f.depMethod && f.depMethod !== 'sl' ? { depMethod: f.depMethod } : {}), ...(salv > 0 ? { salvage: salv } : {}) };   // v49.4 طريقة الإهلاك والقيمة المتبقية
+      ...(f.depMethod && f.depMethod !== 'sl' ? { depMethod: f.depMethod } : {}), ...(salv > 0 ? { salvage: salv } : {}), ...(f.branchId ? { branchId: f.branchId } : {}) };   // v56.43 (E8.1) مركز التكلفة اختياري   // v49.4 طريقة الإهلاك والقيمة المتبقية
     await commitOrg(d => ({ ...d, assets: f.id ? (d.assets || []).map(x => x.id === f.id ? rec : x) : [...(d.assets || []), rec] }), {
       actionType: f.id ? 'update' : 'create', targetType: 'fixed_asset', targetId: rec.id,
       need: f.id ? 'edit' : 'post', title: f.id ? 'عدّل أصلاً ثابتاً (أُعيد اشتقاق إهلاكه)' : 'سجّل أصلاً ثابتاً',
@@ -3558,6 +3560,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
       {view === 'ast' && (
         <div className="grid" style={{ gap: 12 }}>
           {ppOn(org) && <PrepaidCard org={org} ops={ops} A={A} me={me} commit={commit} say={say} canPost={canPost} />}
+          {impOn(org) && <ImpairCard org={org} ops={ops} A={A} me={me} commit={commit} say={say} canPost={canPost} />}
           <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
             <div className="grid g3" style={{ flex: 1, minWidth: 280 }}>
               <Kpi label="تكلفة الأصول القائمة" value={money(sum(A.assetRows.filter(a => !a.disposed), a => a.cost))} sub={A.assetRows.filter(a => !a.disposed).length + ' أصلاً قائماً' + (A.assetRows.some(a => a.disposed) ? ' · ' + A.assetRows.filter(a => a.disposed).length + ' مُستبعَد' : '')} icon={Building2} color="#D9A83E" />
@@ -3841,6 +3844,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
           <div className="grid g3">
             <Field label="التكلفة"><input className="inp n" inputMode="decimal" value={astF.cost} onChange={e => setAstF(f => ({ ...f, cost: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
             <Field label="تاريخ الشراء"><input type="date" className="inp" value={astF.buyDate} onChange={e => setAstF(f => ({ ...f, buyDate: e.target.value }))} /></Field>
+            {(org.branches || []).filter(b => b.isActive !== false).length > 0 && <Field label="مركز التكلفة (اختياري)"><select className="sel" aria-label="فرع الأصل" value={astF.branchId || ''} onChange={e => setAstF(f => ({ ...f, branchId: e.target.value }))}><option value="">المركز الرئيسي</option>{(org.branches || []).filter(b => b.isActive !== false).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></Field>}
             <Field label="العمر الإنتاجي (سنوات)"><input className="inp n" inputMode="decimal" value={astF.lifeYears} onChange={e => setAstF(f => ({ ...f, lifeYears: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
             <Field label="القيمة المتبقية (خردة)"><input className="inp n" inputMode="decimal" aria-label="القيمة المتبقية" placeholder="0" value={astF.salvage ?? ''} onChange={e => setAstF(f => ({ ...f, salvage: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
             <div style={{ gridColumn: '1 / -1' }} data-depm>

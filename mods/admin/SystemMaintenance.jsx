@@ -10,7 +10,8 @@ import { posrOn, posrCompare, posrLoad, posrSeed, posrState, posrRepair } from '
 import { MKT_BR_CV, mktBrOn } from '../../App.jsx';
 import { loyPiiOn, loyPiiPlan, loyPiiCopy, loyPiiStrip, lypReleaseOk } from '../../App.jsx';
 import { eclOn, eclAccs, eclAllowOk } from '../../App.jsx';
-import { budVOn, ppOn } from '../../App.jsx';   // v56.41 الدفعة 6   // v56.40 الدفعة 7 (E6)   // v56.37 فصل أسماء عملاء الولاء
+import { budVOn, ppOn } from '../../App.jsx';   // v56.41 الدفعة 6
+import { impOn, impAccOk, impLossOk } from '../../App.jsx';   // v56.43 الدفعة 10   // v56.40 الدفعة 7 (E6)   // v56.37 فصل أسماء عملاء الولاء
 import { grrOn, mkcCompare, lytCompare, grrLoad, grrSeed, grrState, mkmOn, mkmCompare, mkmViolations, mkmSeed, mkmSrcOn } from '../../App.jsx';
 import { posGlOpen, posGlRanges, posGlCheck } from '../../App.jsx';
 import { loyMonthAdj, posLoyOpening, posMisLoyRanges, posMisLoyFrom, posGlNote, jeOwner, posGlFrom } from '../../App.jsx';   // v56.33 (الدفعة 2 — P1/P2)
@@ -329,6 +330,7 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
       <CtlBarCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <EclCfgCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <Batch6Card org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
+      <ImpairCfgCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <DsRouteCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <CvApprCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <MktCtlCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
@@ -642,6 +644,26 @@ function PosGlCard({ org, ops, me, commit, commitOrg, say, isAdm }) {
         {lmDone && <span className="badge b-sky">مسجّلة</span>}
         {la && isAdm && !lmDone && <>{(la.occ || la.expOcc) ? <select className="sel" aria-label="حساب المصروف الترويجي" value={promoAcc} onChange={e => setPromoAcc(e.target.value)} data-loymonth-acc><option value="">— حساب المصروف الترويجي —</option>{expAccs.map(a => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}</select> : null}
           <button className="btn sm pri" onClick={lmPost} data-loymonth-post>إنشاء قيد التسوية</button></>}</div></div>
+  </div>);
+}
+
+/* v56.43 — الدفعة 10 (E8): هبوط قيمة الأصول — التفعيل وحسابا الخسارة (5xxx) ومجمع الهبوط (17xx غير 1701 و1791) من الدليل */
+function ImpairCfgCard({ org, commitOrg, say, isAdm }) {
+  const on = impOn(org); const c = (org && org.impair) || {}; const [f, setF] = useState({ loss: c.lossAcc || '', acc: c.accAcc || '' });
+  const accs = useMemo(() => buildAccounting(org, {}).accounts.map(a => ({ code: String(a.code), name: a.name })), [org]);
+  const save = async (turn) => { if (!isAdm) return; const nx = turn === undefined ? on : turn;
+    if (nx && (!impLossOk(f.loss) || !impAccOk(f.acc))) return say('اختر حساب خسارة الهبوط (5xxx) وحساب مجمع الهبوط (17xx غير 1701 و1791)', 'no');
+    const ok = await commitOrg(o => ({ ...o, impair: { ...(o.impair || {}), on: nx, lossAcc: f.loss, accAcc: f.acc, at: nowISO() } }), { actionType: 'settings', targetType: 'system_settings', targetId: 'impair', title: nx ? 'فعّل هبوط قيمة الأصول' : 'أوقف هبوط قيمة الأصول', details: f.loss + ' / ' + f.acc });
+    if (ok) say(nx ? 'فُعّل — يظهر في «المحاسبة ← الأصول والإهلاك» ✓' : 'أُوقف — ما اعتُمد يبقى'); };
+  return (<div className="card" data-impcfg>
+    <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />هبوط قيمة الأصول الثابتة</div><span className={'badge ' + (on ? 'b-sky' : 'b-dim')}>{on ? 'مفعّل' : 'غير مفعّل'}</span></div>
+    <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>بقرار المجلس (القسم 27): يُدخل المحاسب الهبوط بمبلغه ومستنده ويعتمده غيره، والعكس مسموح في حدوده، والإهلاك بعده للمستقبل فقط، واختبار المؤشرات سنويًا. اختر الحسابين من الدليل (أضفهما إن لم يوجدا: مجمع خسائر الهبوط 17xx، وخسارة الهبوط 5xxx).</div>
+    <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+      <select className="sel" aria-label="حساب خسارة الهبوط" value={f.loss} disabled={!isAdm} onChange={e => setF({ ...f, loss: e.target.value })} data-impcfg-loss><option value="">— خسارة الهبوط —</option>{accs.filter(a => impLossOk(a.code)).map(a => <option key={a.code} value={a.code}>{a.code} · {a.name}</option>)}</select>
+      <select className="sel" aria-label="حساب مجمع الهبوط" value={f.acc} disabled={!isAdm} onChange={e => setF({ ...f, acc: e.target.value })} data-impcfg-acc><option value="">— مجمع الهبوط —</option>{accs.filter(a => impAccOk(a.code)).map(a => <option key={a.code} value={a.code}>{a.code} · {a.name}</option>)}</select>
+      {isAdm && on && <button className="btn sm gh" onClick={() => save()}>حفظ الحسابين</button>}
+      {isAdm && <button className={'btn sm ' + (on ? 'gh' : 'pri')} onClick={() => save(!on)} data-impcfg-toggle>{on ? 'إيقاف' : 'تفعيل'}</button>}
+    </div>
   </div>);
 }
 
