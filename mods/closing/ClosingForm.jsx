@@ -179,7 +179,7 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
     if (!f.branchId) { say('اختر الفرع أولاً', 'no'); return null; }
     if (totalRevenue <= 0 && !creditSales) { say('أدخل مبيعات الوردية قبل الحفظ', 'no'); return null; }   // v56.46: يوم مرتجعات آجلة فقط مسموح
     // v56.46 (قرار المجلس 11): الآجل يطابق آجل نقطة البيع لليوم — فحص مانع للترحيل
-    if (status === 'submitted') { const psC = r2c((salesDaySource({ posOrders, posImports }, f.branchId, f.date) || {}).credit);
+    if (status !== 'draft') { const psC = r2c(   /* v56.46: كل حفظ محتسب لا المسودة */(salesDaySource({ posOrders, posImports }, f.branchId, f.date) || {}).credit);
       if (Math.abs(creditSales - psC) >= 0.01) { say('الآجل على العملاء (' + money(creditSales) + ') لا يطابق آجل نقطة البيع لليوم (' + money(psC) + ') — اضغط «تعبئة من نقطة البيع» قبل الترحيل', 'no'); return null; } }
     // المرفوض لا يمنع إعادة إغلاق اليوم — حتى لا يُقفل اليوم نهائيًا بعد الرفض
     const dup = existing.find(c => c.branchId === f.branchId && c.date === f.date && c.id !== initial?.id && c.status !== 'rejected');

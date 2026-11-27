@@ -3,13 +3,15 @@ import React, { useMemo, useState } from 'react';
 import { FileText, Wallet, AlertTriangle, ShieldCheck, Plus, Printer, Check, X, Banknote } from 'lucide-react';
 import { DocLink, RowGrip, moveIdx, projList, Field, Kpi, LOCK_MSG, Modal, Num, ROLES, branchBanks, buildPartners, entityList, isoD, money, naMissing, nowISO, periodLocked, printSalesInvoice, rolePost, siCredited, siRem, siSorted, siStamp, siVerify, sum, today, uid } from '../../App.jsx';
 import { eclWoOf } from '../../App.jsx';   // v56.40
-import { arDocs } from '../../App.jsx';   // v56.46 ذمم الكاشير (للاطلاع)
+import { arDocs, posCreditExceptionsApi } from '../../App.jsx';   // v56.46 ذمم الكاشير (للاطلاع) وفحص التفويض
 
 export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
   const all = ops.salesInvoices || [];
   const central = ROLES[me.role]?.scope === 'all';
   const brIds = (myBranches || []).map(b => b.id);
   const list = all.filter(x => central || brIds.includes(x.branchId));
+  const [crx, setCrx] = useState(() => ({ from: today().slice(0, 8) + '01', to: today(), busy: false, res: null }));   // v56.46 فحص تفويض الآجل
+  const runCrx = async () => { setCrx(x => ({ ...x, busy: true, res: null })); const r = await posCreditExceptionsApi(crx.from, crx.to); setCrx(x => ({ ...x, busy: false, res: r })); };
   const posAr = useMemo(() => arDocs(ops, org).filter(x => x.kind === 'posar' && (central || brIds.includes(x.branchId))).sort((a, b) => String(b.date).localeCompare(String(a.date))), [ops, org, central, brIds.join(',')]);   // eslint-disable-line react-hooks/exhaustive-deps
   const canIssue = rolePost(me.role);
   const tax = org.taxCfg || {}; const vatRate = tax.enabled ? (Number(tax.rate) || 15) : 0;
@@ -128,8 +130,17 @@ export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
         <Kpi label="متأخرة السداد" value={money(kOver)} sub="تجاوزت تاريخ الاستحقاق" icon={AlertTriangle} color="#D9544D" />
         <Kpi label="سلامة السجل" value={chain.ok ? 'سليم ✓' : 'خلل!'} sub={chain.ok ? (chain.n || 0) + ' مستند بسلسلة بصمات متصلة' : chain.why} icon={ShieldCheck} color={chain.ok ? '#4FB286' : '#D9544D'} />
       </div>
-      {posAr.length > 0 && <div className="card" data-posar>
+      {(posAr.length > 0 || (central && !!(org.posCfg || {}).credit)) && <div className="card" data-posar>
         <div className="card-t" style={{ marginBottom: 6 }}><Wallet size={15} color="var(--brass)" />ذمم الكاشير (بيع آجل من نقطة البيع) — للاطلاع</div>
+        {central && <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 6 }} data-crx>
+          <input type="date" className="inp" style={{ width: 150 }} aria-label="من تاريخ" value={crx.from} onChange={e => setCrx(x => ({ ...x, from: e.target.value }))} />
+          <input type="date" className="inp" style={{ width: 150 }} aria-label="إلى تاريخ" value={crx.to} onChange={e => setCrx(x => ({ ...x, to: e.target.value }))} />
+          <button className="btn sm" disabled={crx.busy} onClick={runCrx}><ShieldCheck size={13} />فحص تفويض الآجل</button>
+          {crx.res && !crx.res.err && <span className={'badge ' + (crx.res.exceptions.length ? 'b-rose' : 'b-mint')}>{crx.res.exceptions.length ? crx.res.exceptions.length + ' استثناء من ' + crx.res.checked : 'كل الفواتير الآجلة (' + crx.res.checked + ') مفوَّضة ✓'}</span>}
+          {crx.res && crx.res.err && <span className="badge b-rose">{crx.res.err}</span>}</div>}
+        {crx.res && !crx.res.err && crx.res.exceptions.length > 0 && <div className="tw" style={{ marginBottom: 8 }}><table className="tb"><thead><tr><th>فاتورة الكاشير</th><th>الفرع</th><th>التاريخ</th><th>العميل</th><th>الآجل</th><th>المفوَّض</th><th>السبب</th></tr></thead><tbody>
+          {crx.res.exceptions.map(x => <tr key={x.orderId}><td className="num">{x.no || x.orderId}</td><td>{((org.branches || []).find(b => b.id === x.branchId) || {}).name || x.branchId}</td><td className="num">{x.date}</td><td>{x.customerKey}</td><td className="num">{money(x.amount)}</td><td className="num">{money(x.authAmount)}</td><td><span className="badge b-rose">{x.whyAr}</span></td></tr>)}
+        </tbody></table></div>}
         <div className="hint" style={{ marginBottom: 6 }}>فواتير الكاشير ذات الجزء الآجل بعد ترحيل إغلاق يومها. ليست فواتير مبيعات جديدة ولا تُطبع هنا — التحصيل بسند قبض مخصّص لها، والكشف من «جهات الاتصال».</div>
         <div className="tw"><table className="tb"><thead><tr><th>فاتورة الكاشير</th><th>العميل</th><th>التاريخ</th><th>الاستحقاق</th><th>الآجل</th><th>المتبقي</th></tr></thead><tbody>
           {posAr.slice(0, 200).map(x => <tr key={x.id}><td className="num">{x.no}</td><td>{(x.buyer || {}).name || x.customerKey}</td><td className="num">{x.date}</td><td className="num">{x.dueDate}</td><td className="num">{money(x.total)}</td><td className="num">{money(siRem(ops, x))}</td></tr>)}

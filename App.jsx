@@ -1398,14 +1398,19 @@ function arDocs(ops, org) {   // eslint-disable-line no-unused-vars
 }
 /** المرتجعات إلى حساب العميل عن فاتورة كاشير (موجبة) — posted: المرحّل إغلاقها فقط */
 const posArRetOf = (ops, orderId, keys) => pcR2(((ops && ops.posOrders) || []).filter(r => r && r.kind === 'return' && r.refId === orderId && r.status !== 'void' && (!keys || keys.has(r.branchId + '|' + r.date))).reduce((a, r) => a - posCreditAmt(r), 0));
-/** تخصيصات سندات القبض لمستند (التخصيص يبقى على السند — فاتورة الكاشير مختومة بالبصمة) */
-const posArAllocOf = (ops, docId) => pcR2(((ops && ops.cashVouchers) || []).filter(v => v && v.kind === 'rv' && cvLive(v) && (v.party || {}).t === 'cust').reduce((a, v) => a + (v.alloc || []).filter(x => x && x.id === docId).reduce((s, x) => s + (Number(x.amount) || 0), 0), 0));
+/** عميل كل مستند كاشير pos:<id> — التخصيص له يُعتمد فقط إن كان طرف سند القبض هو عميله، وإلا يبقى المبلغ غير مخصّص (على الحساب) */
+const posArCustMap = (ops) => { const m = new Map(); ((ops && ops.posOrders) || []).forEach(o => { if (o && o.kind !== 'return' && (o.payments || []).some(p => p && p.m === 'credit')) m.set('pos:' + o.id, posArCust(o).key); }); return m; };
+const cvPosAllocOk = (M, v, x) => !!x && /^pos:/.test(String(x.id || '')) && !!v && v.kind === 'rv' && (v.party || {}).t === 'cust' && !!(v.party || {}).key && M.get(String(x.id)) === v.party.key;
+/** مجموع تخصيصات pos: في السند: { ok: المعتمد منها، bad: ما يبقى غير مخصّص } */
+const cvPosSplit = (M, v) => { let ok = 0, bad = 0; (v.alloc || []).forEach(x => { if (!x || !/^pos:/.test(String(x.id || ''))) return; const a = Number(x.amount) || 0; if (cvPosAllocOk(M, v, x)) ok += a; else bad += a; }); return { ok: pcR2(ok), bad: pcR2(bad) }; };
+/** تخصيصات سندات القبض لمستند (التخصيص يبقى على السند — فاتورة الكاشير مختومة بالبصمة) — من سندات عميله فقط */
+const posArAllocOf = (ops, docId, custKey) => pcR2(((ops && ops.cashVouchers) || []).filter(v => v && v.kind === 'rv' && cvLive(v) && (v.party || {}).t === 'cust' && (custKey == null || (v.party || {}).key === custKey)).reduce((a, v) => a + (v.alloc || []).filter(x => x && x.id === docId).reduce((s, x) => s + (Number(x.amount) || 0), 0), 0));
 /** متبقي المستند الافتراضي = الآجل − التحصيل المخصص − المرتجع إلى الحساب (المرحّل) − الشطب + الاسترداد */
-const posArRem = (ops, x) => Math.max(0, pcR2(x.total - posArAllocOf(ops, x.id) - posArRetOf(ops, x.orderId, posArDayKeys(ops)) - eclWoOf(ops, x.id) + eclRecOf(ops, x.id)));
+const posArRem = (ops, x) => Math.max(0, pcR2(x.total - posArAllocOf(ops, x.id, x.customerKey) - posArRetOf(ops, x.orderId, posArDayKeys(ops)) - eclWoOf(ops, x.id) + eclRecOf(ops, x.id)));
 /** أقصى مرتجع إلى الحساب من الجهاز: متبقي الذمة إن عُرف (التحصيل والشطب في المركز)، وإلا الآجل − المرتجعات السابقة إلى الحساب */
 function posArRefundMax(ops, o) {
   const a = posCreditAmt(o); if (!(a > 0)) return 0; const id = 'pos:' + o.id;
-  return Math.max(0, pcR2(a - posArRetOf(ops, o.id) - posArAllocOf(ops, id) - eclWoOf(ops, id) + eclRecOf(ops, id)));
+  return Math.max(0, pcR2(a - posArRetOf(ops, o.id) - posArAllocOf(ops, id, posArCust(o).key) - eclWoOf(ops, id) + eclRecOf(ops, id)));
 }
 /** ملخص ائتمان عميل للخادم (/api/pos/credit-auth): الحد والمهلة والرصيد المرحّل وآجل الكاشير غير المرحّل في كل الفروع */
 function posCreditSnap(org, ops, key) {
@@ -1664,13 +1669,15 @@ function buildPartners(org, ops) {
   const parts = [];
   const led = ops.ledgerEntries || [];
   // v46.6 — سندات القبض والصرف والمقاصّة في كشوف الجهات (الموزَّع على فواتير يظهر مع الفاتورة نفسها)
+  let PM0 = null; const PM = () => PM0 || (PM0 = posArCustMap(ops));   // v56.46: يُبنى فقط إن وُجد تخصيص pos:
   const cvFor = (key) => { const t = [];
     (ops.cashVouchers || []).forEach(v => { const a = Number(v.amount) || 0; if (!(a > 0) || !cvLive(v)) return; const d = String(v.date || '').slice(0, 10);   // v56.32: المعلّق لا يظهر في الكشف
       if (v.kind === 'ov') { if (v.supKey === key) t.push({ date: d, desc: 'مقاصّة مع حساب العميل ' + v.no, ref: v.no, src: 'cv', debit: a, credit: 0 }); if (v.custKey === key) t.push({ date: d, desc: 'مقاصّة مع حساب المورد ' + v.no, ref: v.no, src: 'cv', debit: 0, credit: a }); return; }
       const p = v.party || {}; if (p.key !== key) return;
-      const rest = Math.round((a - (v.alloc || []).reduce((s2, x) => s2 + (Number(x.amount) || 0), 0)) * 100) / 100;
+      const hasPos = (v.alloc || []).some(x => x && /^pos:/.test(String(x.id || ''))); const PS = hasPos ? cvPosSplit(PM(), v) : { ok: 0, bad: 0 };
+      const rest = Math.round((a - (v.alloc || []).reduce((s2, x) => s2 + (Number(x.amount) || 0), 0) + PS.bad) * 100) / 100;   // v56.46: تخصيص pos: لغير عميله يبقى على الحساب
       // v56.46: التخصيص لمستند ذمة الكاشير (pos:) يبقى على السند — سطر لكل تخصيص يُخصم من مستنده في الأعمار
-      if (p.t === 'cust' && v.kind === 'rv') (v.alloc || []).forEach(x => { const xa = Math.round((Number(x && x.amount) || 0) * 100) / 100; if (x && /^pos:/.test(String(x.id || '')) && xa > 0) t.push({ date: d, desc: 'سند قبض ' + v.no + ' عن ' + (x.no || x.id), ref: v.no, src: 'cv', debit: 0, credit: xa, sid: x.id }); });
+      if (hasPos && p.t === 'cust' && v.kind === 'rv') (v.alloc || []).forEach(x => { const xa = Math.round((Number(x && x.amount) || 0) * 100) / 100; if (cvPosAllocOk(PM(), v, x) && xa > 0) t.push({ date: d, desc: 'سند قبض ' + v.no + ' عن ' + (x.no || x.id), ref: v.no, src: 'cv', debit: 0, credit: xa, sid: x.id }); });
       if (p.t === 'emp') { if (v.kind === 'pv' && v.empPurpose === 'advance') return; t.push({ date: d, desc: (v.kind === 'rv' ? 'سند قبض ' : 'سند صرف — عهدة ') + v.no, ref: v.no, src: 'cv', debit: v.kind === 'pv' ? a : 0, credit: v.kind === 'rv' ? a : 0 }); return; }
       if (!(rest > 0.004)) return;
       t.push({ date: d, desc: (v.kind === 'rv' ? 'سند قبض ' : 'سند صرف ') + v.no + ' — على الحساب', ref: v.no, src: 'cv', debit: v.kind === 'pv' ? rest : 0, credit: v.kind === 'rv' ? rest : 0 }); });
@@ -1771,7 +1778,7 @@ function buildPartners(org, ops) {
   (org.partners || []).forEach(pt => {
     const key = pt.key || ('cust:' + pt.id);
     const ce = [...closeFor(key), ...siFor(key)], pp = payFor(key), cv = cvFor(key);
-    parts.push({ key, id: pt.id, ...contactOf(pt), ...(pt.posCredit ? { posCredit: true } : {}), linkKey: pt.linkKey || '', name: pt.name, type: pt.type || 'customer', cat: pt.cat || 'عميل', phone: pt.phone || '', tax: pt.tax || '', address: pt.address || '', taxable: !!pt.taxable, terms: pt.terms || 0, linked: (ce.length + pp.length + cv.length) > 0, custom: true, txns: [...ce, ...pp, ...cv, ...ledFor(key)], storedCode: pt.code });
+    parts.push({ key, id: pt.id, ...contactOf(pt), ...(pt.posCredit && posCreditOn(org) ? { posCredit: true } : {}), linkKey: pt.linkKey || '', name: pt.name, type: pt.type || 'customer', cat: pt.cat || 'عميل', phone: pt.phone || '', tax: pt.tax || '', address: pt.address || '', taxable: !!pt.taxable, terms: pt.terms || 0, linked: (ce.length + pp.length + cv.length) > 0, custom: true, txns: [...ce, ...pp, ...cv, ...ledFor(key)], storedCode: pt.code });
   });
 
   // v15.14 — شركاء الفرع: أُضيفوا فوريًا من فرعهم بلا اعتماد إداري (br store)؛ يُجمَّعون هنا
@@ -2703,7 +2710,7 @@ function buildAccounting(org, ops) {
     // v56.46: صافي آجل اليوم (بيع آجل − مرتجع إلى حساب العميل) — الحقل غائب في الإغلاقات السابقة ⇒ صفر ولا يتغير شيء
     const credit = Math.round((Number(c.creditSales) || 0) * 100) / 100;
     const tot = cash + card + bankT + appsGross + credit;
-    if (tot > 0 || (credit && Math.abs(tot) >= 0.005)) {   // يوم مرتجعات آجلة فقط (إجمالي سالب) يُنتج قيدًا أيضًا
+    if (tot > 0 || Math.abs(credit) >= 0.005) {   // v56.46: يوم فيه آجل يُنتج قيدًا أيًا كان إجماليه (سالبًا أو صفرًا)
       const lines = [];
       if (cash) lines.push(L(bCode, cash, 0));
       if (credit) lines.push(L('1380', credit > 0 ? credit : 0, credit < 0 ? -credit : 0));
@@ -2726,11 +2733,13 @@ function buildAccounting(org, ops) {
         if ((d.n + d.retN) > 0 && Math.abs(tot - d.total) < 0.005) { d.net = Math.round((tot - d.vat) * 100) / 100; pg = d; sv = { net: d.net, vat: d.vat }; posGlLines(d).forEach(([code, dr, cr]) => lines.push(L(code, dr, cr))); }
         else if ((d.n + d.retN) > 0) { posGlInv = true; if (posMisLoyAt(org, c.date)) dMis = d; }   // v56.33 P2 — غير مطابق وله فواتير
       }
-      if (!pg) { if (tot < 0) { lines.push(L('4101', -sv.net, 0)); if (sv.vat) lines.push(L('2301', -sv.vat, 0)); } else { lines.push(L('4101', 0, sv.net)); if (sv.vat) lines.push(L('2301', 0, sv.vat)); } }
+      if (!pg) { if (tot < 0) { lines.push(L('4101', -sv.net, 0)); if (sv.vat) lines.push(L('2301', -sv.vat, 0)); } else if (sv.net || !credit) { lines.push(L('4101', 0, sv.net)); if (sv.vat) lines.push(L('2301', 0, sv.vat)); } }
       if (dMis) {   // v56.33 P2: الإغلاق غير المطابق — حركة الولاء وحدها من الفواتير فيبقى 2106 مطابقًا لسجل النقاط
         if (dMis.earn) lines.push(L('4101', dMis.earn > 0 ? dMis.earn : 0, dMis.earn < 0 ? -dMis.earn : 0), L('2106', dMis.earn < 0 ? -dMis.earn : 0, dMis.earn > 0 ? dMis.earn : 0));
         if (dMis.redeem) lines.push(L('2106', dMis.redeem, 0), L('4101', 0, dMis.redeem));
       }
+      // v56.46: في الأيام التي فيها آجل فقط — السطر بمبلغ سالب يُقلب إلى الجانب الآخر موجبًا (القيود بلا آجل كما هي حرفيًا)
+      if (credit) for (let i = 0; i < lines.length; i++) { const l = lines[i]; if (l.debit < 0 || l.credit < 0) lines[i] = { ...l, debit: (l.debit > 0 ? l.debit : 0) + (l.credit < 0 ? -l.credit : 0), credit: (l.credit > 0 ? l.credit : 0) + (l.debit < 0 ? -l.debit : 0) }; }
       push({ id: 'rev:' + c.id, ...(posGlAt(org, c.date) ? { posGl: pg ? 'pos' : 'mismatch', ...(dMis ? { posLoy: true } : {}), ...(!pg && posGlInv ? { posInv: true } : {}) } : {}), date: c.date, branchId: c.branchId, title: 'إيراد وردية — ' + (c.branchName || ''), src: 'إغلاق وردية', ref: c.id, lines,
         vat: sv.vat ? { out: sv.vat, inn: 0, netSales: sv.net, netPurch: 0 } : null,
         reg: { k: 's', doc: 'مبيعات الوردية (مبسطة)', party: 'عملاء أفراد — ' + (c.branchName || ''), net: sv.net, vat: sv.vat, gross: tot } });   // v39.1 سجل المبيعات
@@ -2930,11 +2939,13 @@ function buildAccounting(org, ops) {
     const curYm = today().slice(0, 7);   // (التحقق المحاسبي) لا قيد بتاريخ مستقبلي — يُولَّد إطفاء الشهر حين يحل، كالإهلاك
     ppSchedule(x).forEach(s => s.ym <= curYm && s.amount > 0 && push({ id: 'pp:' + x.id + ':' + s.ym, date: s.date, ...br, title: 'إطفاء مصروف مدفوع مقدمًا ' + s.ym + ' — ' + nm, src: 'المصروفات المدفوعة مقدمًا', ref: x.no || '', lines: [L(x.expAcc, s.amount, 0), L(x.assetAcc, 0, s.amount)] })); });
 
+  let cvPM0 = null; const cvPM = () => cvPM0 || (cvPM0 = posArCustMap(ops));   // v56.46
   // 6-ج) v46.6 سندات القبض والصرف والمقاصّة: الجزء الموزَّع على فواتير يُقيَّد مع الفاتورة (سدادها/تحصيلها)، والباقي «على الحساب» هنا
   (ops.cashVouchers || []).forEach(v => {
     const a = Math.round((Number(v.amount) || 0) * 100) / 100; if (!(a > 0) || !cvLive(v)) return;   // v56.32: المعلّق والمرفوض لا يُرحَّلان (القديم بلا حالة = مرحّل)
     const fund = (v.fund && accIx[v.fund]) ? v.fund : '1201'; const p = v.party || {};
-    const rest = Math.round((a - (v.alloc || []).reduce((s2, x) => s2 + (Number(x.amount) || 0), 0)) * 100) / 100;
+    const hasPos = (v.alloc || []).some(x => x && /^pos:/.test(String(x.id || ''))); const PS = hasPos ? cvPosSplit(cvPM(), v) : { ok: 0, bad: 0 };   // v56.46
+    const rest = Math.round((a - (v.alloc || []).reduce((s2, x) => s2 + (Number(x.amount) || 0), 0) + PS.bad) * 100) / 100;   // تخصيص pos: لغير عميل المستند يبقى على الحساب
     const base = { id: 'cv:' + v.id, date: String(v.date || '').slice(0, 10), ...(v.branchId ? { branchId: v.branchId } : {}), src: v.kind === 'ov' ? 'سند مقاصّة' : v.kind === 'rv' ? 'سند قبض' : 'سند صرف', ref: v.no, ...(v.projectId ? { projectId: v.projectId } : {}), ...(v.deptId ? { deptId: v.deptId } : {}) };   // v56.28 قسم سند الصرف على حساب مصروف
     if (v.kind === 'ov') { push({ ...base, title: 'مقاصّة ذمم — ' + (v.supName || '') + ' / ' + (v.custName || ''), lines: [L('2101', a, 0), L('1380', 0, a)] }); return; }
     // v47.3 سند التحويل: من حساب نقدي إلى آخر (خزينة/بنك) — من الطرف الدائن إلى الطرف المدين، بلا أثر على الإيراد أو المصروف
@@ -2943,7 +2954,7 @@ function buildAccounting(org, ops) {
     let side = '';
     if (p.t === 'sup') side = '2101'; else if (p.t === 'cust') side = '1380'; else if (p.t === 'emp') side = '1401'; else if (p.t === 'acc' && accIx[p.acc]) side = p.acc;
     // v56.46: التخصيص لمستند ذمة الكاشير (pos:) لا يُكتب في الفاتورة المختومة — يُقيَّد هنا في قيد السند نفسه (مدين الصندوق/البنك دائن 1380)
-    const posA = p.t === 'cust' && v.kind === 'rv' ? Math.round((v.alloc || []).filter(x => x && /^pos:/.test(String(x.id || ''))).reduce((s2, x) => s2 + (Number(x.amount) || 0), 0) * 100) / 100 : 0;
+    const posA = PS.ok;
     const amt = (p.t === 'sup' || p.t === 'cust') ? Math.round((rest + posA) * 100) / 100 : (p.t === 'emp' && v.kind === 'pv' && v.empPurpose === 'advance') ? 0 : a;   // السلفة تُقيَّد من سجل السلف المرتبط
     if (!side || !(amt > 0.004)) return;
     push({ ...base, title: (v.kind === 'rv' ? 'سند قبض ' : 'سند صرف ') + v.no + ' — ' + (p.name || '') + (rest + posA < a && (p.t === 'sup' || p.t === 'cust') ? ' (على الحساب)' : ''),
@@ -9554,6 +9565,8 @@ function posVoidBlock(ops, o) {
   if ((ops.posOrders || []).some(r => r.kind === 'return' && r.refId === o.id && r.status !== 'void')) return 'للفاتورة مرتجع مسجَّل — لا تُلغى؛ أرجع الأصناف المتبقية بمرتجع';
   const sh = o.shiftId ? (ops.posShifts || []).find(x => x.id === o.shiftId) : null;
   if (sh && sh.status === 'closed') return 'وردية هذه الفاتورة مغلقة — لا تُلغى بعد تقرير Z؛ استخدم المرتجع';
+  // v56.46 (قرار المجلس): فاتورة فيها آجل لا تُلغى بعد ترحيل إغلاق فرعها ويومها — ولو بقيت الوردية مفتوحة؛ العلاج مرتجع إلى حساب العميل
+  if (posCreditAmt(o) > 0 && (ops.closings || []).some(c => countedClosing(c) && c.branchId === o.branchId && c.date === o.date)) return 'فاتورة آجلة وإغلاق يومها مُرحّل — لا تُلغى؛ سجّل مرتجعًا إلى حساب العميل';
   return '';
 }
 // أكبر تسلسل معروف لفواتير هذا الجهاز في يومه (prefix: «ف» للبيع، «م» للمرتجع) — من السحابة والطابور المحلي
@@ -15676,11 +15689,21 @@ async function ledgerApi(items) {
 /** v56.46 — تفويض البيع الآجل من الخادم (/api/pos/credit-auth): يحسب التعرض ويحجز بمعرّف الطلب. يعيد { ok, dueDate, terms, avail, authId } أو { ok:false, why } */
 async function posCreditAuthApi(body) {
   const b = srvBase(); if (!b) return { ok: false, why: 'الخادم غير مهيأ — البيع الآجل يتطلب اتصالًا بالخادم' };
-  try { const r = await fetch(b + '/api/pos/credit-auth', { method: 'POST', headers: await aiHeaders(), body: JSON.stringify(body) });
+  const ac = typeof AbortController === 'function' ? new AbortController() : null; const tm = ac ? setTimeout(() => ac.abort(), 15000) : null;   // مهلة 15 ثانية — لا يعلق الكاشير
+  try { const r = await fetch(b + '/api/pos/credit-auth', { method: 'POST', headers: await aiHeaders(), body: JSON.stringify(body), ...(ac ? { signal: ac.signal } : {}) });
     const j = await r.json().catch(() => ({})); if (!r.ok) return { ok: false, why: j.error || ('تعذّر التفويض (' + r.status + ')') }; return j; }
-  catch (e) { return { ok: false, why: 'البيع الآجل يتطلب اتصالًا — تعذّر الوصول للخادم' }; }
+  catch (e) { return { ok: false, why: e && e.name === 'AbortError' ? 'انتهت مهلة التفويض — أعد المحاولة أو اختر طريقة دفع أخرى' : 'البيع الآجل يتطلب اتصالًا — تعذّر الوصول للخادم' }; }
+  finally { if (tm) clearTimeout(tm); }
 }
-export { posCreditAuthApi };
+/** v56.46 (المراجعة الأمنية 7) — فحص تفويض الآجل: فواتير الكاشير الآجلة في فترة مقابل سجل التفويض الدائم على الخادم */
+async function posCreditExceptionsApi(from, to) {
+  const b = srvBase(); if (!b) return { err: 'الخادم غير مهيأ لهذه النسخة' };
+  const ac = typeof AbortController === 'function' ? new AbortController() : null; const tm = ac ? setTimeout(() => ac.abort(), 60000) : null;
+  try { const r = await fetch(b + '/api/pos/credit-exceptions', { method: 'POST', headers: await aiHeaders(), body: JSON.stringify({ from, to }), ...(ac ? { signal: ac.signal } : {}) });
+    const j = await r.json().catch(() => ({})); return r.ok ? j : { err: j.error || ('HTTP ' + r.status) }; }
+  catch (e) { return { err: 'تعذّر الوصول للخادم' }; } finally { if (tm) clearTimeout(tm); }
+}
+export { posCreditAuthApi, posCreditExceptionsApi };
 /** يرسل العناصر على دفعات ويجمع النتائج: رُحّل · موجود مسبقًا · تعذّر */
 async function flSend(items, onProgress) {
   let ok = 0, fail = 0, skip = 0, lastErr = ''; const nos = [], res = [];
