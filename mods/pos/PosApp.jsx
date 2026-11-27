@@ -14,6 +14,51 @@ import { posHolds, posHoldsSet, posHoldPut, posHoldRecall } from '../../App.jsx'
 import { posVoidBlock, posNextNo, posTabCuts, escH, POS_VOID_ROLES } from '../../App.jsx';   // v56.2 (POS دفعة 1) حراس الإلغاء والترقيم وحساب الطاولة
 import { posCreditList, posCreditAuthApi, posArRefundMax } from '../../App.jsx';   // v56.46 البيع الآجل
 import { restCfg, coversOf, posWaiters, salesByWaiter, tabRemain, tabSplitItems, tabSplitSet, tabPartPriced, tabSplitReset, tabPayPart, tabMerge, kdsStations, kdsSplit, kdsPrepReport, kdsPrepSheets } from '../../App.jsx';   // v56.52 المطعم (مُطفأة افتراضيًا)
+import { posOffOn, POS_OB_USED, posObItem, posObSort, posStoreOpen, posLegacyQ, posObMigrate, posObRestore, posSyncRun, posSyncLogList, posSyncDelay, posSyncErr, posOffRetCheck, posOffRetPending, posOffRetReview } from '../../App.jsx';   // v56.53 العمل دون اتصال (مُطفأ افتراضيًا)
+
+/* v56.53 — صندوق الصادر (IndexedDB «muktasab-pos») حين org.posCfg.offline — بلا تفعيل لا يُفتح شيء ويبقى الطابور القديم حرفيًا.
+   مرآة في الذاكرة (items) للقراءات المتزامنة (الترقيم وقائمة الفواتير)، والكتابة تُنتظر حتى تكتمل المعاملة؛ إن أخفقت ⇒ الطابور القديم (لا فقد). */
+function usePosOutbox(on, onRestored) {
+  const ready = useRef(null); const items = useRef([]); const [ver, setVer] = useState(0);
+  const [info, setInfo] = useState({ mode: '', lastOk: '', lastAt: '', fails: 0, nextAt: 0, lastErr: '' });
+  const bump = () => setVer(v => v + 1);
+  useEffect(() => {
+    let dead = false;
+    if (!on) {   // أُوقف بعد استخدام ⇒ يعود ما بقي إلى الطابور القديم (لا يُفتح IndexedDB أبدًا لمن لم يفعّل)
+      let used = null; try { used = localStorage.getItem(POS_OB_USED); } catch { }
+      if (used) posStoreOpen().then(s => posObRestore(s, posLegacyQ())).then(r => { if (r.ok) { try { localStorage.removeItem(POS_OB_USED); } catch { } } if (!dead && onRestored) onRestored(); }).catch(() => { });
+      ready.current = null; items.current = []; return () => { dead = true; };
+    }
+    ready.current = posStoreOpen().then(async s => {
+      try { localStorage.setItem(POS_OB_USED, '1'); } catch { }
+      await posObMigrate(s, posLegacyQ()).catch(() => null);   // ترحيل آمن: يُعاد كل فتح (لا يكرر)، والقديم لا يُمسح إلا بعد التحقق
+      const st = await s.list('outbox'); const ks = new Set(st.map(x => x.key));
+      items.current = posObSort([...st, ...items.current.filter(x => !ks.has(x.key))]);
+      if (!dead) { setInfo(i => ({ ...i, mode: s.mode })); bump(); } return s; });
+    return () => { dead = true; };
+  }, [on]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const list = (kind) => items.current.filter(x => x.kind === kind).map(x => x.data);
+  const add = async (kind, arr) => {
+    const its = (arr || []).filter(d => d && d.id != null).map((d, i) => posObItem(kind, d, i)); if (!its.length) return true;
+    items.current = posObSort([...items.current.filter(x => !its.some(y => y.key === x.key)), ...its]); bump();
+    try { const s = await ready.current; for (const it of its) await s.put('outbox', it); return true; }
+    catch (e) {   // تعذّرت الكتابة في الصادر ⇒ الطابور القديم احتياطًا، ويُرحَّل في الفتح التالي
+      const L = posLegacyQ(); if (kind !== 'ticket') { const cur = (L.read() || {})[kind] || []; L.write(kind, [...cur.filter(d => !its.some(y => y.data.id === d.id)), ...its.map(y => y.data)]); }
+      logClientError(e, 'pos-outbox'); return false; }
+  };
+  const run = async (send) => {
+    const s = await ready.current; if (!s) return null; let r;
+    await posObMigrate(s, posLegacyQ()).catch(() => null);   // ما سقط احتياطًا في الطابور القديم يُرحَّل قبل كل مزامنة
+    try { r = await posSyncRun(s, send); } catch (e) { r = { sent: 0, failed: 1, left: items.current.length, err: posSyncErr(e), done: [] }; }
+    const st = await s.list('outbox').catch(() => null); const done = new Set(r.done || []);
+    if (st) { const ks = new Set(st.map(x => x.key)); items.current = posObSort([...st, ...items.current.filter(x => !ks.has(x.key) && !done.has(x.key))]); }
+    const at = new Date().toISOString();
+    setInfo(i => { const fails = r.err ? i.fails + 1 : 0; return { ...i, lastAt: at, ...(r.err ? {} : { lastOk: at }), fails, nextAt: fails ? Date.now() + posSyncDelay(fails) : 0, lastErr: r.err || '' }; });
+    bump(); return r;
+  };
+  const logs = async () => { const s = await ready.current; return s ? posSyncLogList(s) : []; };
+  return { on, ver, info, list, add, run, logs, count: () => items.current.length };
+}
 
 export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const R = ROLES[me.role] || {};
@@ -57,7 +102,13 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const [kdsStM, setKdsStM] = useState(() => { try { return JSON.parse(localStorage.getItem('mizan:kdsStation') || '{}') || {}; } catch { return {}; } });
   const [rptF, setRptF] = useState(() => ({ d: businessDay(), sh: '' }));
   useEffect(() => { if (!useTabs && !kds) return; const t = setInterval(() => setTick(x => x + 1), 30000); return () => clearInterval(t); }, [useTabs, kds]);   // تحديث الدقائق المنقضية (قبل أي عودة مبكرة — قاعدة الخطافات)
-  const [queue, setQueue] = useState(posQueue); const [cfgF, setCfgF] = useState(null); const [shiftF, setShiftF] = useState(null);
+  const [queueL, setQueue] = useState(posQueue); const [cfgF, setCfgF] = useState(null); const [shiftF, setShiftF] = useState(null);
+  // v56.53: العمل دون اتصال — مع التفعيل الصادر في IndexedDB بدل الطابور (queue/pendClose من الصادر)، وبلا تفعيل كما كان حرفيًا
+  const offOn = posOffOn(org); const OB = usePosOutbox(offOn, () => { setQueue(posQueue()); setPendClose(pendShiftsGet()); });
+  const queue = useMemo(() => offOn ? OB.list('order') : queueL, [offOn, OB.ver, queueL]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const qNow = () => offOn ? OB.list('order') : posQueue();   // للترقيم (posNextNo): الفواتير غير المرسلة على الجهاز
+  const loyAdd = (a) => { if (!a.length) return; if (offOn) OB.add('loy', a); else loyQSet([...loyQ(), ...a]); };
+  const [obLog, setObLog] = useState(null);   // سجل المزامنة للمدير
   const apps = org.deliveryApps || APPS;
   const apOn = posAppPricesOn(org); const plApps = apOn ? apps.filter(a => posAppHasPrices(org.products, a.id)) : []; const plId = apOn && !payTab && plApps.some(a => a.id === priceList) ? priceList : '';   // v56.47 (P4)
   const today = businessDay();
@@ -65,7 +116,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const allOrders = useMemo(() => { const m = {}; (ops.posOrders || []).forEach(o => { m[o.id] = o; }); queue.forEach(o => { if (!m[o.id]) m[o.id] = { ...o, pending: true }; }); return Object.values(m); }, [ops.posOrders, queue]);
   // v33.3: الوردية تُفتح على الجهاز فورًا حتى لو تعذّر الحفظ السحابي، وتُرسل مع الطلبات عند عودة الاتصال
   const [localShift, setLocalShift] = useState(() => { try { return JSON.parse(localStorage.getItem(POS_SH_KEY) || 'null'); } catch { return null; } });
-  const [pendCloseL, setPendClose] = useState(pendShiftsGet); const pendClose = pendCloseL.length ? pendCloseL : null;
+  const [pendCloseLS, setPendClose] = useState(pendShiftsGet); const pendCloseL = useMemo(() => offOn ? OB.list('shift') : pendCloseLS, [offOn, OB.ver, pendCloseLS]); const pendClose = pendCloseL.length ? pendCloseL : null;   // eslint-disable-line react-hooks/exhaustive-deps
   const cloudShift = (ops.posShifts || []).find(x => x.branchId === (br || {}).id && x.dev === dev.tag && x.status === 'open' && !pendCloseL.some(p => p.id === x.id));
   const shift = cloudShift || (localShift && localShift.branchId === (br || {}).id && localShift.dev === dev.tag && localShift.status === 'open' ? { ...localShift, pending: true } : null);
   const setLS = (v) => { try { if (v) localStorage.setItem(POS_SH_KEY, JSON.stringify(v)); else localStorage.removeItem(POS_SH_KEY); } catch { } setLocalShift(v); };
@@ -100,6 +151,16 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     let ls = null; try { ls = JSON.parse(localStorage.getItem(POS_SH_KEY) || 'null'); } catch { }
     if (ls) { const okS = await commit(d => (d.posShifts || []).some(x => x.id === ls.id) ? d : { ...d, posShifts: [ls, ...(d.posShifts || [])] });
       if (okS) { try { localStorage.removeItem(POS_SH_KEY); } catch { } setLocalShift(null); } else return; }
+    if (offOn) {   // v56.53: محرك المزامنة بسجل — الفواتير ثم الورديات ثم الولاء، ولا حذف من الصادر إلا بعد تأكيد الحفظ
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+      await OB.run(async (kind, list) => {
+        if (kind === 'order') return (await commit(d => { const have = new Set((d.posOrders || []).map(o => o.id)); return { ...d, posOrders: [...list.filter(o => !have.has(o.id)), ...(d.posOrders || [])] }; })) === true;
+        if (kind === 'shift') return (await commit(d => { let sl = d.posShifts || []; list.forEach(pc => { sl = sl.some(x => x.id === pc.id) ? sl.map(x => x.id === pc.id ? pc : x) : [pc, ...sl]; }); return { ...d, posShifts: sl }; })) === true;
+        if (kind === 'loy') { const r = await loyPost(list); if (r) setLoy(r); return !!r; }
+        return false;   // التذاكر: لا مستقبِل في 5أ (KDS المحلي في 5ب) — تبقى
+      });
+      return;
+    }
     const qn = posQueue();
     if (qn.length) {
       const ok = await commit(d => { const have = new Set((d.posOrders || []).map(o => o.id)); return { ...d, posOrders: [...qn.filter(o => !have.has(o.id)), ...(d.posOrders || [])] }; });
@@ -111,11 +172,12 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
       if (okC) { const rest = pendShiftsGet().filter(x => !pcs.some(p => p.id === x.id)); pendShiftsSet(rest); setPendClose(rest); } else return; }
     // نقاط الولاء بعد وصول الفواتير
     const lq = loyQ(); if (lq.length) { const r = await loyPost(lq); if (r) { loyQSet(loyQ().filter(t => !lq.some(x => x.id === t.id))); setLoy(r); } }
-  }, [commit]);
+  }, [commit, offOn]);   // eslint-disable-line react-hooks/exhaustive-deps
   // v34.7: لا إرسالان متداخلان — رفع مستند كبير قد يتجاوز فاصل الإرسال الدوري (20 ثانية)
   const flushing = useRef(false);
-  const flush = useCallback(async () => { if (flushing.current || cloud.quotaUntil()) return; flushing.current = true; try { await flushRaw(); } finally { flushing.current = false; } }, [flushRaw]);
-  useEffect(() => { flush(); const t = setInterval(flush, 20000); const on = () => flush(); window.addEventListener('online', on); return () => { clearInterval(t); window.removeEventListener('online', on); }; }, [flush]);
+  const obNext = useRef(0); obNext.current = offOn ? OB.info.nextAt : 0;
+  const flush = useCallback(async (force) => { if (flushing.current || cloud.quotaUntil()) return; if (force !== true && obNext.current > Date.now()) return;   /* v56.53: تباعد متزايد بعد الإخفاق (بلا تفعيل: 0 دائمًا) */ flushing.current = true; try { await flushRaw(); } finally { flushing.current = false; } }, [flushRaw]);
+  useEffect(() => { flush(); const t = setInterval(flush, 20000); const on = () => flush(true); window.addEventListener('online', on); return () => { clearInterval(t); window.removeEventListener('online', on); }; }, [flush]);
 
   if (!brs.length) return (
     <div className="grid" style={{ gap: 12 }}>
@@ -199,10 +261,10 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const { pending: _pd, ...shiftClean } = shift;
     const rec = { ...shiftClean, status: 'closed', closedAt: nowISO(), closedBy: me.name, expected, counted, diff: posR2(counted - expected), n: os.length, total: posR2(os.reduce((a, o) => a + o.total, 0)) };
     // v34.14: إغلاق على الجهاز حين لم تصل الوردية أو فواتيرها للسحابة بعد — يُطبع Z من فواتير الجهاز وتُرسل كلها لاحقًا تلقائيًا
-    if (queue.length || shift.pending) {
+    if (queue.length || shift.pending || (offOn && typeof navigator !== 'undefined' && navigator.onLine === false)) {   // v56.53: مع التفعيل الإغلاق دون اتصال على الجهاز
       if (!window.confirm('توجد بيانات لم تصل للسحابة بعد (' + (queue.length ? queue.length + ' فاتورة' : 'الوردية نفسها') + ').\n\nإغلاق الوردية على هذا الجهاز وطباعة تقرير Z الآن؟ تُرسل الوردية المغلقة وفواتيرها تلقائيًا عند نجاح الحفظ — لا تمسح بيانات المتصفح ولا تحذف التطبيق قبل ذلك.')) return;
       if (shift.pending) setLS(null);
-      const nx = [...pendShiftsGet().filter(x => x.id !== rec.id), rec]; pendShiftsSet(nx); setPendClose(nx);
+      if (offOn) await OB.add('shift', [rec]); else { const nx = [...pendShiftsGet().filter(x => x.id !== rec.id), rec]; pendShiftsSet(nx); setPendClose(nx); }
       setShiftF(null); say('أُغلقت الوردية على الجهاز — الفرق ' + money(rec.diff) + ' · تُرسل تلقائيًا'); posDocView(posZHtml(org, rec, shiftOrders(shift), br)); flush();
       return;
     }
@@ -254,7 +316,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     // ترقيم الجهاز اليومي وسلسلة البصمات (تعمل دون اتصال)
     const yy = today.replace(/-/g, '').slice(2); const sk = 'mizan:posSeq:' + br.id + ':' + today, hk = 'mizan:posHash:' + br.id;
     let ls = 0, lp = null; try { ls = Number(localStorage.getItem(sk)) || 0; lp = JSON.parse(localStorage.getItem(hk) || 'null'); } catch { }
-    const { seq, prev } = posNextNo(ls, lp, [...(ops.posOrders || []), ...posQueue()], br.id, dev.tag, today, 'ف');   // v56.2 (B4): لا رقم مكرر بعد مسح التخزين المحلي
+    const { seq, prev } = posNextNo(ls, lp, [...(ops.posOrders || []), ...qNow()], br.id, dev.tag, today, 'ف');   // v56.2 (B4): لا رقم مكرر بعد مسح التخزين المحلي
     const bi = (org.branches || []).findIndex(b => b.id === br.id) + 1;
     const o = { id: oid, no: 'ف' + bi + '-' + yy + '-' + dev.tag + '-' + String(seq).padStart(4, '0'), branchId: br.id, dev: dev.tag, shiftId: shift.id, date: today, at: nowISO(), by: me.name,
       channel, ...(plId ? { priceList: plId } : {}), lines: priced.lines.map(l => ({ productId: l.productId, name: l.name, qty: l.qty, price: l.price, ...(l.note ? { note: l.note } : {}), ...(((cart.find(c => c.key === l.key) || {}).rec) ? { rec: (cart.find(c => c.key === l.key) || {}).rec } : {}), ...(l.disc ? { disc: l.disc, promoId: l.promoId, promoName: l.promoName } : {}) })),
@@ -268,8 +330,8 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
       change, status: 'paid', icv: (prev.icv || 0) + 1, pih: prev.hash || '0', ...(channel === 'dinein' && tbl ? { table: tbl, ...((ar) => ar ? { areaId: ar.id, areaName: ar.name } : {})(tableArea(org, br.id, tbl)) } : {}), ...(payTab ? { tabId: payTab } : {}), ...(cuts.length ? { tabCuts: cuts, tabCutBy: me.name } : {}), ...restMeta };
     o.hash = sha256Hex(JSON.stringify([o.no, o.at, o.lines, o.total, o.vat, o.payments, o.icv, o.pih, ...(o.ar ? [o.ar] : [])]));   // v56.46: الآجل ضمن البصمة متى وُجد
     try { localStorage.setItem(sk, String(seq)); localStorage.setItem(hk, JSON.stringify({ icv: o.icv, hash: o.hash })); } catch { }
-    const qn = [...posQueue(), o]; posQueueSet(qn); setQueue(qn);
-    if (phoneOk && (earnPts || redeemPts)) loyQSet([...loyQ(), ...(redeemPts ? [{ id: o.id + ':r', phone: phoneN, name: (cust.name || custName).trim(), pts: -redeemPts, at: o.at, br: br.id, ord: o.no }] : []), ...(earnPts ? [{ id: o.id + ':e', phone: phoneN, name: (cust.name || custName).trim(), pts: earnPts, at: o.at, br: br.id, ord: o.no }] : [])]);
+    if (offOn) await OB.add('order', [o]); else { const qn = [...posQueue(), o]; posQueueSet(qn); setQueue(qn); }
+    if (phoneOk && (earnPts || redeemPts)) loyAdd([...(redeemPts ? [{ id: o.id + ':r', phone: phoneN, name: (cust.name || custName).trim(), pts: -redeemPts, at: o.at, br: br.id, ord: o.no }] : []), ...(earnPts ? [{ id: o.id + ':e', phone: phoneN, name: (cust.name || custName).trim(), pts: earnPts, at: o.at, br: br.id, ord: o.no }] : [])]);
     setLast(o); setCart([]); setDisc({ mode: 'amt', amt: '', reason: '' }); setCode(''); setCust({ phone: '', name: '', redeem: false }); setPay(null); setShowCart(false);
     if (printNow === true || (printNow !== false && cfg.autoPrint !== false)) posPrint(posReceiptHtml(org, o, br));
     flush();
@@ -296,7 +358,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const all = {}; (o.lines || []).forEach((l, i) => { all[i] = Number(l.qty) || 0; }); const C = posReturnCalc(o, all);
     const yy = today.replace(/-/g, '').slice(2); const sk = 'mizan:posRetSeq:' + br.id + ':' + today, hk = 'mizan:posHash:' + br.id;
     let ls = 0, lp = null; try { ls = Number(localStorage.getItem(sk)) || 0; lp = JSON.parse(localStorage.getItem(hk) || 'null'); } catch { }
-    const { seq, prev } = posNextNo(ls, lp, [...(ops.posOrders || []), ...posQueue()], br.id, dev.tag, today, 'م');
+    const { seq, prev } = posNextNo(ls, lp, [...(ops.posOrders || []), ...qNow()], br.id, dev.tag, today, 'م');
     const bi = (org.branches || []).findIndex(b => b.id === br.id) + 1;
     const at = nowISO();
     const vn = { no: 'م' + bi + '-' + yy + '-' + dev.tag + '-' + String(seq).padStart(4, '0'), dev: dev.tag, date: today, at, by: me.name, total: -C.total, vat: -C.vat, net: -C.net, icv: (prev.icv || 0) + 1, pih: prev.hash || '0' };
@@ -308,7 +370,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     if (blocked) return say(blocked, 'no');
     if (!ok) return say('تعذّر حفظ الإلغاء — أعد المحاولة', 'no');
     try { localStorage.setItem(sk, String(seq)); localStorage.setItem(hk, JSON.stringify({ icv: vn.icv, hash: vn.hash })); } catch { }
-    if (o.loyalty && (o.loyalty.earned || o.loyalty.redeemed)) loyQSet([...loyQ(), ...(o.loyalty.earned ? [{ id: o.id + ':ve', phone: o.loyalty.phone, pts: -o.loyalty.earned, at: nowISO(), br: o.branchId, ord: o.no + ' (إلغاء)' }] : []), ...(o.loyalty.redeemed ? [{ id: o.id + ':vr', phone: o.loyalty.phone, pts: o.loyalty.redeemed, at: nowISO(), br: o.branchId, ord: o.no + ' (إلغاء)' }] : [])]);
+    if (o.loyalty && (o.loyalty.earned || o.loyalty.redeemed)) loyAdd([...(o.loyalty.earned ? [{ id: o.id + ':ve', phone: o.loyalty.phone, pts: -o.loyalty.earned, at: nowISO(), br: o.branchId, ord: o.no + ' (إلغاء)' }] : []), ...(o.loyalty.redeemed ? [{ id: o.id + ':vr', phone: o.loyalty.phone, pts: o.loyalty.redeemed, at: nowISO(), br: o.branchId, ord: o.no + ' (إلغاء)' }] : [])]);
     if (o.coupon && o.couponLtd) cpnRelease(o.coupon, o.id, 'إلغاء الفاتورة');   // v48.1 يعود حد الكوبون
     say('أُلغيت الفاتورة ' + o.no + ' — إشعار دائن ' + vn.no); flush();
     posPrint(posReturnHtml(org, { ...vn, cancel: true, refNo: o.no, retLines: C.lines, payments: (o.payments || []).map(p => ({ ...p, amount: -p.amount })), reason: 'other', note: reason.trim() }, br));
@@ -317,15 +379,16 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
 
   // v46.8 — مرتجع جزئي/كلي لفاتورة مدفوعة (قرار المالك): مدير الفرع فقط · الطبق المرتجع هدر بسبب من قائمة الهدر · الرد بطريقة الدفع الأصلية أو نقدًا
   const retOn = !!cfg.returns;
+  const opsR = offOn ? { ...ops, posOrders: allOrders } : ops;   // v56.53: مع التفعيل تُحتسب مرتجعات الجهاز غير المرسلة (لا يُرجَع الصنف مرتين دون اتصال)
   const openReturn = (o) => {
     if (!canVoid) return say('المرتجع للإدارة التشغيلية (مدير الفرع فأعلى)', 'no');
     if (o.pending) return say('انتظر إرسال الفاتورة أولًا', 'no');
     if (o.status === 'void') return say('الفاتورة ملغاة — لا مرتجع عليها', 'no');   // v56.2
-    const left = posReturnable(ops, o); if (!left.some(x => x > 0)) return say('أُرجعت كل أصناف هذه الفاتورة سابقًا', 'no');
+    const left = posReturnable(opsR, o); if (!left.some(x => x > 0)) return say('أُرجعت كل أصناف هذه الفاتورة سابقًا', 'no');
     setRet({ o, q: {}, reason: 'returned', note: '', k: (posRefundOptions(o)[0] || {}).k || 'cash' });
   };
   const saveReturn = async (printNow) => {
-    const o = ret.o; const left = posReturnable(ops, o);
+    const o = ret.o; const left = posReturnable(opsR, o);
     const qs = {}; Object.entries(ret.q).forEach(([i, v]) => { const n = Number(v) || 0; if (n > 0) qs[i] = n; });
     if (!Object.keys(qs).length) return say('حدّد كمية صنف واحد على الأقل', 'no');
     if (Object.entries(qs).some(([i, n]) => n > (left[i] || 0) + 1e-9 || n !== Math.floor(n))) return say('الكمية أكبر من المتبقي في الفاتورة', 'no');
@@ -335,25 +398,29 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     if (closed) return say('إغلاق اليوم مُرحّل — لا يُسجَّل مرتجع عليه', 'no');
     const opt = posRefundOptions(o).find(x => x.k === ret.k) || { m: 'cash' };
     if (opt.m === 'cash' && !shift) return say('الرد نقدًا يحتاج وردية مفتوحة على هذا الجهاز', 'no');
-    const C = posReturnCalc(o, qs); const loyDed = posReturnLoyDed(ops, o, C.total);
+    const C = posReturnCalc(o, qs); const loyDed = posReturnLoyDed(opsR, o, C.total);
+    // v56.53 (قرار المالك): المرتجع دون اتصال حتى حد المدير لكل فرع (الافتراضي صفر = ممنوع)، ويُوسم للمراجعة بعد الاتصال
+    const offRet = offOn && typeof navigator !== 'undefined' && navigator.onLine === false;
+    if (offRet) { if (opt.m === 'credit') return say('المرتجع إلى حساب العميل يتطلب اتصالًا', 'no');
+      const ck = posOffRetCheck(org, allOrders, ops.posOffRevs, br.id, C.total); if (ck.err) return say(ck.err, 'no'); }
     // v56.46: «إلى حساب العميل» — لا يمس الدرج، ولا يتجاوز متبقي الذمة (أو الآجل ناقص المرتجعات السابقة إلى الحساب)
     if (opt.m === 'credit') { const mx = posArRefundMax({ ...ops, posOrders: allOrders }, o); if (C.total > mx + 0.004) return say('المرتجع إلى حساب العميل لا يتجاوز ' + money(mx) + ' — رُدّ الباقي بطريقة أخرى', 'no'); }
     if (opt.m === 'cash' && shift) { const drawer = posR2((Number(shift.openingCash) || 0) + posOrdersStats(shiftOrders(shift)).cash); if (C.total > drawer + 0.004) return say('النقد في الدرج (' + money(drawer) + ') أقل من المبلغ المردود', 'no'); }
     const yy = today.replace(/-/g, '').slice(2); const sk = 'mizan:posRetSeq:' + br.id + ':' + today, hk = 'mizan:posHash:' + br.id;
     let ls = 0, lp = null; try { ls = Number(localStorage.getItem(sk)) || 0; lp = JSON.parse(localStorage.getItem(hk) || 'null'); } catch { }
-    const { seq, prev } = posNextNo(ls, lp, [...(ops.posOrders || []), ...posQueue()], br.id, dev.tag, today, 'م');   // v56.2 (B4): لا رقم مكرر بعد مسح التخزين المحلي
+    const { seq, prev } = posNextNo(ls, lp, [...(ops.posOrders || []), ...qNow()], br.id, dev.tag, today, 'م');   // v56.2 (B4): لا رقم مكرر بعد مسح التخزين المحلي
     const bi = (org.branches || []).findIndex(b => b.id === br.id) + 1;
     const r = { id: uid('pr'), kind: 'return', refId: o.id, refNo: o.no, no: 'م' + bi + '-' + yy + '-' + dev.tag + '-' + String(seq).padStart(4, '0'), branchId: br.id, dev: dev.tag, ...(shift ? { shiftId: shift.id } : {}),
       date: today, at: nowISO(), by: me.name, channel: o.channel, lines: [], retLines: C.lines, gross: -C.total, disc: 0, manualDisc: 0, total: -C.total, vat: -C.vat, net: -C.net, rate: o.rate,
       payments: [{ m: opt.m, amount: -C.total, ...(opt.appId ? { appId: opt.appId, appName: opt.appName } : {}), ...(opt.pm ? { pm: opt.pm, pmName: opt.pmName } : {}), ...(opt.m === 'credit' ? { custKey: opt.custKey, custName: opt.custName } : {}) }], change: 0, status: 'paid',
       ...(opt.m === 'credit' ? { ar: { key: opt.custKey, name: opt.custName || '' } } : {}),
-      reason: ret.reason, ...(ret.note.trim() ? { note: ret.note.trim() } : {}), ...(o.waiterId ? { waiterId: o.waiterId, waiterName: o.waiterName || '' } : {}) /* v56.52: المرتجع يُخصم من نادل الفاتورة */, ...(RC.covers && o.table ? { retArea: o.areaId ? { id: o.areaId, name: o.areaName || o.areaId } : (tableArea(org, br.id, o.table) || { id: '', name: 'بلا صالة' }) } : {}) /* وصالته */, ...(loyDed ? { loyalty: { phone: o.loyalty.phone, ded: loyDed } } : {}), icv: (prev.icv || 0) + 1, pih: prev.hash || '0' };
+      reason: ret.reason, ...(ret.note.trim() ? { note: ret.note.trim() } : {}), ...(offRet ? { offline: true, byId: me.id || '' } : {}), ...(o.waiterId ? { waiterId: o.waiterId, waiterName: o.waiterName || '' } : {}) /* v56.52: المرتجع يُخصم من نادل الفاتورة */, ...(RC.covers && o.table ? { retArea: o.areaId ? { id: o.areaId, name: o.areaName || o.areaId } : (tableArea(org, br.id, o.table) || { id: '', name: 'بلا صالة' }) } : {}) /* وصالته */, ...(loyDed ? { loyalty: { phone: o.loyalty.phone, ded: loyDed } } : {}), icv: (prev.icv || 0) + 1, pih: prev.hash || '0' };
     r.hash = sha256Hex(JSON.stringify([r.no, r.at, r.retLines, r.total, r.vat, r.payments, r.icv, r.pih, r.refId]));
-    const ok = await commit(d => ({ ...d, posOrders: [...(d.posOrders || []), r] }), { actionType: 'create', targetType: 'pos_order', targetId: r.id, branchName: br.name, title: 'مرتجع ' + r.no + ' عن الفاتورة ' + o.no, details: C.lines.map(l => l.name + ' ×' + l.qty).join('، ') + ' · ' + money(C.total) + ' · ' + WASTE_REASONS[ret.reason] });
+    const ok = offRet ? (await OB.add('order', [r]), true) : await commit(d => ({ ...d, posOrders: [...(d.posOrders || []), r] }), { actionType: 'create', targetType: 'pos_order', targetId: r.id, branchName: br.name, title: 'مرتجع ' + r.no + ' عن الفاتورة ' + o.no, details: C.lines.map(l => l.name + ' ×' + l.qty).join('، ') + ' · ' + money(C.total) + ' · ' + WASTE_REASONS[ret.reason] });
     if (!ok) return say('تعذّر حفظ المرتجع', 'no');
     try { localStorage.setItem(sk, String(seq)); localStorage.setItem(hk, JSON.stringify({ icv: r.icv, hash: r.hash })); } catch { }
-    if (loyDed) { loyQSet([...loyQ(), { id: r.id + ':rd', phone: o.loyalty.phone, name: o.loyalty.name || '', pts: -loyDed, at: r.at, br: br.id, ord: r.no + ' (مرتجع عن ' + o.no + ')' }]); flush(); }   // v46.9 خصم نقاط الولاء
-    setRet(null); say('سُجّل المرتجع ' + r.no + ' — رُدّ ' + money(C.total) + (loyDed ? ' · خُصم ' + loyDed + ' نقطة ولاء' : ''));
+    if (loyDed) { loyAdd([{ id: r.id + ':rd', phone: o.loyalty.phone, name: o.loyalty.name || '', pts: -loyDed, at: r.at, br: br.id, ord: r.no + ' (مرتجع عن ' + o.no + ')' }]); flush(); }   // v46.9 خصم نقاط الولاء
+    setRet(null); say((offRet ? 'سُجّل المرتجع دون اتصال ' : 'سُجّل المرتجع ') + r.no + ' — رُدّ ' + money(C.total) + (loyDed ? ' · خُصم ' + loyDed + ' نقطة ولاء' : '') + (offRet ? ' · للمراجعة بعد الاتصال' : ''));
     if (printNow) posPrint(posReturnHtml(org, r, br));
   };
 
@@ -420,14 +487,30 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     .pos-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
     .pos-tile-img{aspect-ratio:16/9}
     .pos-head .pos-sub{max-width:180px}}`;
-  const pendingBadge = (queue.length || pendClose || (localShift && localShift.branchId === (br || {}).id)) ? <span className="badge b-amber">⏳ {queue.length ? queue.length + ' فاتورة' : ''}{pendClose || localShift ? (queue.length ? ' + ' : '') + 'وردية' : ''} بانتظار الإرسال</span> : <span className="badge b-mint">متزامن ✓</span>;
+  // v56.53: مع التفعيل — «لم يُرسل بعد: N» و«آخر مزامنة» وسجل المزامنة للمدير، ومرتجعات دون اتصال للمراجعة
+  const obN = offOn ? OB.count() + (localShift && localShift.branchId === (br || {}).id ? 1 : 0) : 0;
+  const hhmm = (t) => t ? new Date(t).toTimeString().slice(0, 5) : '';
+  const offBadge = offOn ? <span className="row" style={{ gap: 6, alignItems: 'center' }} data-offbadge>
+    <span className={'badge ' + (obN ? 'b-amber' : 'b-mint')} data-obcount={obN}>{obN ? 'لم يُرسل بعد: ' + obN : 'متزامن ✓'}</span>
+    <small className="pos-sub" data-lastsync>{'آخر مزامنة: ' + (hhmm(OB.info.lastOk) || '—')}{OB.info.fails ? ' · أخفقت ' + OB.info.fails + ' مرة، المحاولة التالية ' + hhmm(OB.info.nextAt) : ''}</small>
+    {isMgr && <button className="btn sm gh" data-synclogbtn style={{ color: 'var(--side-txt,#EFEAE1)', borderColor: 'var(--side-hl,#3A342C)', background: 'transparent' }} onClick={async () => setObLog(await OB.logs())}>سجل المزامنة</button>}</span> : null;
+  const offRevs = offOn || (ops.posOffRevs || []).length || (ops.posOrders || []).some(o => o.offline) ? posOffRetPending(ops.posOrders, ops.posOffRevs, (br || {}).id) : [];
+  const reviewOff = async (r) => {
+    const x = posOffRetReview(ops, r, me); if (x.err) return say(x.err, 'no');
+    let blocked = '';
+    const ok = await commit(d => { blocked = ''; if ((d.posOffRevs || []).some(v => v.retId === r.id)) { blocked = 'رُوجع هذا المرتجع سابقًا'; return d; } return { ...d, posOffRevs: [...(d.posOffRevs || []), x.rev] }; },
+      () => blocked ? null : { actionType: 'update', targetType: 'pos_order', targetId: r.id, branchName: br.name, title: 'اعتمد مراجعة مرتجع دون اتصال', details: r.no + ' · ' + money(Math.abs(r.total)) + ' · سجّله ' + (r.by || '') });
+    if (blocked) return say(blocked, 'no'); if (!ok) return say('تعذّر حفظ المراجعة — أعد المحاولة', 'no');
+    say('اعتُمدت مراجعة المرتجع ' + r.no);
+  };
+  const pendingBadge = offBadge || ((queue.length || pendClose || (localShift && localShift.branchId === (br || {}).id)) ? <span className="badge b-amber">⏳ {queue.length ? queue.length + ' فاتورة' : ''}{pendClose || localShift ? (queue.length ? ' + ' : '') + 'وردية' : ''} بانتظار الإرسال</span> : <span className="badge b-mint">متزامن ✓</span>);
   // v34.15: «إرسال الآن» — ينتظر أي إرسال جارٍ ثم يرسل فورًا ويعرض النتيجة
-  function pendLeft() { let ls = null; try { ls = localStorage.getItem(POS_SH_KEY); } catch { } return posQueue().length + pendShiftsGet().length + loyQ().length + (ls ? 1 : 0); }
+  function pendLeft() { let ls = null; try { ls = localStorage.getItem(POS_SH_KEY); } catch { } return (offOn ? OB.count() : posQueue().length + pendShiftsGet().length + loyQ().length) + (ls ? 1 : 0); }
   async function sendNow() {
     setSending(true);
     try {
       for (let i = 0; i < 300 && flushing.current; i++) await new Promise(r => setTimeout(r, 200));
-      const before = pendLeft(); await flush(); const left = pendLeft();
+      const before = pendLeft(); await flush(true); const left = pendLeft();
       if (!left) say('أُرسل كل شيء للسحابة ✓');
       else { const e2 = cloud.lastError || {}; const r2 = e2.key ? cloud.readErr(e2.key) : null;
         if (e2.code === 'resource-exhausted') { say(QUOTA_MSG(), 'no'); return; }
@@ -583,6 +666,15 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
         </div>
       </div>
 
+      {canVoid && offRevs.length > 0 && <div className="note" data-offrevs style={{ borderColor: 'rgba(224,164,88,.6)' }}><b>مرتجعات دون اتصال للمراجعة بعد الاتصال ({offRevs.length})</b>
+        {offRevs.map(r => <div key={r.id} className="row" style={{ gap: 8, alignItems: 'center', marginTop: 6, flexWrap: 'wrap' }} data-offrev={r.no}><span className="num">{r.no}</span><span>عن {r.refNo}</span><b className="num">{money(Math.abs(r.total))}</b><small>{r.by || ''} · {String(r.at || '').slice(0, 16).replace('T', ' ')}</small>
+          <button className="btn sm" onClick={() => reviewOff(r)}><Check size={13} />اعتماد المراجعة</button></div>)}</div>}
+      {obLog && <Modal title="سجل المزامنة" icon={RefreshCw} onClose={() => setObLog(null)}>
+        <div className="note" style={{ fontSize: 12, marginBottom: 8 }}>التخزين على الجهاز: <b>{OB.info.mode === 'idb' ? 'IndexedDB' : OB.info.mode === 'ls' ? 'التخزين المحلي (IndexedDB غير متاح)' : OB.info.mode || '—'}</b> · لم يُرسل بعد: <b className="num">{OB.count()}</b> · آخر مزامنة ناجحة: <b className="num">{hhmm(OB.info.lastOk) || '—'}</b></div>
+        {OB.count() > 0 && <div style={{ marginBottom: 10 }} data-oblist>{posObSort([...OB.list('order').map(d => ({ kind: 'order', d })), ...OB.list('shift').map(d => ({ kind: 'shift', d })), ...OB.list('loy').map(d => ({ kind: 'loy', d }))].map(x => ({ ...x, key: x.kind + x.d.id, at: x.d.at || x.d.closedAt || '' }))).map(x => <div key={x.key} style={{ fontSize: 12 }}>⏳ {x.kind === 'order' ? (x.d.kind === 'return' ? 'مرتجع ' : 'فاتورة ') + (x.d.no || '') : x.kind === 'shift' ? 'وردية مغلقة' : 'نقاط ولاء'} <span className="num">{String(x.at).slice(11, 16)}</span></div>)}</div>}
+        <div className="tbl-w"><table className="tbl" data-synclog><thead><tr><th>الوقت</th><th>النوع</th><th>المعرّف</th><th>النتيجة</th><th>الخطأ</th></tr></thead>
+          <tbody>{obLog.length ? obLog.slice(0, 200).map(l => <tr key={l.key}><td className="num" style={{ fontSize: 11.5 }}>{String(l.at).slice(0, 19).replace('T', ' ')}</td><td>{({ order: 'فاتورة', shift: 'وردية', loy: 'ولاء', ticket: 'تذكرة' })[l.kind] || l.kind}</td><td className="num" style={{ fontSize: 11 }}>{l.ref}</td><td>{l.ok ? <span className="badge b-mint">أُرسل</span> : <span className="badge b-rose">أخفق</span>}</td><td style={{ fontSize: 11.5 }}>{l.err === 'not-confirmed' ? 'لم يتأكد الحفظ في السحابة' : (l.err || '')}</td></tr>) : <tr><td colSpan={5} style={{ fontSize: 12 }}>لا محاولات بعد</td></tr>}</tbody></table></div>
+      </Modal>}
       {pendReason && <div className="note" style={{ fontSize: 12 }}>سبب تأخر الإرسال: <b>{pendReason}</b>{R.admin && !(shift && shift.pending) && <button className="btn sm gh" style={{ marginInlineStart: 8 }} onClick={() => setDiag(x => !x)}>تشخيص</button>}</div>}
       {!(shift && shift.pending) && R.admin && diag && <CloudHealth org={org} say={say} only={[brKey(br.id), bfKey(br.id), KEYS.core]} auto commit={commit} me={me} />}
       {shift && shift.pending && R.admin && <div><button className="btn sm" onClick={() => setDiag(x => !x)}><ShieldCheck size={13} />{diag ? 'إخفاء التشخيص' : 'تشخيص وإصلاح مشكلة الحفظ'}</button></div>}
@@ -643,7 +735,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
             {list.map(o => <tr key={o.id} style={o.status === 'void' ? { opacity: .5 } : undefined}>
               <td className="num" style={{ fontSize: 11.5 }}>{o.no}{o.pending && <div><span className="badge b-amber" style={{ fontSize: 9.5 }}>لم تُرسل بعد</span></div>}{o.by && <div style={{ fontSize: 10, color: 'var(--faint)' }}>{o.by}</div>}</td>
               <td className="num" style={{ fontSize: 11.5 }}>{new Date(o.at).toLocaleTimeString('ar-SA-u-ca-gregory-nu-latn', { hour: '2-digit', minute: '2-digit' })}</td>
-              <td style={{ fontSize: 12 }}>{o.kind === 'return' ? <><span className="badge b-rose">مرتجع عن {o.refNo}</span> {(o.retLines || []).map(l => l.name + (l.qty > 1 ? ' ×' + l.qty : '')).join('، ')}<div style={{ fontSize: 10.5, color: 'var(--faint)' }}>{WASTE_REASONS[o.reason] || ''}{o.note ? ' — ' + o.note : ''}</div></> : (o.lines || []).map(l => l.name + (l.qty > 1 ? ' ×' + l.qty : '')).join('، ')}</td>
+              <td style={{ fontSize: 12 }}>{o.kind === 'return' ? <><span className="badge b-rose">مرتجع عن {o.refNo}</span> {o.offline && <span className="badge b-amber" data-offtag>{(ops.posOffRevs || []).some(v => v.retId === o.id) ? 'دون اتصال · رُوجع' : 'دون اتصال · للمراجعة'}</span>} {(o.retLines || []).map(l => l.name + (l.qty > 1 ? ' ×' + l.qty : '')).join('، ')}<div style={{ fontSize: 10.5, color: 'var(--faint)' }}>{WASTE_REASONS[o.reason] || ''}{o.note ? ' — ' + o.note : ''}</div></> : (o.lines || []).map(l => l.name + (l.qty > 1 ? ' ×' + l.qty : '')).join('، ')}</td>
               <td style={{ textAlign: 'end' }}><b className="num">{money(o.total)}</b>{o.disc ? <div className="num" style={{ fontSize: 10, color: 'var(--mint)' }}>خصم {money(o.disc)}</div> : null}</td>
               <td style={{ fontSize: 11.5 }}>{o.status === 'void' ? <span className="badge b-rose">ملغاة: {o.voidReason}</span> : (o.payments || []).map((p, k) => <div key={k}><span className="badge b-dim">{payAr(p)}</span> <span className="num">{money(p.amount)}</span></div>)}{o.change ? <div className="num" style={{ fontSize: 10, color: 'var(--faint)' }}>الباقي {money(o.change)}</div> : null}</td>
               <td><div className="row" style={{ gap: 4 }}><button className="btn sm gh" title="إعادة طباعة" onClick={() => posPrint(o.kind === 'return' ? posReturnHtml(org, o, br) : posReceiptHtml(org, o, br))}><Printer size={12} /></button>{isMgr && o.status !== 'void' && o.kind !== 'return' && <button className="btn sm gh" onClick={() => voidOrder(o)}>إلغاء</button>}{retOn && isMgr && o.status !== 'void' && o.kind !== 'return' && !o.pending && <button className="btn sm gh" style={{ color: 'var(--rose)' }} onClick={() => openReturn(o)}>مرتجع</button>}</div></td>
@@ -801,7 +893,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
       {view === 'loyalty' && <PosLoyalty org={org} commitOrg={commitOrg} say={say} canCfg={!!(R.admin || R.scope === 'all')} me={me} />}
       {view === 'shifts' && <PosShifts org={org} ops={ops} me={me} brs={brs} commit={commit} say={say} />}
 
-      {ret && (() => { const o = ret.o; const left = posReturnable(ops, o); const qs = {}; Object.entries(ret.q).forEach(([i, v]) => { const n = Number(v) || 0; if (n > 0) qs[i] = Math.min(n, left[i] || 0); });
+      {ret && (() => { const o = ret.o; const left = posReturnable(opsR, o); const qs = {}; Object.entries(ret.q).forEach(([i, v]) => { const n = Number(v) || 0; if (n > 0) qs[i] = Math.min(n, left[i] || 0); });
         const C = posReturnCalc(o, qs); const opts = posRefundOptions(o);
         const optAr = (x) => x.pmName || (x.m === 'cash' ? 'نقدي' : x.m === 'card' ? 'شبكة' : x.m === 'transfer' ? 'تحويل' : x.m === 'credit' ? 'إلى حساب العميل' + (x.custName ? ' — ' + x.custName : '') + ' (حتى ' + money(posArRefundMax({ ...ops, posOrders: allOrders }, o)) + ')' : (x.appName || 'تطبيق'));
         return <Modal title={'مرتجع عن الفاتورة ' + o.no} icon={FileText} onClose={() => setRet(null)}

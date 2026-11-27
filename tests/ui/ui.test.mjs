@@ -4583,3 +4583,96 @@ test('v56.52 إعدادات المطعم: لمسؤول النظام وحده، �
   assert.deepEqual(c.stations.b1.map(s => [s.name, s.cats, s.prods]), [['شواية', ['رئيسي'], []], ['مشروبات', ['مشروبات'], ['k']]]);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.53 العمل دون اتصال: بلا تفعيل الطابور القديم ولا قاعدة على الجهاز؛ ومع التفعيل ترحيل آمن، بيع ومرتجع دون اتصال بحد الفرع، مزامنة بسجل بعد العودة، ومراجعة مدير آخر', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/PosApp/bm');
+  await p.evaluate(() => { window.setOrg(g => ({ ...g, taxCfg: { enabled: true, rate: 15 }, posCfg: { branches: ['b1'], autoPrint: false, returns: true }, products: [{ id: 'k', name: 'كبسة', sellPrice: 58, cat: 'رئيسي' }] }));
+    window.setOps(o => ({ ...o, posTabs: [], kdsTickets: [], posOrders: [], posOffRevs: [], closings: o.closings.filter(c => c.branchId !== 'b1') })); }); await p.waitForTimeout(400);
+  const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); }
+  const sell = async (n) => { for (let i = 0; i < n; i++) await p.locator('.pos-tile:has-text("كبسة")').click();
+    await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200); await p.click('.modal button:has-text("تأكيد")'); await p.waitForTimeout(600); };
+  const dbs = () => p.evaluate(async () => (await indexedDB.databases()).map(d => d.name));
+  await sell(2);
+  // ١) بلا تفعيل: لا شيء جديد — الطابور القديم وشارته، ولا قاعدة IndexedDB
+  assert.equal(await p.evaluate(() => window.cur.posOrders.length), 1);
+  assert.equal(await p.locator('[data-offbadge]').count(), 0); assert.ok(!(await dbs()).includes('muktasab-pos'), 'لا تُفتح القاعدة بلا تفعيل');
+  // فاتورة عالقة في الطابور القديم (السحابة متعذّرة) — تُرحَّل عند التفعيل بلا فقد ولا تكرار
+  await p.evaluate(() => { window.__cloudDown = true; const o0 = window.cur.posOrders[0];
+    localStorage.setItem('mizan:posQueue', JSON.stringify([{ ...o0, id: 'po-legacy1', no: o0.no + 'L', at: new Date().toISOString(), lines: [{ productId: 'k', name: 'كبسة', qty: 1, price: 58 }], total: 58, vat: 7.57, net: 50.43, payments: [{ m: 'cash', amount: 58 }] }])); });
+  // ٢) التفعيل (مسؤول النظام) وحد المرتجع دون اتصال للفرع 60 ريالًا
+  await p.evaluate(() => window.setOrg(g => ({ ...g, posCfg: { ...g.posCfg, offline: true, offRetLimit: { b1: 60 } } }))); await p.waitForTimeout(800);
+  assert.equal(await p.evaluate(() => localStorage.getItem('mizan:posQueue')), '[]', 'أُزيل من القديم بعد التحقق من وصوله');
+  assert.ok((await dbs()).includes('muktasab-pos'));
+  assert.equal(await p.locator('[data-obcount]').getAttribute('data-obcount'), '1');
+  // ٣) انقطاع الشبكة: بيع ومرتجع دون اتصال حتى الحد
+  await ctx.setOffline(true); await p.waitForTimeout(150);
+  await sell(1);
+  assert.equal(await p.evaluate(() => window.cur.posOrders.length), 1, 'لم يصل السحابة');
+  assert.equal(await p.locator('[data-obcount]').getAttribute('data-obcount'), '2'); assert.match(await p.locator('[data-offbadge]').innerText(), /لم يُرسل بعد: 2/);
+  await p.click('.pos-tabs button:has-text("الفواتير")'); await p.waitForTimeout(300);
+  const synced = await p.evaluate(() => window.cur.posOrders[0].no);
+  const retBtn = () => p.locator('tr:has-text("' + synced + '") button:has-text("مرتجع")').first();
+  await retBtn().click(); await p.waitForTimeout(250);
+  await p.fill('input[aria-label="كمية مرتجع كبسة"]', '1'); await p.locator('.modal select').first().selectOption('prep'); await p.locator('.modal select').nth(1).selectOption('cash');
+  await p.locator('.modal button:has-text("حفظ")').last().click(); await p.waitForTimeout(500);
+  assert.match(await say(p), /سُجّل المرتجع دون اتصال .* للمراجعة بعد الاتصال/);
+  assert.equal(await p.locator('[data-obcount]').getAttribute('data-obcount'), '3');
+  await retBtn().click(); await p.waitForTimeout(250);
+  assert.match(await p.locator('.modal tbody tr').first().innerText(), /2\s+1/, 'مرتجع الجهاز غير المرسل يُحتسب');
+  await p.fill('input[aria-label="كمية مرتجع كبسة"]', '1'); await p.locator('.modal select').first().selectOption('prep'); await p.locator('.modal select').nth(1).selectOption('cash');
+  await p.locator('.modal button:has-text("حفظ")').last().click(); await p.waitForTimeout(300);
+  assert.match(await say(p), /يتجاوز حد المرتجع دون اتصال لهذا الفرع \(60\.00\) — غير المراجَع 58\.00/);
+  await p.keyboard.press('Escape'); await p.waitForTimeout(150);
+  assert.equal(await p.locator('[data-obcount]').getAttribute('data-obcount'), '3');
+  // ٤) عودة الشبكة والسحابة ما زالت متعذّرة: محاولة مسجّلة، ولا حذف
+  await ctx.setOffline(false); await p.waitForTimeout(900);
+  assert.equal(await p.locator('[data-obcount]').getAttribute('data-obcount'), '3');
+  assert.match(await p.locator('[data-lastsync]').innerText(), /أخفقت \d+ مرة، المحاولة التالية/);
+  await p.click('[data-synclogbtn]'); await p.waitForSelector('[data-synclog]');
+  let log = await p.locator('[data-synclog] tbody').innerText(); assert.match(log, /فاتورة[\s\S]*أخفق[\s\S]*لم يتأكد الحفظ في السحابة/); assert.equal(await p.locator('[data-oblist] div').count(), 3);
+  await p.keyboard.press('Escape'); await p.waitForTimeout(150);
+  // ٥) السحابة متاحة: «إرسال الآن» يرسل الكل بالترتيب، بلا تكرار
+  await p.evaluate(() => { window.__cloudDown = false; }); await p.click('button:has-text("إرسال الآن")'); await p.waitForTimeout(900);
+  let r = await p.evaluate(() => ({ n: window.cur.posOrders.length, ids: new Set(window.cur.posOrders.map(o => o.id)).size, leg: window.cur.posOrders.some(o => o.id === 'po-legacy1'), off: window.cur.posOrders.filter(o => o.offline).map(o => [o.kind, o.total]) }));
+  assert.deepEqual(r, { n: 4, ids: 4, leg: true, off: [['return', -58]] });
+  assert.match(await p.locator('[data-offbadge]').innerText(), /متزامن ✓/); assert.doesNotMatch(await p.locator('[data-lastsync]').innerText(), /—/);
+  await p.click('[data-synclogbtn]'); await p.waitForSelector('[data-synclog]');
+  log = await p.locator('[data-synclog] tbody').innerText(); assert.match(log, /أُرسل/); await p.keyboard.press('Escape'); await p.waitForTimeout(150);
+  assert.match(await p.locator('table').first().innerText(), /دون اتصال · للمراجعة/);
+  // ٦) المراجعة: من سجّل المرتجع لا يعتمده، ومدير آخر يعتمده
+  assert.equal(await p.locator('[data-offrevs] [data-offrev]').count(), 1);
+  await p.click('[data-offrevs] button:has-text("اعتماد المراجعة")'); await p.waitForTimeout(250);
+  assert.match(await say(p), /لا يعتمد المرتجع من سجّله/);
+  await p.evaluate(() => window.as('bm2')); await p.waitForTimeout(700);
+  await p.click('[data-offrevs] button:has-text("اعتماد المراجعة")'); await p.waitForTimeout(400);
+  assert.deepEqual(await p.evaluate(() => window.cur.posOffRevs.map(v => [v.by, v.amount, v.branchId])), [['سعد', 58, 'b1']]);
+  assert.equal(await p.locator('[data-offrevs]').count(), 0);
+  // ٧) الإيقاف بعد الاستخدام: ما بقي في الصادر يعود للطابور القديم ثم يُرسل كما كان
+  await ctx.setOffline(true); await p.click('.pos-tabs button:has-text("البيع")'); await p.waitForTimeout(150); await sell(1);
+  assert.equal(await p.locator('[data-obcount]').getAttribute('data-obcount'), '1');
+  await p.evaluate(() => window.setOrg(g => ({ ...g, posCfg: { ...g.posCfg, offline: false } }))); await p.waitForTimeout(700);
+  assert.equal(await p.evaluate(() => JSON.parse(localStorage.getItem('mizan:posQueue') || '[]').length), 1, 'عاد للطابور القديم');
+  assert.equal(await p.locator('[data-offbadge]').count(), 0);
+  await ctx.setOffline(false); await p.waitForTimeout(900);
+  r = await p.evaluate(() => ({ n: window.cur.posOrders.length, ids: new Set(window.cur.posOrders.map(o => o.id)).size, q: localStorage.getItem('mizan:posQueue') }));
+  assert.deepEqual(r, { n: 5, ids: 5, q: '[]' });
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v56.53 إعدادات العمل دون اتصال: المفتاح لمسؤول النظام وحده ومعطّل افتراضيًا، وحد المرتجع لكل فرع (فارغ = ممنوع)', async () => {
+  { const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/PosSettings/bm');
+    assert.equal(await p.locator('[data-offcfg]').count(), 0, 'مدير الفرع لا يرى المفتاح'); assert.deepEqual(errs, []); await ctx.close(); }
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/PosSettings/admin');
+  await p.evaluate(() => window.setOrg(g => ({ ...g, posCfg: { ...(g.posCfg || {}), branches: ['b1'] } }))); await p.waitForTimeout(200);
+  await p.evaluate(() => window.as('ctl')); await p.waitForTimeout(150); await p.evaluate(() => window.as('admin')); await p.waitForTimeout(300);
+  assert.equal(await p.locator('[data-offcfg]').isChecked(), false); assert.equal(await p.locator('[data-offretcfg]').count(), 0);
+  await p.locator('.card button.pri', { hasText: /^حفظ$/ }).click(); await p.waitForTimeout(250);
+  assert.deepEqual(await p.evaluate(() => ['offline' in window.curOrg.posCfg, 'offRetLimit' in window.curOrg.posCfg]), [false, false], 'الحفظ بلا تفعيل لا يكتب شيئًا جديدًا');
+  await p.check('[data-offcfg]'); await p.fill('input[aria-label="حد المرتجع دون اتصال عم قاسم طيبة"]', '12.345');
+  await p.locator('.card button.pri', { hasText: /^حفظ$/ }).click(); await p.waitForTimeout(250);
+  assert.match(await say(p), /بهللتين على الأكثر/);
+  await p.fill('input[aria-label="حد المرتجع دون اتصال عم قاسم طيبة"]', '150.50');
+  await p.locator('.card button.pri', { hasText: /^حفظ$/ }).click(); await p.waitForTimeout(250);
+  assert.deepEqual(await p.evaluate(() => [window.curOrg.posCfg.offline, window.curOrg.posCfg.offRetLimit]), [true, { b1: 150.5 }]);
+  assert.deepEqual(errs, []); await ctx.close();
+});
