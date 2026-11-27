@@ -4128,3 +4128,29 @@ test('v56.39 مصدر الدمج على الخادم: يُكتب السجل ال
   assert.equal(await p.evaluate(() => JSON.parse(localStorage.getItem('rms8:loy')).tx.length), 1, 'لم تتحرك النقاط');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.40 الدفعة 7 (E6): مخصص الخسائر الائتمانية — الإعداد، التكوين بدليل، الاعتماد لغير المنشئ، ثم الشطب على الفاتورة', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Accounting/acc/arage');
+  await p.evaluate(() => {
+    window.setOrg(o => ({ ...o, partners: [...(o.partners || []), { id: 'c9', type: 'customer', name: 'شركة العميل', key: 'cust:c9', terms: 30 }],
+      customAccounts: [...(o.customAccounts || []), { code: '1389', name: 'مخصص الخسائر الائتمانية', kind: 'asset' }, { code: '5805', name: 'مصروف الخسائر الائتمانية', kind: 'exp' }],
+      ecl: { on: true, expAcc: '5805', allowAcc: '1389' } }));
+    window.setOps(o => ({ ...o, salesInvoices: [{ id: 'si9', no: 'S-9', kind: 'invoice', terms: 'credit', customerKey: 'cust:c9', date: '2026-06-01', dueDate: '2026-07-01', net: 1000, vat: 0, total: 1000, receipts: [], buyer: { name: 'شركة العميل' } }] }));
+  });
+  await p.waitForSelector('[data-ecl]'); assert.ok(await p.locator('[data-ar-bydue]').count() === 1, 'الأعمار من الاستحقاق');
+  await p.locator('[data-ecl-row="cust:c9"] [data-ecl-prov]').click();
+  await p.getByLabel('مبلغ المخصص').fill('600'); await p.getByLabel('سبب المخصص').fill('متأخر 5 أشهر ورفض السداد');
+  await p.click('[data-ecl-save]'); await p.waitForFunction(() => (window.cur.eclDocs || []).length === 1);
+  assert.equal(await p.locator('[data-ecl-wait]').count(), 1, 'المنشئ لا يعتمد');
+  assert.equal(await p.evaluate(() => window.cur.eclDocs[0].status), 'pending');
+  await p.evaluate(() => window.as('admin')); await p.waitForSelector('[data-ecl-ok]'); await p.click('[data-ecl-ok]');
+  await p.waitForFunction(() => window.cur.eclDocs[0].status === 'approved');
+  assert.deepEqual(await p.evaluate(() => [window.cur.eclDocs[0].expAcc, window.cur.eclDocs[0].allowAcc]), ['5805', '1389']);
+  await p.locator('[data-ecl-row="cust:c9"] [data-ecl-wo]').click();
+  await p.getByLabel('الفاتورة المشطوبة').selectOption('si9'); await p.getByLabel('مبلغ المخصص').fill('400'); await p.getByLabel('سبب المخصص').fill('إفلاس العميل');
+  await p.click('[data-ecl-save]'); await p.waitForFunction(() => (window.cur.eclDocs || []).length === 2);
+  await p.evaluate(() => window.as('acc')); await p.waitForSelector('[data-ecl-ok]'); await p.click('[data-ecl-ok]');
+  await p.waitForFunction(() => window.cur.eclDocs[1].status === 'approved');
+  assert.match(await p.locator('[data-ecl-row="cust:c9"]').innerText(), /600\.00[\s\S]*200\.00/, 'الذمة 600 والمخصص 200');
+  assert.deepEqual(errs, []); await ctx.close();
+});

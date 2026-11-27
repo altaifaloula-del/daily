@@ -8,7 +8,8 @@ import { archKey, archivePlan, nowISO, printA4, uid, dtLocal, posSplitBranch, po
 import { clrCompare, clrLoad, clrOn, clrSeed, clrState, logAudit, clrRead, clrViewStats } from '../../App.jsx';   // v41.9 + v42.2
 import { posrOn, posrCompare, posrLoad, posrSeed, posrState, posrRepair } from '../../App.jsx';   // v56.4 (POS 2a) سجلات فواتير نقطة البيع
 import { MKT_BR_CV, mktBrOn } from '../../App.jsx';
-import { loyPiiOn, loyPiiPlan, loyPiiCopy, loyPiiStrip, lypReleaseOk } from '../../App.jsx';   // v56.37 فصل أسماء عملاء الولاء
+import { loyPiiOn, loyPiiPlan, loyPiiCopy, loyPiiStrip, lypReleaseOk } from '../../App.jsx';
+import { eclOn, eclAccs } from '../../App.jsx';   // v56.40 الدفعة 7 (E6)   // v56.37 فصل أسماء عملاء الولاء
 import { grrOn, mkcCompare, lytCompare, grrLoad, grrSeed, grrState, mkmOn, mkmCompare, mkmViolations, mkmSeed, mkmSrcOn } from '../../App.jsx';
 import { posGlOpen, posGlRanges, posGlCheck } from '../../App.jsx';
 import { loyMonthAdj, posLoyOpening, posMisLoyRanges, posMisLoyFrom, posGlNote, jeOwner, posGlFrom } from '../../App.jsx';   // v56.33 (الدفعة 2 — P1/P2)
@@ -325,6 +326,7 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
       <LoyPiiCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <PosGlCard org={org} ops={ops} me={me} commit={commit} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <CtlBarCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
+      <EclCfgCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <DsRouteCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <CvApprCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <MktCtlCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
@@ -638,6 +640,30 @@ function PosGlCard({ org, ops, me, commit, commitOrg, say, isAdm }) {
         {lmDone && <span className="badge b-sky">مسجّلة</span>}
         {la && isAdm && !lmDone && <>{(la.occ || la.expOcc) ? <select className="sel" aria-label="حساب المصروف الترويجي" value={promoAcc} onChange={e => setPromoAcc(e.target.value)} data-loymonth-acc><option value="">— حساب المصروف الترويجي —</option>{expAccs.map(a => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}</select> : null}
           <button className="btn sm pri" onClick={lmPost} data-loymonth-post>إنشاء قيد التسوية</button></>}</div></div>
+  </div>);
+}
+
+/* v56.40 — الدفعة 7 (E6): مخصص الخسائر الائتمانية — التفعيل وحسابا المصروف والمخصص من الدليل (لا أرقام ثابتة في الكود) */
+function EclCfgCard({ org, commitOrg, say, isAdm }) {
+  const on = eclOn(org); const ac = eclAccs(org); const [f, setF] = useState({ exp: ac.exp, allow: ac.allow });
+  const accs = useMemo(() => buildAccounting(org, {}).accounts.map(a => ({ code: String(a.code), name: a.name })), [org]);
+  const exps = accs.filter(a => /^5\d+$/.test(a.code)), allows = accs.filter(a => /^1\d+$/.test(a.code));
+  const save = async (turn) => { if (!isAdm) return; const nextOn = turn === undefined ? on : turn;
+    if (nextOn && (!f.exp || !f.allow || f.exp === f.allow)) return say('اختر حساب المصروف وحساب المخصص من الدليل', 'no');
+    const ok = await commitOrg(o => ({ ...o, ecl: { ...(o.ecl || {}), on: nextOn, expAcc: f.exp, allowAcc: f.allow, at: nowISO() } }), { actionType: 'settings', targetType: 'system_settings', targetId: 'ecl', title: nextOn ? 'فعّل مخصص الخسائر الائتمانية' : 'أوقف مخصص الخسائر الائتمانية', details: 'المصروف ' + f.exp + ' · المخصص ' + f.allow });
+    if (ok) say(nextOn ? 'فُعّل — يظهر في «المحاسبة ← العملاء والذمم المدينة» ✓' : 'أُوقف — القيود المعتمدة تبقى كما هي'); };
+  return (<div className="card" data-eclcfg>
+    <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />مخصص الخسائر الائتمانية للذمم المدينة</div>
+      <span className={'badge ' + (on ? 'b-sky' : 'b-dim')}>{on ? 'مفعّل' : 'غير مفعّل'}</span></div>
+    <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
+      بقرار المجلس: مخصص محدد لكل عميل بدليل، يعتمده غير منشئه، والشطب على المخصص. أعمار الذمم من تاريخ الاستحقاق. اختر الحسابين من دليل الحسابات
+      (إن لم يوجدا أضفهما من «دليل الحسابات»: حساب مقابل للذمم 1xxx، ومصروف 5xxx). يُثبَّت الحسابان على كل مستند عند اعتماده، فتغييرهما لاحقًا لا يمس قيدًا سابقًا.</div>
+    <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+      <select className="sel" aria-label="حساب مصروف الخسائر الائتمانية" value={f.exp} disabled={!isAdm} onChange={e => setF({ ...f, exp: e.target.value })} data-eclcfg-exp><option value="">— حساب المصروف —</option>{exps.map(a => <option key={a.code} value={a.code}>{a.code} · {a.name}</option>)}</select>
+      <select className="sel" aria-label="حساب مخصص الخسائر الائتمانية" value={f.allow} disabled={!isAdm} onChange={e => setF({ ...f, allow: e.target.value })} data-eclcfg-allow><option value="">— حساب المخصص —</option>{allows.map(a => <option key={a.code} value={a.code}>{a.code} · {a.name}</option>)}</select>
+      {isAdm && on && <button className="btn sm gh" onClick={() => save()} data-eclcfg-save>حفظ الحسابين</button>}
+      {isAdm && <button className={'btn sm ' + (on ? 'gh' : 'pri')} onClick={() => save(!on)} data-eclcfg-toggle>{on ? 'إيقاف' : 'تفعيل'}</button>}
+    </div>
   </div>);
 }
 
