@@ -13,7 +13,7 @@ import { posAppPricesOn, posAppHasPrices, posPriceListErr } from '../../App.jsx'
 import { posHolds, posHoldsSet, posHoldPut, posHoldRecall } from '../../App.jsx';   // v56.0 (GAP-007) تعليق الطلب واستدعاؤه
 import { posVoidBlock, posNextNo, posTabCuts, escH, POS_VOID_ROLES } from '../../App.jsx';   // v56.2 (POS دفعة 1) حراس الإلغاء والترقيم وحساب الطاولة
 import { posCreditList, posCreditAuthApi, posArRefundMax } from '../../App.jsx';   // v56.46 البيع الآجل
-import { restCfg, coversOf, posWaiters, salesByWaiter, tabRemain, tabSplitItems, tabSplitSet, tabSplitReset, tabPayPart, tabMerge, kdsStations, kdsSplit, kdsPrepReport, kdsPrepSheets } from '../../App.jsx';   // v56.52 المطعم (مُطفأة افتراضيًا)
+import { restCfg, coversOf, posWaiters, salesByWaiter, tabRemain, tabSplitItems, tabSplitSet, tabPartPriced, tabSplitReset, tabPayPart, tabMerge, kdsStations, kdsSplit, kdsPrepReport, kdsPrepSheets } from '../../App.jsx';   // v56.52 المطعم (مُطفأة افتراضيًا)
 
 export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const R = ROLES[me.role] || {};
@@ -72,7 +72,10 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   // v34.0: التسعير = العروض وخصم الصنف (لكل سطر) ← عرض الفاتورة ← الخصم اليدوي (مبلغ أو نسبة) ← استبدال النقاط
   const phoneN0 = normPhone(cust.phone); const phone0 = phoneN0.length >= 9 ? phoneN0 : '';
   const cpOpt = { branchId: (br || {}).id, code, phone: phone0, isMember: !!(phone0 && loy && (loy.members || {})[phone0]), uses: loy ? (loy.cpn || {}) : null };
-  const priced = posPriceCart(cart, org.products, org.posPromos, plId ? { ...cpOpt, priceList: plId } : cpOpt);   // v56.47 (P4): بلا قائمة كما كان
+  // v56.52 (بعد التحقق): جزء الفاتورة المقسّمة يُدفع بتسعيره المجمّد من تسعير الطاولة كاملة مرة واحدة (العروض والكوبون موزّعة) — لا يُعاد تسعيره وحده
+  const partNow = payTab && payPart ? ((((ops.posTabs || []).find(t => t.id === payTab) || {}).split || {}).parts || []).find(x => x.id === payPart && !x.orderId) || null : null;
+  const frozenP = partNow ? tabPartPriced(partNow) : null; const cpCode = frozenP ? String((frozenP.coupon || {}).code || '') : code;
+  const priced = frozenP ? { ...frozenP, lines: frozenP.lines.map((l, i) => ({ ...l, key: (cart[i] || {}).key })) } : posPriceCart(cart, org.products, org.posPromos, plId ? { ...cpOpt, priceList: plId } : cpOpt);   // v56.47 (P4): بلا قائمة كما كان
   const base1 = posR2(priced.sub - priced.orderDisc);
   const manual = disc.mode === 'pct' ? posR2(base1 * Math.min(100, Number(disc.amt) || 0) / 100) : Math.min(base1, posR2(disc.amt));
   const phoneN = normPhone(cust.phone); const phoneOk = phoneN.length >= 9;
@@ -164,9 +167,11 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
       return posTrim({ ...d, posTabs: (d.posTabs || []).map(x => x.id === M.into.id ? M.into : x.id === M.from.id ? M.from : x) }, today); },
       () => err ? null : { actionType: 'update', targetType: 'pos_tab', targetId: dst.id, branchName: br.name, title: 'دمج حساب الطاولة ' + fromNo + ' في الطاولة ' + dst.table, details: 'المنقول ' + money(tot) });
     if (err) return say(err, 'no'); if (ok) say('دُمج حساب الطاولة ' + fromNo + ' في الطاولة ' + dst.table + ' ✓'); };
+  // v56.52 (قرار المجلس بعد التحقق): الطاولة تُسعَّر كاملة مرة واحدة (العروض التلقائية + كوبون الطاولة) ثم تُوزَّع على الأجزاء
+  const splitPrice = (t, cpc) => posPriceCart(tabRemain(t).lines.map((l, i) => ({ ...l, key: 'r' + i })), org.products, org.posPromos, { branchId: br.id, code: cpc || '', phone: '', isMember: false, uses: loy ? (loy.cpn || {}) : null });
   const saveSplit = async () => { const { tab: t, n, alloc } = splitF; let err = '', parts = null; const at = nowISO();
     const ok = await commit(d => { err = ''; const cur = (d.posTabs || []).find(x => x.id === t.id); if (!cur || cur.status !== 'open') { err = 'الحساب لم يعد مفتوحًا'; return d; }
-      const S = tabSplitItems(cur, alloc, n); if (S.err) { err = S.err; return d; } parts = S.parts;
+      const S = tabSplitItems(cur, alloc, n, splitPrice(cur, splitF.code)); if (S.err) { err = S.err; return d; } parts = S.parts;
       return { ...d, posTabs: (d.posTabs || []).map(x => x.id === t.id ? tabSplitSet(x, S.parts, { at, by: me.name }) : x) }; },
       () => err ? null : { actionType: 'update', targetType: 'pos_tab', targetId: t.id, branchName: br.name, title: 'تقسيم فاتورة الطاولة ' + t.table + ' إلى ' + n + ' أجزاء', details: (parts || []).map(p => 'جزء ' + p.no + ': ' + money(p.total)).join(' · ') });
     if (err) return say(err, 'no'); if (ok) { setSplitF(null); say('قُسّمت فاتورة الطاولة ' + t.table + ' ✓ — ادفع كل جزء من نافذة الطاولة'); } };
@@ -216,6 +221,9 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     if (manual > 0 && maxPct > 0 && !isMgr && base1 > 0 && manual / base1 * 100 > maxPct + 0.001) return say('الخصم اليدوي يتجاوز الحد المسموح للكاشير (' + maxPct + '%) — يلزم مدير الفرع', 'no');
     if (cust.phone.trim() && !phoneOk) return say('رقم جوال العميل غير صحيح', 'no');
     if (!payTab) { const ple = posPriceListErr(org, plId, pay.parts, apps); if (ple) return say(ple, 'no'); }   // v56.47 (P4) قائمة الأسعار تطابق تطبيق الدفع
+    if (payPart) { const sig = (L) => JSON.stringify((L || []).map(l => [l.productId, Number(l.price), (l.note || '').trim(), Number(l.qty)]));   // v56.52: حارس الجزء قبل الترقيم
+      if (!partNow) return say('أُعيد تقسيم الحساب أو دُفع هذا الجزء من جهاز آخر — افتح الطاولة من جديد', 'no');
+      if (sig(cart) !== sig(partNow.lines)) return say('لا تُعدَّل أسطر جزء مقسّم — أعد التقسيم من نافذة الطاولة', 'no'); }
     const cuts = payTab ? posTabCuts(tabSent.current, cart) : [];   // v56.2 (B7)
     if (cuts.length && !isMgr) return say('لا يُنقص صنف أُرسل للمطبخ إلا مدير الفرع: ' + cuts.map(c => c.name).join('، '), 'no');
     // v56.46: البيع الآجل — دفعة آجلة واحدة لعميل مؤهل، لا مع تطبيق توصيل، والتفويض من الخادم قبل الترقيم (دون اتصال يُمنع)
@@ -231,18 +239,18 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     // v48.1: الكوبون المحدود يُحجز ذرّيًا قبل إتمام البيع (مفتاح عدم التكرار = معرّف الطلب)؛ إن تعذّر لا يُكمل البيع بالكوبون
     const oid = uid('po');
     if (priced.coupon && priced.coupon.limited) { const pr = (org.posPromos || []).find(x => x.id === priced.coupon.id) || {};
-      const rv = await cpnReserve(code, { id: oid, phone: phoneOk ? phoneN : '', at: nowISO(), br: br.id }, pr);
+      const rv = await cpnReserve(cpCode, { id: oid, phone: phoneOk ? phoneN : '', at: nowISO(), br: br.id }, pr);
       if (!rv.ok) { setSending(false); reloadLoy(); return say('الكوبون: ' + rv.why + ' — احذف الرمز لإكمال البيع بدونه', 'no'); }
       if (rv.doc) setLoy(rv.doc); }
     let ar = null;
     if (crCu) { const a = await posCreditAuthApi({ orderId: oid, branchId: br.id, customerKey: crCu.key, amount: crAmt, date: today });
-      if (!a || !a.ok) { if (priced.coupon && priced.coupon.limited) cpnRelease(code, oid, 'رُفض البيع الآجل'); return say('البيع الآجل: ' + ((a && (a.why || a.error)) || 'تعذّر التفويض'), 'no'); }
+      if (!a || !a.ok) { if (priced.coupon && priced.coupon.limited) cpnRelease(cpCode, oid, 'رُفض البيع الآجل'); return say('البيع الآجل: ' + ((a && (a.why || a.error)) || 'تعذّر التفويض'), 'no'); }
       ar = { key: crCu.key, name: crCu.name, dueDate: a.dueDate || '', authId: a.authId || '' }; }
     // v56.52: النادل والأشخاص والجزء (حقول خارج البصمة؛ بلا تفعيل لا شيء) — الأشخاص على أول فاتورة من الحساب فقط حتى لا تتكرر في المتوسط
     const tabNow = payTab ? (ops.posTabs || []).find(t => t.id === payTab) : null, prtAll = ((tabNow && tabNow.split) || {}).parts || [], prt = payPart ? prtAll.find(x => x.id === payPart) : null;
     const wtr = tabNow ? (tabNow.waiterId ? { id: tabNow.waiterId, name: tabNow.waiterName || '' } : null) : (RC.waiters && channel === 'dinein' ? waiters.find(w => w.id === tmeta.waiterId) || null : null);
     const cvr = tabNow ? (prtAll.some(x => x.orderId) ? 0 : Math.floor(Number(tabNow.covers) || 0)) : (RC.covers && channel === 'dinein' ? coversOf(tmeta.covers) : 0);
-    const restMeta = { ...(prt ? { tabPart: prt.no, tabParts: prtAll.length } : {}), ...(wtr ? { waiterId: wtr.id, waiterName: wtr.name } : {}), ...(cvr ? { covers: cvr } : {}) };
+    const restMeta = { ...(prt ? { tabPart: prt.no, tabParts: prtAll.length, tabPartId: prt.id, ...(tabNow.split.ver ? { tabSplitVer: tabNow.split.ver } : {}) } : {}), ...(wtr ? { waiterId: wtr.id, waiterName: wtr.name } : {}), ...(cvr ? { covers: cvr } : {}) };
     // ترقيم الجهاز اليومي وسلسلة البصمات (تعمل دون اتصال)
     const yy = today.replace(/-/g, '').slice(2); const sk = 'mizan:posSeq:' + br.id + ':' + today, hk = 'mizan:posHash:' + br.id;
     let ls = 0, lp = null; try { ls = Number(localStorage.getItem(sk)) || 0; lp = JSON.parse(localStorage.getItem(hk) || 'null'); } catch { }
@@ -251,7 +259,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const o = { id: oid, no: 'ف' + bi + '-' + yy + '-' + dev.tag + '-' + String(seq).padStart(4, '0'), branchId: br.id, dev: dev.tag, shiftId: shift.id, date: today, at: nowISO(), by: me.name,
       channel, ...(plId ? { priceList: plId } : {}), lines: priced.lines.map(l => ({ productId: l.productId, name: l.name, qty: l.qty, price: l.price, ...(l.note ? { note: l.note } : {}), ...(((cart.find(c => c.key === l.key) || {}).rec) ? { rec: (cart.find(c => c.key === l.key) || {}).rec } : {}), ...(l.disc ? { disc: l.disc, promoId: l.promoId, promoName: l.promoName } : {}) })),
       gross: T.gross, disc: T.disc, ...(priced.orderDisc ? { orderDisc: priced.orderDisc, orderPromo: priced.orderPromo } : {}), manualDisc: manual, ...(manual ? { discReason: disc.reason.trim() } : {}),
-      ...(code.trim() && priced.codeOk ? { coupon: code.trim(), ...(priced.coupon ? { couponId: priced.coupon.id, ...(priced.coupon.limited ? { couponLtd: true } : {}) } : {}) } : {}),
+      ...(cpCode.trim() && priced.codeOk ? { coupon: cpCode.trim(), ...(priced.coupon ? { couponId: priced.coupon.id, ...(priced.coupon.limited ? { couponLtd: true } : {}) } : {}) } : {}),
       ...(phoneOk ? { loyalty: { phone: phoneN, name: (cust.name || custName).trim(), earned: earnPts, redeemed: redeemPts, redeemAmt, pv: Number(loyCfg.ptValue) || 0, balAfter: posR2(loyBalance - redeemPts + earnPts) } } : {}),
       total: T.total, vat: T.vat, net: T.net, rate,
       payments: pay.parts.filter(x => Number(x.amount) > 0).map(x => ({ m: x.m, amount: posR2(x.amount), ...(x.m === 'app' ? { appId: x.appId, appName: (apps.find(a => a.id === x.appId) || {}).n || 'تطبيق' } : {}), ...(x.pm ? { pm: x.pm, pmName: x.pmName } : {}), ...(x.m === 'credit' && ar ? { custKey: ar.key, custName: ar.name } : {}) })),
@@ -268,7 +276,9 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     // v42.9: إغلاق حساب الطاولة بعد دفعه، أو تذكرة مطبخ للطلب المدفوع مباشرة (بالخلفية — الفاتورة نفسها محفوظة على الجهاز)
     setTmeta({ covers: '', waiterId: '' }); setRush(false);
     if (payTab) { const tid = payTab, pid = payPart; setPayTab(null); setPayPart(null); setTbl('');   // v56.52: دفع جزء يختمه، والحساب يُغلق بآخر جزء
-      commit(d => posTrim({ ...d, posTabs: (d.posTabs || []).map(t => t.id === tid ? (pid ? tabPayPart(t, pid, o, me.name) : { ...t, status: 'paid', orderId: o.id, orderNo: o.no, closedAt: o.at, closedBy: me.name }) : t) }, today)).then(ok => { if (!ok) say('دُفعت الفاتورة، لكن تعذّر إغلاق حساب الطاولة الآن — أغلقه من «الطاولات» عند عودة الاتصال', 'no'); }); }
+      let clash = '';   // v56.52: ختم الجزء على أحدث نسخة — إن أُعيد التقسيم أو تغيّر الجزء يُرفض ويُسجَّل تعارضًا للمراجعة
+      commit(d => { clash = ''; return posTrim({ ...d, posTabs: (d.posTabs || []).map(t => { if (t.id !== tid) return t; if (!pid) return { ...t, status: 'paid', orderId: o.id, orderNo: o.no, closedAt: o.at, closedBy: me.name };
+        const P = tabPayPart(t, pid, o, me.name); if (P.err) clash = P.err; return P.tab; }) }, today); }).then(ok => { if (ok && clash) say('صدرت الفاتورة ' + o.no + ' لكن لم يُختم الجزء: ' + clash + ' — سُجّلت «تعارضًا» على الطاولة ليراجعها مدير الفرع (إلغاء الفاتورة أو تسوية الحساب)', 'no'); else if (!ok) say('دُفعت الفاتورة، لكن تعذّر إغلاق حساب الطاولة الآن — أغلقه من «الطاولات» عند عودة الاتصال', 'no'); }); }
     // v49.2 — MQ-006: طلب توصيل ذاتي ⇒ سجل توصيل (بالخلفية، مستقل عن الفاتورة)
     if (dlvNeeded(o)) { const rec = dlvRecord(o, { phone: dlv.phone || (phoneOk ? phoneN : ''), addr: dlv.addr }); setDlv({ phone: '', addr: '' });
       commit(d => posTrim({ ...d, posDeliveries: [rec, ...(d.posDeliveries || []).filter(x => x.id !== rec.id)] }, today)).then(ok => { if (!ok) say('دُفعت الفاتورة، لكن تعذّر تسجيل التوصيل الآن — أعد المحاولة من «التوصيل»', 'no'); }); }
@@ -337,7 +347,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
       date: today, at: nowISO(), by: me.name, channel: o.channel, lines: [], retLines: C.lines, gross: -C.total, disc: 0, manualDisc: 0, total: -C.total, vat: -C.vat, net: -C.net, rate: o.rate,
       payments: [{ m: opt.m, amount: -C.total, ...(opt.appId ? { appId: opt.appId, appName: opt.appName } : {}), ...(opt.pm ? { pm: opt.pm, pmName: opt.pmName } : {}), ...(opt.m === 'credit' ? { custKey: opt.custKey, custName: opt.custName } : {}) }], change: 0, status: 'paid',
       ...(opt.m === 'credit' ? { ar: { key: opt.custKey, name: opt.custName || '' } } : {}),
-      reason: ret.reason, ...(ret.note.trim() ? { note: ret.note.trim() } : {}), ...(o.waiterId ? { waiterId: o.waiterId, waiterName: o.waiterName || '' } : {}) /* v56.52: المرتجع يُخصم من نادل الفاتورة */, ...(loyDed ? { loyalty: { phone: o.loyalty.phone, ded: loyDed } } : {}), icv: (prev.icv || 0) + 1, pih: prev.hash || '0' };
+      reason: ret.reason, ...(ret.note.trim() ? { note: ret.note.trim() } : {}), ...(o.waiterId ? { waiterId: o.waiterId, waiterName: o.waiterName || '' } : {}) /* v56.52: المرتجع يُخصم من نادل الفاتورة */, ...(RC.covers && o.table ? { retArea: o.areaId ? { id: o.areaId, name: o.areaName || o.areaId } : (tableArea(org, br.id, o.table) || { id: '', name: 'بلا صالة' }) } : {}) /* وصالته */, ...(loyDed ? { loyalty: { phone: o.loyalty.phone, ded: loyDed } } : {}), icv: (prev.icv || 0) + 1, pih: prev.hash || '0' };
     r.hash = sha256Hex(JSON.stringify([r.no, r.at, r.retLines, r.total, r.vat, r.payments, r.icv, r.pih, r.refId]));
     const ok = await commit(d => ({ ...d, posOrders: [...(d.posOrders || []), r] }), { actionType: 'create', targetType: 'pos_order', targetId: r.id, branchName: br.name, title: 'مرتجع ' + r.no + ' عن الفاتورة ' + o.no, details: C.lines.map(l => l.name + ' ×' + l.qty).join('، ') + ' · ' + money(C.total) + ' · ' + WASTE_REASONS[ret.reason] });
     if (!ok) return say('تعذّر حفظ المرتجع', 'no');
@@ -479,7 +489,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
         <input className="inp" style={{ flex: 1, minWidth: 160 }} aria-label="عنوان التوصيل" placeholder="العنوان / الحي / وصف الموقع" value={dlv.addr} onChange={e => setDlv(x => ({ ...x, addr: e.target.value }))} />
       </div>}
       {channel === 'dinein' && useTabs && <div className="row" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap', margin: '0 0 8px' }}>
-        {payTab ? <div className="note" style={{ flex: 1, margin: 0 }}>دفع حساب الطاولة <b className="num">{tbl}</b>{payPart ? <span data-paypart> — الجزء <b className="num">{String(payPart).replace(/^p/, '')}</b></span> : null} <button className="btn sm gh" onClick={cancelPayTab}>إلغاء الدفع</button></div>
+        {payTab ? <div className="note" style={{ flex: 1, margin: 0 }}>دفع حساب الطاولة <b className="num">{tbl}</b>{payPart ? <span data-paypart> — الجزء <b className="num">{partNow ? partNow.no : '—'}</b></span> : null} <button className="btn sm gh" onClick={cancelPayTab}>إلغاء الدفع</button></div>
           : <><span style={{ fontSize: 13, fontWeight: 600 }}>الطاولة</span><select className="sel" style={{ width: 'auto', minWidth: 110 }} aria-label="الطاولة" value={tbl} onChange={e => setTbl(e.target.value)}><option value="">— اختر —</option>
             {tables.map(no => { const t = openTab(ops, br.id, no); const ar = tableArea(org, br.id, no); return <option key={no} value={no}>{no}{ar ? ' · ' + ar.name : ''}{t ? ' (مفتوحة · ' + money(tabSum(t).total) + ')' : ''}</option>; })}</select>
             {RC.covers && <input className="inp n" style={{ width: 74 }} inputMode="numeric" aria-label="عدد الأشخاص" placeholder="الأشخاص" value={tmeta.covers} onChange={e => setTmeta(x => ({ ...x, covers: e.target.value.replace(/[^\d٠-٩]/g, '').slice(0, 2) }))} />}
@@ -508,7 +518,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
       {cart.length > 0 && <>
         <div className="pos-ext">
           <button className={extOpen.disc ? 'on' : ''} onClick={() => setExt(x => ({ ...x, disc: !extOpen.disc }))}>{manual ? 'خصم ' + money(manual) : '+ خصم'}</button>
-          <button className={extOpen.code ? 'on' : ''} onClick={() => setExt(x => ({ ...x, code: !extOpen.code }))}>{priced.codeOk ? 'كوبون ✓' : '+ كوبون'}</button>
+          {!frozenP && <button className={extOpen.code ? 'on' : ''} onClick={() => setExt(x => ({ ...x, code: !extOpen.code }))}>{priced.codeOk ? 'كوبون ✓' : '+ كوبون'}</button>}
           {needLoy && <button className={extOpen.loy ? 'on' : ''} onClick={() => setExt(x => ({ ...x, loy: !extOpen.loy }))}>{phoneOk ? (custName || 'عميل') + ' ✓' : '+ عميل ولاء'}</button>}
         </div>
         {extOpen.disc && <div className="grid g2" style={{ gap: 6, marginTop: 8 }}>
@@ -517,7 +527,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
             <button className={'btn sm' + (disc.mode === 'amt' ? ' pri' : ' gh')} onClick={() => setDisc(d => ({ ...d, mode: 'amt' }))}>ر.س</button><button className={'btn sm' + (disc.mode === 'pct' ? ' pri' : ' gh')} onClick={() => setDisc(d => ({ ...d, mode: 'pct' }))}>%</button></div></Field>
           <Field label="سبب الخصم" style={{ marginBottom: 0 }}><input className="inp" value={disc.reason} placeholder={manual ? 'إلزامي' : ''} onChange={e => setDisc(d => ({ ...d, reason: e.target.value }))} /></Field>
         </div>}
-        {extOpen.code && <div style={{ marginTop: 8 }}><input className="inp" value={code} placeholder="رمز الكوبون" aria-label="رمز الكوبون" onChange={e => setCode(e.target.value)} />
+        {extOpen.code && !frozenP && <div style={{ marginTop: 8 }}><input className="inp" value={code} placeholder="رمز الكوبون" aria-label="رمز الكوبون" onChange={e => setCode(e.target.value)} />
           {code.trim() && <div style={{ fontSize: 12, marginTop: 3, color: priced.codeOk ? 'var(--mint)' : 'var(--rose)', fontWeight: 600 }}>{priced.codeOk ? '✓ الكوبون فعّال' : (couponWhy(org.posPromos, code, { ...cpOpt, sub: priced.sub }, new Date(), (br || {}).id) || 'رمز غير صالح أو العرض غير متاح الآن')}</div>}</div>}
         {needLoy && extOpen.loy && <div style={{ marginTop: 8 }}>
           <div className="row" style={{ gap: 6 }}><input className="inp" inputMode="tel" style={{ flex: 1 }} placeholder="جوال العميل" aria-label="جوال العميل" value={cust.phone} onChange={e => setCust(c => ({ ...c, phone: e.target.value, redeem: false }))} />
@@ -680,18 +690,21 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
                 <span style={{ fontSize: 12.5 }}>الجزء <b className="num">{pt.no}</b> · {pt.lines.map(l => l.name + ' ×' + l.qty).join('، ')} · <b className="num">{money(pt.total)}</b></span>
                 {pt.orderId ? <span className="badge b-mint">مدفوع <span className="num">{pt.orderNo}</span></span> : <button className="btn sm pri" onClick={() => startPayTab(tl, pt)}>دفع الجزء {pt.no}</button>}</div>)}
             </div>}
+            {(tl.conflicts || []).length > 0 && <div className="note" data-conflicts style={{ marginTop: 8, borderColor: 'var(--rose)' }}><b style={{ color: 'var(--rose)' }}>فواتير لم تُختم على الحساب (تعارض) — يراجعها مدير الفرع</b>{tl.conflicts.map((c, i) => <div key={i} style={{ fontSize: 12 }}><span className="num">{c.orderNo}</span> · {money(c.total)} · {c.why}</div>)}</div>}
             {(tl.mergeLog || []).length > 0 && <div style={{ fontSize: 11.5, color: 'var(--faint)', marginTop: 6 }} data-mergelog>{tl.mergeLog.map((m, i) => <div key={i}>دُمجت الطاولة <span className="num">{m.from}</span> ({money(m.total)}) — {m.by} · <span className="num">{String(m.at || '').slice(11, 16)}</span></div>)}</div>}
           </Modal>; })()}
-          {splitF && (() => { const RM = tabRemain(splitF.tab), n = splitF.n; const S = tabSplitItems(splitF.tab, splitF.alloc, n);
+          {splitF && (() => { const RM = tabRemain(splitF.tab), n = splitF.n; const PZ = splitPrice(splitF.tab, splitF.code); const S = tabSplitItems(splitF.tab, splitF.alloc, n, PZ); const disc = posR2(PZ.lines.reduce((a, l) => a + (l.disc || 0), 0) + PZ.orderDisc);
             const ptot = Array.from({ length: n }, (_, k) => RM.lines.reduce((a, l, i) => a + Math.round((Number((splitF.alloc[i] || [])[k]) || 0) * l.price * 100), 0) / 100);
             const setN = (v) => setSplitF(f => ({ ...f, n: v, alloc: Object.fromEntries(RM.lines.map((l, i) => [i, Array.from({ length: v }, (_, k) => (f.alloc[i] || [])[k] || 0)])) }));
             return <Modal title={'تقسيم فاتورة الطاولة ' + splitF.tab.table} onClose={() => setSplitF(null)} foot={<><button className="btn pri" data-splitsave disabled={!!S.err} onClick={saveSplit}><Check size={14} />حفظ التقسيم</button><button className="btn gh" onClick={() => setSplitF(null)}>إلغاء</button></>}>
               <div className="note" style={{ marginBottom: 8 }}>وزّع كمية كل صنف على الأجزاء. كل جزء يُدفع فاتورةً مستقلة (برقمها وبصمتها وضريبتها)، ومجموع الأجزاء = المتبقي <b className="num">{money(RM.total)}</b>.</div>
+              <Field label="كوبون الطاولة (اختياري — يُحتسب على الطاولة كاملة ويُستهلك على الجزء الأول)"><input className="inp" aria-label="كوبون الطاولة" value={splitF.code || ''} onChange={e => setSplitF(f => ({ ...f, code: e.target.value }))} />{(splitF.code || '').trim() ? <div style={{ fontSize: 12, marginTop: 3, color: PZ.codeOk ? 'var(--mint)' : 'var(--rose)', fontWeight: 600 }}>{PZ.codeOk ? '✓ الكوبون فعّال' : 'رمز غير صالح أو العرض غير متاح الآن'}</div> : null}</Field>
               <Field label="عدد الأجزاء"><select className="sel" aria-label="عدد الأجزاء" value={n} onChange={e => setN(Number(e.target.value))}>{[2, 3, 4, 5, 6].map(v => <option key={v} value={v}>{v}</option>)}</select></Field>
               <div className="tw"><table className="tb" data-splited><thead><tr><th>الصنف</th><th>الكمية</th>{Array.from({ length: n }, (_, k) => <th key={k}>جزء {k + 1}</th>)}</tr></thead><tbody>
                 {RM.lines.map((l, i) => <tr key={i}><td>{l.name}{l.note ? <small style={{ color: 'var(--faint)' }}> · {l.note}</small> : null}</td><td className="num">{l.qty}</td>
                   {Array.from({ length: n }, (_, k) => <td key={k}><input className="inp n" style={{ width: 56 }} inputMode="numeric" aria-label={'جزء ' + (k + 1) + ' ' + l.name} value={(splitF.alloc[i] || [])[k] ?? 0} onChange={e => { const v = Number(e.target.value.replace(/[^\d]/g, '')) || 0; setSplitF(f => ({ ...f, alloc: { ...f.alloc, [i]: Array.from({ length: n }, (_, kk) => kk === k ? v : (f.alloc[i] || [])[kk] || 0) } })); }} /></td>)}</tr>)}
-                <tr><td><b>الإجمالي</b></td><td className="num">{money(RM.total)}</td>{ptot.map((v, k) => <td key={k} className="num" data-parttotal={k + 1}><b>{money(v)}</b></td>)}</tr>
+                <tr><td><b>{disc > 0 ? 'قبل العروض' : 'الإجمالي'}</b></td><td className="num">{money(RM.total)}</td>{ptot.map((v, k) => <td key={k} className="num" data-parttotal={k + 1}><b>{money(v)}</b></td>)}</tr>
+                {disc > 0 && <tr><td><b>بعد العروض</b> <small style={{ color: 'var(--faint)' }}>(الطاولة كاملة −{money(disc)})</small></td><td className="num">{money(posR2(RM.total - disc))}</td>{Array.from({ length: n }, (_, k) => <td key={k} className="num" data-partnet={k + 1}><b>{S.err ? '—' : money(S.parts[k].total)}</b></td>)}</tr>}
               </tbody></table></div>
               {S.err && <div className="note" data-spliterr style={{ marginTop: 8, color: 'var(--rose)' }}>{S.err}</div>}
             </Modal>; })()}

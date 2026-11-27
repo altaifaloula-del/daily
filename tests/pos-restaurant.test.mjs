@@ -57,15 +57,24 @@ test('عدد الأشخاص والنادل: التحقق، قائمة النُّ
     order('o3', [{ productId: 't', name: 'شاي', qty: 1, price: 4.6 }], { waiterId: 'e5', waiterName: 'نادل هـ', covers: 1, shiftId: 's1' }),
     order('o4', kb, { waiterId: 'e5', waiterName: 'نادل هـ', status: 'void' }),                                 // ملغاة لا تُحتسب
     order('o5', kb, {}),                                                                                         // بلا نادل لا تظهر
-    { id: 'r1', kind: 'return', branchId: 'b1', date: '2026-11-20', status: 'paid', total: -18.4, waiterId: 'e1', waiterName: 'نادل أ', shiftId: 's2' }] };
+    { id: 'r1', kind: 'return', refId: 'o2', branchId: 'b1', date: '2026-11-20', status: 'paid', total: -18.4, waiterId: 'e1', waiterName: 'نادل أ', shiftId: 's2' }] };
   assert.deepEqual(E.salesByWaiter(ops, 'b1', '2026-11-20', '2026-11-20'), [
     { id: 'e1', name: 'نادل أ', orders: 2, covers: 3, total: 115, returns: 18.4, avg: 57.5, perHead: 38.33 },
     { id: 'e5', name: 'نادل هـ', orders: 1, covers: 1, total: 4.6, returns: 0, avg: 4.6, perHead: 4.6 }]);
   assert.deepEqual(E.salesByWaiter(ops, 'b1', '2026-11-20', '2026-11-20', 's1').map(x => [x.id, x.total]), [['e1', 115], ['e5', 4.6]], 'تصفية الوردية');
   assert.deepEqual(E.salesByWaiter(ops, 'b1', '2026-11-21', '2026-11-21'), [], 'يوم آخر');
-  // الصالات: o1 (115 بثلاثة أشخاص) + o2 (18.40) + o3 (4.60 بشخص) + o5 (115) — الملغاة والمرتجع خارجها ⇒ 253 ÷ 4 أشخاص
+  // الصالات: o1 (115 بثلاثة أشخاص) + o2 (18.40) + o3 (4.60 بشخص) + o5 (115) = 253؛ المرتجع r1 بلا صالة مختومة لا يُطرح
+  // «للشخص» (بعد التحقق) من الفواتير التي لها أشخاص فقط: (115 + 4.60) ÷ 4 = 29.90 — لا 253 ÷ 4
   const SA = E.salesByArea({ posCfg: { tables: { b1: 4 } } }, ops, 'b1', '2026-11-20', '2026-11-20');
-  assert.deepEqual(SA.map(x => [x.orders, x.total, x.covers, x.perHead]), [[4, 253, 4, 63.25]], '115+18.4+4.6+115 = 253 ÷ 4 = 63.25');
+  assert.deepEqual(SA.map(x => [x.orders, x.total, x.covers, x.perHead, x.returns]), [[4, 253, 4, 29.9, 0]]);
+  // المرتجع المختوم بصالته يُطرح من مبيعاتها، والمرتجع عن فاتورة لها أشخاص يُطرح من بسط «للشخص»
+  const ops2 = { posOrders: [...ops.posOrders, { id: 'r2', kind: 'return', refId: 'o1', branchId: 'b1', date: '2026-11-20', status: 'paid', total: -57.5, retArea: { id: '', name: 'بلا صالة' } }] };
+  assert.deepEqual(E.salesByArea({ posCfg: { tables: { b1: 4 } } }, ops2, 'b1', '2026-11-20', '2026-11-20').map(x => [x.total, x.returns, x.perHead]), [[195.5, 57.5, 15.53]], '253 − 57.50؛ (57.50 + 4.60) ÷ 4 = 15.525');
+  assert.deepEqual(E.salesByArea({ posCfg: { tables: { b1: 4 } } }, ops, 'b1', '2026-11-21', '2026-11-21'), [], 'تصفية التاريخ (كانت معطّلة داخل تعليق)');
+  // إلغاء الجزء الأول ينقل أشخاصه إلى أول جزء غير ملغى من الحساب نفسه
+  const vo = { posOrders: [order('q1', kb, { tabId: 'T', tabPart: 1, covers: 4, status: 'void', waiterId: 'e1' }), order('q2', kb, { tabId: 'T', tabPart: 2, waiterId: 'e1' }), order('q3', kb, { tabId: 'T', tabPart: 3, waiterId: 'e1' })] };
+  assert.deepEqual([...E.coversEff(vo.posOrders)], [['q2', 4]]);
+  assert.deepEqual(E.salesByWaiter(vo, 'b1').map(x => [x.orders, x.covers, x.total, x.perHead]), [[2, 4, 230, 28.75]]);
 });
 
 test('التقسيم بالأصناف: كل جزء فاتورة، المجموع = الحساب بالهللة، والضريبة صحيحة لكل جزء', () => {
@@ -74,7 +83,8 @@ test('التقسيم بالأصناف: كل جزء فاتورة، المجموع
   assert.equal(R.total, 174.8);
   const S = E.tabSplitItems(t, ALLOC, 2);
   assert.equal(S.err, undefined);
-  assert.deepEqual(S.parts.map(p => [p.id, p.no, p.total, p.lines.map(l => l.name + '×' + l.qty).join('،')]), [['p1', 1, 119.6, 'كبسة×2،شاي×1'], ['p2', 2, 55.2, 'حمص×3']]);
+  assert.deepEqual(S.parts.map(p => [p.no, p.total, p.gross, p.lines.map(l => l.name + '×' + l.qty).join('،')]), [[1, 119.6, 119.6, 'كبسة×2،شاي×1'], [2, 55.2, 55.2, 'حمص×3']]);
+  assert.equal(new Set(S.parts.map(p => p.id)).size, 2); assert.ok(S.parts.every(p => /^sp-/.test(p.id)), 'معرّف فريد لكل جزء (لا p1/p2)');
   assert.equal(S.parts.reduce((a, p) => a + E.toHal(p.total), 0), 17480, 'المجموع بالهللة');
   const T = S.parts.map(p => E.posTotals(p.lines, 0, 15));
   assert.deepEqual(T.map(x => [x.total, x.vat, x.net]), [[119.6, 15.6, 104], [55.2, 7.2, 48]]);
@@ -90,26 +100,87 @@ test('التقسيم بالأصناف: كل جزء فاتورة، المجموع
   assert.deepEqual(S3.parts.map(p => p.total), [33.33, 33.33, 33.34]); assert.equal(S3.total, 100);
 });
 
+const payO = (t, pt, id, x = {}) => ({ id, no: 'ف1-' + id, at: AT, total: pt.total, lines: pt.lines, tabSplitVer: t.split.ver, ...x });
 test('دفع الأجزاء: يُختم كل جزء بفاتورته، يُغلق الحساب بآخرها، ولا يُدفع جزء مرتين؛ والجولة الجديدة تسقط الأجزاء غير المدفوعة', () => {
   const S = E.tabSplitItems(tab(), ALLOC, 2);
   let t = E.tabSplitSet(tab(), S.parts, { at: AT, by: 'مدير' });
-  assert.equal(t.split.parts.length, 2); assert.equal(t.status, 'open');
-  t = E.tabPayPart(t, 'p1', { id: 'o1', no: 'ف1-1', at: AT }, 'كاشير');
-  assert.equal(t.status, 'open'); assert.equal(t.split.parts[0].orderNo, 'ف1-1');
+  assert.equal(t.split.parts.length, 2); assert.equal(t.status, 'open'); assert.ok(t.split.ver);
+  const [p1, p2] = t.split.parts;
+  let R = E.tabPayPart(t, p1.id, payO(t, p1, 'o1'), 'كاشير'); assert.equal(R.err, undefined); t = R.tab;
+  assert.equal(t.status, 'open'); assert.equal(t.split.parts[0].orderNo, 'ف1-o1');
   assert.deepEqual(E.tabRemain(t).lines.map(l => [l.name, l.qty]), [['حمص', 3]]); assert.equal(E.tabRemain(t).total, 55.2);
-  assert.equal(E.tabPayPart(t, 'p1', { id: 'oX', no: 'X', at: AT }, 'ك'), t, 'لا يُدفع جزء مرتين');
+  R = E.tabPayPart(t, p1.id, payO(t, p1, 'oX'), 'ك'); assert.match(R.err, /مدفوع/, 'لا يُدفع جزء مرتين'); assert.deepEqual(E.tabRemain(R.tab), E.tabRemain(t));
   // جولة جديدة قبل دفع الجزء الثاني: يُسقط الجزء غير المدفوع ويبقى المدفوع
-  const tR = E.tabSplitReset(t); assert.deepEqual(tR.split.parts.map(p => p.id), ['p1']);
+  const tR = E.tabSplitReset(t); assert.deepEqual(tR.split.parts.map(p => p.id), [p1.id]); assert.notEqual(tR.split.ver, t.split.ver);
   // إعادة التقسيم على المتبقي ترقّم بعد المدفوع
   const t2r = { ...tR, rounds: [...tR.rounds, { at: AT, lines: [{ productId: 't', name: 'شاي', qty: 2, price: 4.6 }] }] };
   const S2 = E.tabSplitItems(t2r, { 0: [3, 0], 1: [0, 2] }, 2);
-  assert.deepEqual(S2.parts.map(p => [p.id, p.total]), [['p2', 55.2], ['p3', 9.2]]);
+  assert.deepEqual(S2.parts.map(p => [p.no, p.total]), [[2, 55.2], [3, 9.2]]);
   // إكمال الدفع يغلق الحساب
-  t = E.tabPayPart(t, 'p2', { id: 'o2', no: 'ف1-2', at: AT }, 'كاشير');
-  assert.deepEqual([t.status, t.orderId, t.orderNo, t.closedBy], ['paid', 'o2', 'ف1-2', 'كاشير']);
+  R = E.tabPayPart(t, p2.id, payO(t, p2, 'o2'), 'كاشير'); t = R.tab;
+  assert.deepEqual([R.err, t.status, t.orderId, t.orderNo, t.closedBy], [undefined, 'paid', 'o2', 'ف1-o2', 'كاشير']);
   assert.deepEqual(E.tabRemain(t).lines, []);
+  assert.match(E.tabPayPart(t, p2.id, payO(t, p2, 'o3'), 'ك').err, /لم يعد مفتوحًا/);
   // بلا تقسيم غير مدفوع: tabSplitReset يحذف الحقل
   const u = E.tabSplitReset(E.tabSplitSet(tab(), S.parts, { at: AT })); assert.equal('split' in u, false);
+});
+
+test('التزامن: دفع جزء قديم بعد إعادة التقسيم من جهاز آخر ⇒ يُرفض ويُسجَّل تعارضًا، والمتبقي صحيح', () => {
+  const t0 = E.tabSplitSet(tab(), E.tabSplitItems(tab(), ALLOC, 2).parts, { at: AT });
+  const old2 = t0.split.parts[1];   // الجهاز أ بدأ دفع الجزء 2 (حمص×3)
+  // الجهاز ب أعاد التقسيم: (كبسة×2) | (حمص×3 + شاي)
+  const t1 = E.tabSplitSet(t0, E.tabSplitItems(t0, { 0: [2, 0], 1: [0, 3], 2: [0, 1] }, 2).parts, { at: AT });
+  assert.notEqual(t1.split.ver, t0.split.ver);
+  const R = E.tabPayPart(t1, old2.id, payO(t0, old2, 'oA'), 'أ');
+  assert.match(R.err, /أُعيد تقسيم/);
+  assert.deepEqual(R.tab.conflicts.map(c => [c.orderNo, c.total]), [['ف1-oA', 55.2]]);
+  assert.deepEqual(E.tabRemain(R.tab), E.tabRemain(t1), 'المتبقي لا يتغير'); assert.equal(E.tabRemain(R.tab).total, 174.8);
+  assert.ok(R.tab.split.parts.every(p => !p.orderId));
+  // نفس النسخة لكن أسطر الفاتورة مختلفة عن الجزء ⇒ رفض
+  const p1 = t1.split.parts[0];
+  assert.match(E.tabPayPart(t1, p1.id, payO(t1, p1, 'oB', { lines: [{ productId: 'k', name: 'كبسة', qty: 1, price: 57.5 }] }), 'ب').err, /تختلف/);
+  // الجزء الجديد بنسخته الصحيحة يُختم
+  assert.equal(E.tabPayPart(t1, p1.id, payO(t1, p1, 'oC'), 'ب').err, undefined);
+});
+
+test('العروض على الطاولة كاملة مرة واحدة: خصم الفاتورة يُوزَّع بنسبة صافي الأجزاء، و«اشترِ 2 واحصل على 1» يبقى على أسطره', () => {
+  const T = (lines) => tab({ rounds: [{ at: AT, lines }] });
+  const cart = (t) => E.tabRemain(t).lines.map((l, i) => ({ ...l, key: 'r' + i }));
+  const now = new Date('2026-11-20T12:00:00');
+  // (أ) خصم ثابت 10 على الفاتورة بحد أدنى 40: الطاولة 100 مقسّمة 50|50 ⇒ الخصم 10 مرة واحدة (5 + 5) لا 20
+  const ta = T([{ productId: 'x', name: 'طبق', qty: 2, price: 50 }]);
+  const od = [{ id: 'od', name: 'خصم 10', type: 'order', mode: 'amt', value: 10, minTotal: 40 }];
+  const PA = E.posPriceCart(cart(ta), [{ id: 'x', cat: 'رئيسي' }], od, { now });
+  assert.equal(PA.orderDisc, 10);
+  const SA = E.tabSplitItems(ta, { 0: [1, 1] }, 2, PA);
+  assert.deepEqual(SA.parts.map(p => [p.gross, p.orderDisc, p.total]), [[50, 5, 45], [50, 5, 45]]);
+  assert.equal(SA.total, 90);
+  // دون تسعير الطاولة كاملة كانت كل فاتورة 50 ≥ 40 تأخذ 10 (المجموع 20 — هذا ما عالجه القرار)
+  assert.equal(E.posPriceCart([{ key: 'a', productId: 'x', name: 'طبق', qty: 1, price: 50 }], [{ id: 'x' }], od, { now }).orderDisc, 10);
+  // خصم الفاتورة على صافٍ غير متساوٍ: 10 على 70|30 ⇒ 7 | 3، والفرق بالهللة على الأخير (10 على 3 أجزاء متساوية ⇒ 3.33|3.33|3.34)
+  const t3 = T([{ productId: 'x', name: 'طبق', qty: 3, price: 20 }]);
+  const S3 = E.tabSplitItems(t3, { 0: [1, 1, 1] }, 3, E.posPriceCart(cart(t3), [{ id: 'x' }], od, { now }));
+  assert.deepEqual(S3.parts.map(p => p.orderDisc), [3.33, 3.33, 3.34]); assert.equal(S3.parts.reduce((a, p) => a + E.toHal(p.total), 0), 5000);
+  // (ب) اشترِ 2 واحصل على 1: 3 × 23 ⇒ خصم 23 يبقى 23 عند التقسيم 2|1 (15.33 + 7.67)
+  const tb = T([{ productId: 'b', name: 'برجر', qty: 3, price: 23 }, { productId: 't', name: 'شاي', qty: 1, price: 4.6 }]);
+  const bx = [{ id: 'bx', name: '2+1', type: 'bxgy', x: 2, y: 1, scope: 'items', items: ['b'] }];
+  const PB = E.posPriceCart(cart(tb), [{ id: 'b' }, { id: 't' }], bx, { now });
+  assert.equal(PB.lines[0].disc, 23);
+  const SB = E.tabSplitItems(tb, { 0: [2, 1], 1: [0, 1] }, 2, PB);
+  assert.deepEqual(SB.parts.map(p => p.lines.map(l => [l.name, l.qty, l.disc || 0, l.promoName || ''])), [[['برجر', 2, 15.33, '2+1']], [['برجر', 1, 7.67, '2+1'], ['شاي', 1, 0, '']]]);
+  assert.equal(SB.parts.reduce((a, p) => a + p.lines.reduce((b, l) => b + E.toHal(l.disc), 0), 0), 2300, 'الخصم يبقى 23');
+  assert.deepEqual(SB.parts.map(p => p.total), [30.67, 19.93]); assert.equal(SB.total, 50.6, '69 + 4.60 − 23');
+  // التسعير المجمّد للدفع يعطي الإجمالي والضريبة نفسيهما لكل جزء
+  const FZ = SB.parts.map(p => { const f = E.tabPartPriced(p); return E.posTotals(f.lines, f.orderDisc, 15); });
+  assert.deepEqual(FZ.map(x => [x.total, x.vat]), [[30.67, 4], [19.93, 2.6]]);
+  // الكوبون يُستهلك على الجزء الأول فقط
+  const cp = [{ id: 'cp', name: 'كوبون', type: 'order', mode: 'amt', value: 6, code: 'T6', maxUses: 5 }];
+  const PC = E.posPriceCart(cart(ta), [{ id: 'x' }], cp, { now, code: 'T6', uses: {} });
+  const SC = E.tabSplitItems(ta, { 0: [1, 1] }, 2, PC);
+  assert.deepEqual(SC.parts.map(p => [p.total, !!p.coupon]), [[47, true], [47, false]]);
+  assert.deepEqual([E.tabPartPriced(SC.parts[0]).codeOk, E.tabPartPriced(SC.parts[1]).codeOk], [true, false]);
+  // تسعير لا يطابق الأسطر ⇒ رفض
+  assert.match(E.tabSplitItems(ta, { 0: [1, 1] }, 2, { lines: [], sub: 0, orderDisc: 0 }).err, /لا يطابق/);
 });
 
 test('المخزون لا يتضاعف ولا ينقص: فاتورتا الجزأين تخصمان مثل فاتورة الحساب كاملًا', () => {
@@ -138,7 +209,7 @@ test('دمج الطاولات: الجولات تنتقل (والمرسلة لل�
   assert.match(E.tabMerge(a, a).err, /مختلفتين/);
   assert.match(E.tabMerge({ ...a, status: 'paid' }, b).err, /المفتوحة/);
   assert.match(E.tabMerge(a, { ...b, branchId: 'b2' }).err, /الفرع/);
-  const paid = E.tabPayPart(E.tabSplitSet(b, E.tabSplitItems(b, ALLOC, 2).parts), 'p1', { id: 'o', no: 'n', at: AT }, 'ك');
+  const bs = E.tabSplitSet(b, E.tabSplitItems(b, ALLOC, 2).parts); const paid = E.tabPayPart(bs, bs.split.parts[0].id, payO(bs, bs.split.parts[0], 'o'), 'ك').tab;
   assert.match(E.tabMerge(a, paid).err, /دُفع جزء/);
   // خطة تقسيم غير مدفوعة على الوجهة تسقط بالدمج (تُعاد القسمة على المجموع)
   assert.equal('split' in E.tabMerge(a, E.tabSplitSet(b, E.tabSplitItems(b, ALLOC, 2).parts)).into, false);
