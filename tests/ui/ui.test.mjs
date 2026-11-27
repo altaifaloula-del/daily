@@ -4410,6 +4410,7 @@ test('v56.50 الرسائل: مفتاح مسار الإرسال لمسؤول ا�
   assert.match(await p.locator('[data-cmsoff]').innerText(), /لا تُرسل أي رسالة فعلًا/); assert.match(await p.locator('[data-cmsoff]').innerText(), /اسم مرسل مسجّل/);
   await p.click('[data-cmsnew]'); await p.waitForSelector('[data-cmsaud]');
   assert.equal(await p.locator('[data-cmsn]').innerText(), '1');
+  assert.match(await p.locator('[data-cmscapnote]').innerText(), /في الخادم/);
   const aud = await p.locator('[data-cmsaud]').innerText(); assert.match(aud, /50•••••11/); assert.ok(!/501111111|502222222/.test(aud), 'لا رقم كامل في الواجهة'); assert.match(aud, /طلبوا الإيقاف 1/);
   await p.click('[data-cmssave]'); await p.waitForFunction(() => (window.cur.commsJobs || []).length === 1);
   let j = await p.evaluate(() => window.cur.commsJobs[0]); assert.deepEqual([j.status, j.kind, j.ch, j.est.n, j.byId], ['draft', 'campaign', 'sms', 1, 'u1']);
@@ -4417,7 +4418,10 @@ test('v56.50 الرسائل: مفتاح مسار الإرسال لمسؤول ا�
   assert.equal(await p.locator('[data-cmsapprove]').count(), 0, 'المنشئ لا يرى الاعتماد'); assert.match(await p.locator('[data-cmswait]').innerText(), /لا يعتمد المنشئ/);
   // المدير العام يعتمد ثم يرسل تجريبيًا — الخادم يتلقى معرّف الدفعة وحده
   await p.evaluate(() => window.as('gm')); await p.waitForTimeout(300); await p.click('[data-mktv="msg"]'); await p.waitForSelector('[data-cmsapprove]');
+  let apr = null;   // الاعتماد في الخادم (المراجعة الأمنية): المتصفح يرسل معرّف الدفعة وحده ثم يحدّث الحالة بما يعيده الخادم
+  await p.route('http://zatca.test/api/comms/approve', r => { apr = JSON.parse(r.request().postData()); r.fulfill({ json: { ok: true, approvedBy: 'فهد', approvedById: 'u6', approvedAt: new Date().toISOString() } }); });
   await p.click('[data-cmsapprove]'); await p.waitForFunction(() => window.cur.commsJobs[0].status === 'approved');
+  assert.deepEqual(apr, { jobId: await p.evaluate(() => window.cur.commsJobs[0].id) });
   j = await p.evaluate(() => window.cur.commsJobs[0]); assert.deepEqual([j.approvedBy, j.approvedById], ['فهد', 'u6']);
   let sent = null;
   await p.route('http://zatca.test/api/comms/send', r => { sent = JSON.parse(r.request().postData()); r.fulfill({ json: { result: { n: 1, ok: 1, fail: 0, parts: 1, dry: true, adapter: 'dryrun', at: new Date().toISOString() }, sample: [{ m: '50•••••11', parts: 1 }] } }); });

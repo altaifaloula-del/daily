@@ -342,6 +342,17 @@ test('ث35 رموز الإشعارات: العضو يسجّل رمز جهازه 
   await assertSucceeds(deleteDoc(doc(as('fin'), 'pushTokens', tid('a'))), 'العضو يحذف رمزه');
 });
 
+test('v56.50 سجل اعتماد الرسائل comms_appr للخادم وحده (المراجعة الأمنية): لا قراءة ولا إنشاء ولا تعديل ولا حذف لأي دور', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => { const d = ctx.firestore();
+    await setDoc(doc(d, 'comms_appr', 'x'), { jobId: 'x', email: 'gm@x.sa', byId: 'u-gm', creatorId: 'u-mk', hash: 'h' }); });
+  for (const k of ['cash', 'bm', 'fin', 'acct', 'owner']) {
+    await assertFails(getDoc(doc(as(k), 'comms_appr', 'x')), k + ' يقرأ comms_appr');
+    await assertFails(setDoc(doc(as(k), 'comms_appr', 'y_' + k), { jobId: 'y', email: 'a@x.sa', hash: 'h' }), k + ' يزوّر اعتمادًا');
+    await assertFails(updateDoc(doc(as(k), 'comms_appr', 'x'), { hash: 'h2' }), k + ' يعدّل بصمة الاعتماد');
+    await assertFails(deleteDoc(doc(as(k), 'comms_appr', 'x')), k + ' يحذف comms_appr');
+  }
+});
+
 test('v56.50 سجل إرسال الرسائل comms_log للخادم وحده: لا قراءة ولا كتابة ولا حذف لعضو ولا لمدير ولا للمالك', async () => {
   await env.withSecurityRulesDisabled(async (ctx) => { const d = ctx.firestore();
     await setDoc(doc(d, 'comms_log', 'x'), { jobId: 'x', kind: 'campaign', n: 3, ok: 3, dry: true, items: '[]' }); });

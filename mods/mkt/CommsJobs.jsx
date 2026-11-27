@@ -30,14 +30,17 @@ export function CommsJobs({ org, ops, loy, me, commit, say, canApp }) {
   const save = async () => {
     const job = { kind: f.kind, ch: 'sms', tplId: f.tplId, filter: commsFilterOf(f.kind, f.filter) }; const e = commsJobErr(org, job); if (e) return say(e, 'no');
     const A = commsAudience(org, ops, loy, job, Date.now());
-    const rec = { id: uid('cj'), no: commsNextNo(ops), ...job, est: { n: A.n, parts: A.parts }, status: 'draft', by: me.name, byId: me.id || '', at: nowISO() };
+    const rec = { id: uid('cj'), no: commsNextNo(ops), ...job, est: { n: A.n, parts: A.parts }, status: 'draft', by: me.name, byId: me.id || '', ...(me.email ? { byEmail: String(me.email).toLowerCase() } : {}), at: nowISO() };
     const ok = await commit(d => ({ ...d, commsJobs: [rec, ...(d.commsJobs || [])] }), { actionType: 'create', targetType: 'settings', targetId: rec.id, title: 'أنشأ دفعة رسائل', details: rec.no + ' · ' + COMMS_KINDS[rec.kind] + ' · ' + A.n + ' مستلم · ' + A.parts + ' جزء' });
     if (ok !== false) { setF(null); say('حُفظت الدفعة ' + rec.no + ' مسودة'); } };
   const move = async (j, to, title) => {
-    const at = nowISO(); const pre = commsJobMove(j, to, me, at); if (pre.err) return say(pre.err, 'no'); let err = '';
+    let at = nowISO(); const pre = commsJobMove(j, to, me, at); if (pre.err) return say(pre.err, 'no'); let err = ''; let srv = null;
+    // الاعتماد في الخادم (المراجعة الأمنية): يرفض المنشئ ويبصم المحتوى المعتمد في سجل لا يكتبه غيره — ثم تُحدَّث الحالة هنا
+    if (to === 'approved') { setBusy(j.id); try { srv = await commsApi(j.id, 'approve'); } catch (e) { setBusy(''); return say(e.message || 'تعذّر الاعتماد', 'no'); } setBusy(''); at = srv.approvedAt || at; }
     // يُعاد الفحص على أحدث نسخة (حالة تغيّرت من مستخدم آخر ⇒ لا تغيير)
     const ok = await commit(d => { const x = (d.commsJobs || []).find(y => y.id === j.id); const r = commsJobMove(x, to, me, at); if (r.err) { err = r.err; return d; }
-      return { ...d, commsJobs: (d.commsJobs || []).map(y => y.id === j.id ? r.next : y) }; }, { actionType: to === 'approved' ? 'approve' : 'update', targetType: 'settings', targetId: j.id, title, details: j.no + ' · ' + COMMS_KINDS[j.kind] });
+      const nx = srv ? { ...r.next, approvedBy: srv.approvedBy || r.next.approvedBy, approvedById: srv.approvedById || r.next.approvedById } : r.next;
+      return { ...d, commsJobs: (d.commsJobs || []).map(y => y.id === j.id ? nx : y) }; }, { actionType: to === 'approved' ? 'approve' : 'update', targetType: 'settings', targetId: j.id, title, details: j.no + ' · ' + COMMS_KINDS[j.kind] });
     if (ok === false || err) return say(err || 'لم يُحفظ', 'no'); say(title + ' — ' + j.no); };
   const exp = (j) => {
     if (!commsCanApprove(me) || !mktCanExport(org, me)) return say('تصدير المستلمين للمعتمد (المالك أو المدير العام) وحده', 'no');
@@ -76,7 +79,7 @@ export function CommsJobs({ org, ops, loy, me, commit, say, canApp }) {
             <span style={{ marginInlineStart: 'auto' }} />
             <button className="btn sm gh" data-cmsprev onClick={() => setPrev(j)}>معاينة الجمهور</button>
             {j.status === 'draft' && (mine || canApp) && <button className="btn sm pri" data-cmssubmit onClick={() => move(j, 'pending', 'أرسل دفعة رسائل للاعتماد')}>إرسال للاعتماد</button>}
-            {j.status === 'pending' && canA && <><button className="btn sm pri" data-cmsapprove onClick={() => move(j, 'approved', 'اعتمد دفعة رسائل')}>اعتماد</button><button className="btn sm gh" data-cmsreject onClick={() => move(j, 'rejected', 'رفض دفعة رسائل')}>رفض</button></>}
+            {j.status === 'pending' && canA && <><button className="btn sm pri" data-cmsapprove disabled={busy === j.id} onClick={() => move(j, 'approved', 'اعتمد دفعة رسائل')}>اعتماد</button><button className="btn sm gh" data-cmsreject onClick={() => move(j, 'rejected', 'رفض دفعة رسائل')}>رفض</button></>}
             {j.status === 'pending' && !canA && <span style={{ fontSize: 11, color: 'var(--faint)' }} data-cmswait>{mine ? 'لا يعتمد المنشئ دفعته — ' : ''}بانتظار المالك أو المدير العام</span>}
             {j.status === 'approved' && commsCanApprove(me) && <button className="btn sm pri" data-cmssend disabled={busy === j.id} title={on ? '' : 'مسار الإرسال غير مفعّل'} onClick={() => send(j)}>{busy === j.id ? 'جارٍ…' : 'إرسال تجريبي (بلا إرسال فعلي)'}</button>}
             {['pending', 'approved'].includes(j.status) && commsCanApprove(me) && mktCanExport(org, me) && <button className="btn sm gh" data-cmsexp onClick={() => exp(j)}><Download size={12} />المستلمون Excel</button>}
@@ -98,6 +101,7 @@ export function CommsJobs({ org, ops, loy, me, commit, say, canApp }) {
         <div className="note" style={{ marginTop: 6 }}>{f.kind === 'campaign' ? 'الحملة تصل للموافقين صراحةً على الرسائل فقط، بلا من طلب الإيقاف، وبحد ' + C.maxPerMonth + ' رسائل تسويقية للرقم شهريًا (الحملات وإشعارات الولاء معًا).' : f.kind === 'loy' ? 'إشعار الولاء يصل لأعضاء الولاء الموافقين فقط، ويُحسب مع الحملات ضمن حد ' + C.maxPerMonth + ' رسائل تسويقية للرقم شهريًا. انتهاء النقاط يتطلب ضبط مدة صلاحية النقاط في إعداد الولاء.' : 'تذكير الاستحقاق رسالة خدمية لعملاء الآجل (فواتير المبيعات وفواتير الكاشير المرحّلة) بمتبقٍّ أكبر من صفر — لا تحتاج موافقة تسويقية لكنها تحترم الإيقاف. المتغيرات {amount} و{due}.'}</div>
         {f.tplId && (() => { const t = C.templates.find(x => x.id === f.tplId); const one = t ? smsParts(t.body + (C.optOutText ? '\n' + C.optOutText : '')) : null; return one ? <div style={{ fontSize: 12, color: 'var(--dim)', marginTop: 4 }}>القالب مع نص الإيقاف: <span className="num">{one.chars}</span> حرفًا تقريبًا قبل المتغيرات</div> : null; })()}
         <AudienceBox A={fAud} />
+        {fAud && !fAud.capChecked && <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 4 }} data-cmscapnote>الحد الشهري لكل رقم يُطبَّق عند الإرسال في الخادم من سجل الإرسال، فقد يقل العدد الفعلي.</div>}
       </div>
     </Modal>}
     {prev && <Modal title={'معاينة الجمهور — ' + prev.no} icon={MessageSquare} onClose={() => setPrev(null)} wide>

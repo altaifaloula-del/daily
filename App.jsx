@@ -8377,8 +8377,6 @@ function commsQuietRiy(cfg, now) { const m = commsRiy(now).min; const p = (s) =>
 const commsPhoneOk = (ph) => /^5\d{8}$/.test(String(ph || ''));
 /** الرقم مقنّعًا للعرض: أول رقمين وآخر رقمين فقط */
 const commsMask = (ph) => { const s = String(ph || ''); return s.length < 5 ? '•••' : s.slice(0, 2) + '•'.repeat(s.length - 4) + s.slice(-2); };
-/** بصمة رقم غير قابلة للعرض (FNV-1a) — لعدّ الرسائل الشهرية لكل رقم دون حفظ الرقم في الدفعة */
-const commsKey = (ph) => { let h = 0x811c9dc5; const s = 'c:' + String(ph || ''); for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return 'h' + h.toString(16).padStart(8, '0'); };
 /** مرشّح الدفعة بحدود معقولة (الناقص = بلا شرط) */
 function commsFilterOf(kind, f) { f = f || {}; const n = (v, lo, hi) => { const x = Math.floor(Number(v)); return isFinite(x) && x >= lo && x <= hi ? x : null; };
   if (kind === 'loy') return { minPts: n(f.minPts, 0, 1e7), expDays: n(f.expDays, 1, 365), bday: !!f.bday };
@@ -8394,9 +8392,11 @@ const commsConsent = (ops, ph) => { const cs = mktConsentOf(ops, ph); return (cs
 /**
  * الجمهور (نقي): campaign = الموافقون صراحةً على SMS وحدهم، بلا من طلب الإيقاف، وبحد maxPerMonth لكل رقم (الحملات والولاء معًا، من الدفعات المرسلة فعلًا هذا الشهر، لا التجريبية)؛
  * loy = أعضاء الولاء الموافقون بمرشّح (رصيد ≥ س، نقاط تنتهي خلال ن يومًا، ميلاد اليوم)؛ ar = عملاء الآجل المستحق خلال ن يومًا أو المتأخر برصيد > 0 (رسالة خدمية: بلا موافقة تسويقية لكن تحترم الإيقاف).
- * يعيد { n, parts, skipped, quiet, list:[{ phone, name, text, parts }], sample:[{ m (مقنّع), name, parts }] } — list للخادم وللتصدير المسجّل فقط، والواجهة تعرض sample.
+ * يعيد { n, parts, skipped, quiet, capChecked, list:[{ phone, name, text, parts }], sample:[{ m (مقنّع), name, parts }] } — list للخادم وللتصدير المسجّل فقط، والواجهة تعرض sample.
+ * المراجعة الأمنية: عدّاد الشهر لا يُقرأ من المستند المركزي (يكتبه المتصفح) — opt = { used: { بصمة: عدد }, keyOf(phone) ⇒ بصمة } يمرّره الخادم من comms_log
+ * (بصمات HMAC يكتبها وحده). بلا opt (معاينة المتصفح) لا يُطبَّق الحد إلا الحد 0، وcapChecked=false.
  */
-function commsAudience(org, ops, loy, job, now) {
+function commsAudience(org, ops, loy, job, now, opt) {
   ops = ops || {}; const cfg = commsCfgOf(org); const R = commsRiy(now); const kind = (job || {}).kind; const F = commsFilterOf(kind, (job || {}).filter);
   const tpl = cfg.templates.find(t => t.id === (job || {}).tplId); const A = mktAlias(ops);
   const sk = { noConsent: 0, optOut: 0, cap: 0, invalid: 0, noPhone: 0 }; const out = new Map();
@@ -8409,12 +8409,12 @@ function commsAudience(org, ops, loy, job, now) {
   const mem = (loy && loy.members) || {}; const nameOf = (ph) => ((mem[ph] || {}).name) || '';
   const r2 = (x) => Math.round(x * 100) / 100;
   // الحد الشهري (قرار المجلس v56.50): للرسائل التسويقية — الحملات وإشعارات الولاء معًا، لا تذكير الآجل (خدمي). الحد 0 = لا رسائل تسويقية
-  const used = {}; const max = cfg.maxPerMonth;
-  if (kind === 'campaign' || kind === 'loy') ((ops.commsJobs) || []).forEach(j => { if (!j || j.status !== 'sent' || !(j.kind === 'campaign' || j.kind === 'loy') || !j.result || j.result.dry || commsRiy(Date.parse(j.sentAt || 0)).ym !== R.ym) return; (j.result.rcpt || []).forEach(k => { used[k] = (used[k] || 0) + 1; }); });
+  const max = cfg.maxPerMonth; const U = (opt && opt.used && typeof opt.keyOf === 'function') ? opt : null;
+  const capped = (ph) => max <= 0 || (!!U && (Number(U.used[U.keyOf(ph)]) || 0) >= max);
   if (kind === 'campaign') {
     [...seenC].map(A).filter((p, i, a) => a.indexOf(p) === i).sort().forEach(ph => {
       if (outSet.has(ph)) { sk.optOut++; return; } if (commsConsent(ops, ph) !== 'in') { sk.noConsent++; return; }
-      if ((used[commsKey(ph)] || 0) >= max) { sk.cap++; return; }
+      if (capped(ph)) { sk.cap++; return; }
       add(ph, { name: nameOf(ph), points: r2(bal[ph] || 0) }); });
   } else if (kind === 'loy') {
     const X = loyX(org); const P = mktProfiles(ops); const phones = new Set(); Object.keys(mem).forEach(p => phones.add(A(p))); Object.keys(bal).forEach(p => phones.add(p));
@@ -8423,7 +8423,7 @@ function commsAudience(org, ops, loy, job, now) {
       if (F.expDays != null) { if (!(Number(X.expireMonths) > 0)) return; const e = Math.min(b, loyExpiring(loy, ph, X.expireMonths, commsAddDays(R.ymd, F.expDays))); if (!(e > 0)) return; }
       if (F.bday && String((P[ph] || {}).bday || '') !== R.md) return;
       if (outSet.has(ph)) { sk.optOut++; return; } if (commsConsent(ops, ph) !== 'in') { sk.noConsent++; return; }
-      if ((used[commsKey(ph)] || 0) >= max) { sk.cap++; return; }
+      if (capped(ph)) { sk.cap++; return; }
       add(ph, { name: nameOf(ph), points: b }); });
   } else if (kind === 'ar') {
     const lim = commsAddDays(R.ymd, F.dueDays); const C = {};
@@ -8435,7 +8435,7 @@ function commsAudience(org, ops, loy, job, now) {
       add(ph ? A(ph) : '', { name: p.name || c.name, amount: r2(c.amt).toFixed(2), due: c.due }); });
   }
   const list = [...out.values()]; const parts = list.reduce((a, x) => a + x.parts, 0);
-  return { n: list.length, parts, skipped: sk, quiet: commsQuietRiy(cfg, now), list, sample: list.slice(0, 5).map(x => ({ m: commsMask(x.phone), name: x.name, parts: x.parts })) };
+  return { n: list.length, parts, skipped: sk, quiet: commsQuietRiy(cfg, now), capChecked: kind === 'ar' || !!U, list, sample: list.slice(0, 5).map(x => ({ m: commsMask(x.phone), name: x.name, parts: x.parts })) };
 }
 /** تنقّل الحالة في الواجهة: إرسال للاعتماد، اعتماد، رفض، إلغاء — الإرسال نفسه من الخادم وحده (sent/failed تُسجَّل بعد رده) */
 function commsJobMove(job, to, me, at) {
@@ -8447,14 +8447,17 @@ function commsJobMove(job, to, me, at) {
   if (to === 'cancelled') { if (!['draft', 'pending', 'approved'].includes(x.status)) return { err: 'لا تُلغى دفعة بهذه الحالة' }; return { next: { ...x, status: 'cancelled', cancelledBy: who.name, cancelledAt: at } }; }
   return { err: 'انتقال غير مسموح' };
 }
+/** المحتوى المعتمد بصيغة ثابتة (يُبصم بـ sha256 في الخادم): النوع والقالب ونصه والمرشّح — تعديل أي منها بعد الاعتماد يُبطل الإرسال */
+const commsApprCanon = (org, job) => { const x = job || {}; const t = commsCfgOf(org).templates.find(y => y.id === x.tplId) || {};
+  return JSON.stringify([String(x.kind || ''), String(x.tplId || ''), String(t.body == null ? '' : t.body), commsFilterOf(x.kind, x.filter)]); };
 const commsNextNo = (ops) => { const n = ((ops && ops.commsJobs) || []).reduce((m, c) => Math.max(m, parseInt(String(c.no || '').replace(/\D/g, ''), 10) || 0), 0) + 1; return 'MSG-' + String(n).padStart(4, '0'); };
-/** نداء الخادم للإرسال (المحوّل الحالي تجريبي بلا إرسال فعلي) */
-async function commsApi(jobId) {
+/** نداء الخادم: الاعتماد (approve) أو الإرسال (send — المحوّل الحالي تجريبي بلا إرسال فعلي) */
+async function commsApi(jobId, op) {
   const b = srvBase(); if (!b) throw new Error('الخادم غير مهيأ لهذه النسخة');
-  const r = await fetch(b + '/api/comms/send', { method: 'POST', headers: await aiHeaders(), body: JSON.stringify({ jobId }) });
+  const r = await fetch(b + '/api/comms/' + (op === 'approve' ? 'approve' : 'send'), { method: 'POST', headers: await aiHeaders(), body: JSON.stringify({ jobId }) });
   const j = await r.json().catch(() => ({})); if (!r.ok) { const e = new Error(j.error || ('HTTP ' + r.status)); e.code = j.code || ''; e.status = r.status; e.result = j.result; throw e; } return j;
 }
-export { COMMS_KINDS, COMMS_JOB_ST, commsSendOn, commsCanApprove, commsRiy, commsQuietRiy, commsPhoneOk, commsMask, commsKey, commsFilterOf, commsJobErr, commsAudience, commsJobMove, commsNextNo, commsApi };   // v56.50
+export { COMMS_KINDS, COMMS_JOB_ST, commsSendOn, commsCanApprove, commsRiy, commsQuietRiy, commsPhoneOk, commsMask, commsFilterOf, commsJobErr, commsAudience, commsJobMove, commsNextNo, commsApi, commsApprCanon };   // v56.50
 /* v52.6 — BUG-00-12 (رقابة كاشفة): مستند الولاء/الكوبونات يكتبه كل عضو نشط (لازم للبيع في كل فرع) ولا تفحص القواعد محتواه،
    فنطابق كل حركة نقاط وكل حجز كوبون مع مصدره (الفاتورة/المرتجع/الإلغاء/الدمج/الجائزة/الدوري/التعديل اليدوي) ونُبرز ما لا مصدر له أو لا يطابقه */
 const LOY_AUDIT_WHY = { noOrder: 'نقاط فاتورة بلا فاتورة', mismatch: 'لا تطابق نقاط الفاتورة', notVoid: 'عكس إلغاء لفاتورة غير ملغاة', noReturn: 'خصم مرتجع بلا مستند مرتجع', noMerge: 'دمج بلا سجل دمج معتمد', unknown: 'حركة بمصدر غير معروف', dup: 'معرّف مكرر', cpnNoOrder: 'حجز كوبون بلا فاتورة' };
