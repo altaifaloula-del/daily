@@ -36,18 +36,18 @@ const job = (x = {}) => ({ id: 'j1', no: 'MSG-0001', kind: 'campaign', ch: 'sms'
 
 test('الحملة: الموافقون صراحةً على SMS وحدهم، الإيقاف (ومنه الرقم المدموج)، الحد الشهري من الإرسال الفعلي لا التجريبي، والرقم غير الصالح', () => {
   const A = E.commsAudience(org(), withCap(ops()), loy, job(), NOW);
-  assert.deepEqual(A.list.map(x => x.phone), ['501111111']);
-  assert.deepEqual(A.skipped, { noConsent: 1, optOut: 2, cap: 1, invalid: 1, noPhone: 0 });
+  assert.deepEqual(A.list.map(x => x.phone), ['501111111', '507777777'], 'ليلى موافقة على SMS');
+  assert.deepEqual(A.skipped, { noConsent: 1, optOut: 3, cap: 1, invalid: 1, noPhone: 0 }, 'الإيقاف: 502 و505 (عبر المدموج 506) و555');
   assert.equal(A.list[0].text, 'مرحبا سارة رصيدك 100\nإيقاف: أرسل 0', 'نص الإيقاف مُلحق');
-  assert.equal(A.n, 1); assert.equal(A.parts, E.smsParts(A.list[0].text).parts);
-  assert.deepEqual(A.sample, [{ m: '50•••••11', name: 'سارة', parts: 1 }], 'العيّنة مقنّعة');
+  assert.equal(A.n, 2); assert.equal(A.parts, E.smsParts(A.list[0].text).parts + E.smsParts(A.list[1].text).parts);
+  assert.deepEqual(A.sample, [{ m: '50•••••11', name: 'سارة', parts: 1 }, { m: '50•••••77', name: 'ليلى', parts: 1 }], 'العيّنة مقنّعة');
   assert.ok(!JSON.stringify(A.sample).includes('501111111'));
   // بلا إرسال فعلي سابق: 504444444 ضمن الحد (التجريبي s3 لا يُحتسب حتى لو حمل بصمات)
   const o2 = ops(); o2.commsJobs = o2.commsJobs.map(j => j.id === 's3' ? { ...j, result: { ...j.result, rcpt: [E.commsKey('504444444'), E.commsKey('504444444'), E.commsKey('504444444')] } } : j);
-  assert.deepEqual(E.commsAudience(org(), o2, loy, job(), NOW).list.map(x => x.phone), ['501111111', '504444444']);
+  assert.deepEqual(E.commsAudience(org(), o2, loy, job(), NOW).list.map(x => x.phone), ['501111111', '504444444', '507777777']);
   // الشهر السابق لا يُحتسب، والحد صفر يمنع الحملات
   const o3 = ops(); o3.commsJobs = [sentJob('p', '2026-02-27T10:00:00Z', [E.commsKey('504444444'), E.commsKey('504444444')], false)];
-  assert.equal(E.commsAudience(org(), o3, loy, job(), NOW).n, 2);
+  assert.equal(E.commsAudience(org(), o3, loy, job(), NOW).n, 3);
   const z = org(); z.mkt.comms.maxPerMonth = 0; assert.equal(E.commsAudience(z, ops(), loy, job(), NOW).n, 0);
   // آخر حالة هي المعتمدة: إلغاء ثم موافقة جديدة ⇒ يعود
   const o4 = ops({ mktConsents: [...consents, cs('502222222', 'in', 'all', '2026-03-01T10:00:00Z')] });
@@ -165,14 +165,14 @@ test('المسار: 401 بلا هوية، 400 لمدخل خاطئ أو قائم�
 test('المسار: المحوّل التجريبي لا يرسل شيئًا — الجمهور يُعاد حسابه من بيانات الخادم، والسجل مرة واحدة بلا أرقام كاملة', async () => {
   const H = harness(); const r = await H.call('gm', { jobId: 'j1' });
   assert.equal(r.status, 200);
-  assert.deepEqual([r.json.result.n, r.json.result.ok, r.json.result.fail, r.json.result.dry, r.json.result.adapter], [1, 1, 0, true, 'dryrun'], 'n من الخادم (1) لا من تقدير المتصفح (999)');
+  assert.deepEqual([r.json.result.n, r.json.result.ok, r.json.result.fail, r.json.result.dry, r.json.result.adapter], [3, 3, 0, true, 'dryrun'], 'n من الخادم (3) لا من تقدير المتصفح (999)');
   assert.equal(r.json.result.rcpt, undefined, 'التجريبي لا يحمل بصمات ولا يُحتسب في الحد');
-  assert.deepEqual(r.json.sample, [{ m: '50•••••11', parts: 1 }]);
+  assert.deepEqual(r.json.sample.map(x => x.m), ['50•••••11', '50•••••44', '50•••••77']);
   // لا اتصال بغير Firestore وخدمة الرمز — لا مزوّد
   assert.ok(H.urls.every(u => /firestore\.googleapis\.com|oauth2/.test(u)), H.urls.join('\n'));
-  const L = H.db['comms_log/j1']; assert.ok(L); assert.equal(L.fields.state.stringValue, 'done'); assert.equal(L.fields.dry.booleanValue, true); assert.equal(L.fields.n.integerValue, '1'); assert.equal(L.fields.ok.integerValue, '1');
+  const L = H.db['comms_log/j1']; assert.ok(L); assert.equal(L.fields.state.stringValue, 'done'); assert.equal(L.fields.dry.booleanValue, true); assert.equal(L.fields.n.integerValue, '3'); assert.equal(L.fields.ok.integerValue, '3');
   assert.equal(L.fields.by.stringValue, 'gm@test.sa'); assert.equal(L.fields.at.timestampValue, 'NOW');
-  assert.ok(!JSON.stringify(L).includes('501111111'), 'لا رقم كامل في السجل');
+  assert.ok(!/50[0-9]{7}/.test(JSON.stringify(L)), 'لا رقم كامل في السجل');
   const again = await H.call('gm', { jobId: 'j1' }); assert.equal(again.status, 409); assert.equal(again.json.code, 'dup');
   assert.deepEqual(await COMMS_ADAPTERS.dryrun.send([{ to: '966501111111', text: 'x' }]), [{ ok: true, dry: true }]);
   assert.equal(commsAdapter({}).name, 'dryrun'); assert.equal(commsAdapter({ COMMS_ADAPTER: 'x' }), null);

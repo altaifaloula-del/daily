@@ -4392,3 +4392,38 @@ test('v56.48 نقل الأصل بين مراكز التكلفة (قرار الم
   assert.deepEqual(await p.evaluate(() => window.curOrg.assets.find(a => a.id === 'aq').brHist), [{ from: '2025-01', branchId: 'b1' }, { from: cur, branchId: '' }]);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.50 الرسائل: مفتاح مسار الإرسال لمسؤول النظام، دفعة من قالب بجمهور مقنّع، لا يعتمدها منشئها، يعتمدها المدير العام، وإرسال تجريبي عبر الخادم', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/MktGrowth/admin');
+  await p.evaluate(() => { localStorage.setItem('rms8:loy', JSON.stringify({ members: { '501111111': { name: 'سارة' } }, tx: [{ id: 'x:e', phone: '501111111', pts: 40, at: '2026-01-01T10:00:00Z' }] }));
+    window.setOrg(o => ({ ...o, mkt: { ...(o.mkt || {}), comms: { channels: { sms: true }, templates: [{ id: 't1', name: 'عرض الشتاء', ch: 'sms', body: 'أهلًا {name}، رصيدك {points} نقطة' }] } } }));
+    window.setOps(o => ({ ...o, commsJobs: [], mktConsents: [{ id: 'c1', phone: '501111111', status: 'in', ch: 'all', src: 'نقطة البيع', by: 'x', at: '2026-01-01T10:00:00Z' },
+      { id: 'c2', phone: '502222222', status: 'in', ch: 'all', src: 'نقطة البيع', by: 'x', at: '2026-01-01T10:00:00Z' }, { id: 'c3', phone: '502222222', status: 'out', ch: 'all', src: 'نقطة البيع', by: 'x', at: '2026-02-01T10:00:00Z' }] })); });
+  await p.evaluate(() => window.as('ho')); await p.waitForTimeout(100); await p.evaluate(() => window.as('admin')); await p.waitForTimeout(300);   // إعادة تحميل الولاء
+  // المفتاح: معطّل افتراضيًا، ومسؤول النظام يفعّله، وحفظ الإعدادات لا يمسّه
+  await p.click('[data-mktv="com"]'); await p.waitForSelector('[data-comsend]');
+  assert.match(await p.locator('[data-comsend-st]').innerText(), /غير مفعّل/);
+  await p.click('[data-comsend-toggle]'); await p.waitForFunction(() => window.curOrg.mkt.comms.sendOn === true);
+  await p.click('[data-comsave]'); await p.waitForTimeout(200); assert.equal(await p.evaluate(() => window.curOrg.mkt.comms.sendOn), true, 'حفظ الإعدادات يُبقي المفتاح');
+  // دفعة جديدة: الجمهور الموافقون فقط والأرقام مقنّعة
+  await p.click('[data-mktv="msg"]'); await p.waitForSelector('[data-cms]');
+  assert.match(await p.locator('[data-cmsoff]').innerText(), /لا تُرسل أي رسالة فعلًا/); assert.match(await p.locator('[data-cmsoff]').innerText(), /اسم مرسل مسجّل/);
+  await p.click('[data-cmsnew]'); await p.waitForSelector('[data-cmsaud]');
+  assert.equal(await p.locator('[data-cmsn]').innerText(), '1');
+  const aud = await p.locator('[data-cmsaud]').innerText(); assert.match(aud, /50•••••11/); assert.ok(!/501111111|502222222/.test(aud), 'لا رقم كامل في الواجهة'); assert.match(aud, /طلبوا الإيقاف 1/);
+  await p.click('[data-cmssave]'); await p.waitForFunction(() => (window.cur.commsJobs || []).length === 1);
+  let j = await p.evaluate(() => window.cur.commsJobs[0]); assert.deepEqual([j.status, j.kind, j.ch, j.est.n, j.byId], ['draft', 'campaign', 'sms', 1, 'u1']);
+  await p.click('[data-cmssubmit]'); await p.waitForFunction(() => window.cur.commsJobs[0].status === 'pending');
+  assert.equal(await p.locator('[data-cmsapprove]').count(), 0, 'المنشئ لا يرى الاعتماد'); assert.match(await p.locator('[data-cmswait]').innerText(), /لا يعتمد المنشئ/);
+  // المدير العام يعتمد ثم يرسل تجريبيًا — الخادم يتلقى معرّف الدفعة وحده
+  await p.evaluate(() => window.as('gm')); await p.waitForTimeout(300); await p.click('[data-mktv="msg"]'); await p.waitForSelector('[data-cmsapprove]');
+  await p.click('[data-cmsapprove]'); await p.waitForFunction(() => window.cur.commsJobs[0].status === 'approved');
+  j = await p.evaluate(() => window.cur.commsJobs[0]); assert.deepEqual([j.approvedBy, j.approvedById], ['فهد', 'u6']);
+  let sent = null;
+  await p.route('http://zatca.test/api/comms/send', r => { sent = JSON.parse(r.request().postData()); r.fulfill({ json: { result: { n: 1, ok: 1, fail: 0, parts: 1, dry: true, adapter: 'dryrun', at: new Date().toISOString() }, sample: [{ m: '50•••••11', parts: 1 }] } }); });
+  await p.click('[data-cmssend]'); await p.waitForFunction(() => window.cur.commsJobs[0].status === 'sent');
+  assert.deepEqual(sent, { jobId: j.id }, 'لا قائمة مستلمين من المتصفح');
+  j = await p.evaluate(() => window.cur.commsJobs[0]); assert.equal(j.result.dry, true); assert.equal(j.sentBy, 'فهد');
+  assert.match(await p.locator('[data-cmsres]').innerText(), /تجريبي/);
+  assert.deepEqual(errs, []); await ctx.close();
+});
