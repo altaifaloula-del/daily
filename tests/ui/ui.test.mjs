@@ -3740,7 +3740,8 @@ test('v56.22 FINANCE G1: الصورة المالية في لوحة المدير 
 test('v56.23 G2: شريط التحكم في المحاسبة — معطّل افتراضيًا، والتفعيل يُظهر مسار الموقع والإجراءات، والتنقل يحدّث القسم الحالي', async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1190, height: 782 } }, 'live/Accounting/admin/jr');
   await p.waitForSelector('.ob-sub');
-  assert.equal(await p.locator('[data-ctlbar]').count(), 0, 'معطّل افتراضيًا — الشريط السابق كما هو');
+  await p.evaluate(() => window.setOrg(o => ({ ...o, ctlBar: { on: false } }))); await p.waitForTimeout(300);   // v56.38: افتراضي — الإيقاف الصريح يعيد الشكل السابق
+  assert.equal(await p.locator('[data-ctlbar]').count(), 0, 'الإيقاف الصريح — الشريط السابق كما هو');
   await p.evaluate(() => window.setOrg(o => ({ ...o, ctlBar: { on: true } })));
   await p.waitForSelector('[data-ctlbar]');
   assert.match(await p.locator('[data-ctlbar]').innerText(), /المحاسبة/);
@@ -3767,7 +3768,8 @@ test('v56.23 G2: شريط التحكم في المحاسبة — معطّل اف
 test('v56.24 G2 المرحلة 2: مرشحات التقارير في شريط التحكم — مرة واحدة، تعمل، وعلى الجوال خلف «تصفية (n)»', async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1190, height: 782 } }, 'live/Accounting/admin/tb');
   await p.waitForSelector('.ob-sub');
-  assert.equal(await p.locator('[data-ctlbar-tools]').count(), 0, 'معطّل افتراضيًا');
+  await p.evaluate(() => window.setOrg(o => ({ ...o, ctlBar: { on: false } }))); await p.waitForTimeout(300);   // v56.38: افتراضي — الإيقاف الصريح يعيد الشكل السابق
+  assert.equal(await p.locator('[data-ctlbar-tools]').count(), 0, 'الإيقاف الصريح');
   const inCard0 = await p.locator('.card input[type="date"]').count(); assert.ok(inCard0 >= 2, 'المرشح داخل البطاقة بلا تفعيل');
   await p.evaluate(() => window.setOrg(o => ({ ...o, ctlBar: { on: true } })));
   await p.waitForSelector('[data-ctlbar-tools]');
@@ -3792,7 +3794,8 @@ test('v56.24 G2 المرحلة 2: مرشحات التقارير في شريط ا
 test('v56.25 G2 المرحلة 3: شريط التحكم في بقية التطبيقات (المخزون ومراكز التطبيقات) — معطّل افتراضيًا، والتفعيل يُظهر المسار وصف الأقسام', async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1190, height: 782 } }, 'live/Inventory/admin/items');
   await p.waitForSelector('.ob');
-  assert.equal(await p.locator('[data-ctlbar]').count(), 0, 'معطّل افتراضيًا');
+  await p.evaluate(() => window.setOrg(o => ({ ...o, ctlBar: { on: false } }))); await p.waitForTimeout(300);   // v56.38: افتراضي — الإيقاف الصريح يعيد الشكل السابق
+  assert.equal(await p.locator('[data-ctlbar]').count(), 0, 'الإيقاف الصريح');
   const pagers0 = await p.locator('.secpager').count();
   await p.evaluate(() => window.setOrg(o => ({ ...o, ctlBar: { on: true } })));
   await p.waitForSelector('[data-ctlbar]');
@@ -3820,7 +3823,8 @@ test('v56.25 G2 المرحلة 3: شريط التحكم في بقية التطب
 test('v56.26 G2 التنقيب الموحّد: مبلغ في القوائم المالية ← قيود الحساب ← المستند المصدر ← رجوع (مع شريط التحكم فقط)', async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Accounting/admin/fs');
   await p.waitForSelector('.is-tb');
-  assert.equal(await p.locator('[data-drill]').count(), 0, 'بلا تفعيل لا روابط تنقيب');
+  await p.evaluate(() => window.setOrg(o => ({ ...o, ctlBar: { on: false } }))); await p.waitForTimeout(300);   // v56.38: افتراضي — الإيقاف الصريح يعيد الشكل السابق
+  assert.equal(await p.locator('[data-drill]').count(), 0, 'مع الإيقاف الصريح لا روابط تنقيب');
   await p.evaluate(() => window.setOrg(o => ({ ...o, ctlBar: { on: true } })));
   await p.waitForSelector('[data-drill]');
   assert.ok(await p.locator('[data-drill]').count() >= 4, 'بنود قائمة الدخل والمركز المالي');
