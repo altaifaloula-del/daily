@@ -2,6 +2,7 @@
  * خادم المنصة — Express
  *  • /api/store/:key      تخزين محلي في data/store.json — للتطوير فقط (مُعطّل في الإنتاج وعند ضبط Firebase)
  *  • /api/ai/analyze      وسيط آمن لتحليل المدير المالي الذكي (المفتاح لا يصل المتصفح)
+ *  • /api/ai/invoice-read قراءة صورة فاتورة المورد كمقترح (server-aiinv.js — مُطفأ افتراضيًا)
  *  • /api/ai/feedback     وسيط آمن لتحليل تعليقات عملاء QR
  *  • يخدم ملفات dist في وضع الإنتاج
  *
@@ -26,6 +27,7 @@ import { mountLedger } from './server-ledger.js';
 import { mountComms } from './server-comms.js';   // v56.50 إرسال الرسائل للعملاء (المحوّل التجريبي وحده)
 import { mountPosCredit } from './server-poscredit.js';   // v56.46 تفويض البيع الآجل من نقطة البيع   // v56.15 D5 الترحيل إلى الدفتر المخزّن من الخادم
 import { mountPosDevices } from './server-posdev.js';   // v56.54 سجل أجهزة نقطة البيع بأرقام فريدة
+import { mountAiInvoice } from './server-aiinv.js';   // v56.55 قراءة فاتورة المورد بالذكاء الاصطناعي كمقترح
 import { mountMcp } from './server-mcp.js';
 import { mountRefs } from './server-refs.js';   // v54.4 مكتبة المراجع
 import { mountAiLog } from './server-ailog.js';   // v54.6 سجل الذكاء الاصطناعي
@@ -320,7 +322,8 @@ function messageParams({ system, user, maxTokens }) {
     betas: ['server-side-fallback-2026-07-01'],
     fallbacks: 'default',
     ...(system ? { system } : {}),
-    messages: [{ role: 'user', content: user }]
+    // v56.55: user نص (كل المسارات السابقة كما هي) أو مصفوفة كتل محتوى (صورة + نص) لقراءة فاتورة المورد
+    messages: [{ role: 'user', content: Array.isArray(user) ? user : String(user ?? '') }]
   };
 }
 
@@ -408,6 +411,9 @@ app.get('/api/health/config', rateLimit({ windowMs: 3600000, max: 20 }), async (
 const aiJson = express.json({ limit: '1mb' });
 const aiLimit = rateLimit({ windowMs: 3600000, max: Number(process.env.AI_RATE_LIMIT_PER_HOUR) || 30, keyFn: req => req.user && (tenantOf(req).id + ':' + req.user.email) });
 const aiErr = (res, e) => res.status(e.status || 500).json({ error: e.status ? e.message : 'تعذّر إتمام التحليل', ...(e.code ? { code: e.code } : {}) });
+
+/* v56.55 — البند F: قراءة فاتورة المورد كمقترح (server-aiinv.js) — يعمل فقط حين يفعّل المسؤول org.purchaseCfg.aiRead، ولا يحفظ الصورة ولا المحتوى */
+mountAiInvoice(app, { express, requireMember, requireFeature, rateLimit, T: TENANTS, ai: (o) => callClaude(o) });
 
 app.post('/api/ai/analyze', aiJson, requireMember, requireFeature('ai'), aiLimit, async (req, res) => {
   const digest = req.body?.digest;

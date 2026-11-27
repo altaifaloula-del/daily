@@ -49,7 +49,9 @@ export const ENGINE_EXPORTS = ['depBrRanges', 'depBrAt', 'depBrFrom', 'depBrOf',
   // v56.53 — معالجة المراجعة الأمنية
   'posLockRun', 'posOnMark', 'posOnFresh', 'posOnClear', 'posRetHashSrc', 'posOffRetAudit', 'posChainGaps',
   // v56.54 — نقطة البيع 5ب: نوع حد المرتجع، سجل الأجهزة، فتح التطبيق دون إنترنت
-  'POS_ORET_MODES', 'POS_ORET_PERIODS', 'posOffRetRule', 'POS_SRV_TAG', 'POS_DEVNO_KEY', 'posDevRegOn', 'posDevNoGet', 'posDevNoSet', 'posDevSrvTag', 'posDevKey', 'posDevTagPick', 'POS_SW_FLAG', 'POS_SW_CACHE', 'posShellOn', 'posSwIsPos', 'posSwWarmList', 'posSwSync'];
+  'POS_ORET_MODES', 'POS_ORET_PERIODS', 'posOffRetRule', 'POS_SRV_TAG', 'POS_DEVNO_KEY', 'posDevRegOn', 'posDevNoGet', 'posDevNoSet', 'posDevSrvTag', 'posDevKey', 'posDevTagPick', 'POS_SW_FLAG', 'POS_SW_CACHE', 'posShellOn', 'posSwIsPos', 'posSwWarmList', 'posSwSync',
+  // v56.55 — البند F: قراءة فاتورة المورد بالذكاء الاصطناعي كمقترح
+  'AI_INV_ROLES', 'AI_INV_FIELDS', 'aiInvOn', 'aiInvCheck', 'aiInvSim', 'aiInvEdited', 'purKey', 'vatNoOk'];
 
 export async function buildEngine() {
   fs.mkdirSync(cache, { recursive: true });
