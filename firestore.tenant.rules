@@ -525,7 +525,7 @@ service cloud.firestore {
        نسخة محمية من mktMerges: إضافة فقط (لا تعديل ولا حذف)، الكاتب = الحساب ووقت الخادم، للمركز وحده (لا دور العرض).
        فصل المهام على الخادم: الرفض أو التراجع المعتمد يشير إلى طلب قائم لنفس الدمج ولا يكتبه صاحب الطلب؛ والتراجع بلا طلب لدمج بلا نقاط فقط.
        نسخ التاريخ (seed) لمسؤول النظام وحده ويحمل الكاتب الأصلي (origBy) — يُعفى من فصل المهام لأن الطلب المنسوخ يحمل حسابه هو، ويبقى origBy صاحب الطلب.
-       تنبيه: المصدر (rms8_core.mktMerges) ما زال يُكتب من المركز؛ هذا السجل يكشف المخالفة (تظهر ناقصة في المطابقة) ولا يمنع وقوعها في المصدر. */
+       المصدر (rms8_core.mktMerges) ما زال يُكتب من المركز؛ بلا «الخادم مصدر الدمج» يكشف هذا السجلُ المخالفة، ومعه (v56.39) لا يُعتدّ بسجل لا يطابق الخادم. */
     function mkmDoc(x) { return /databases/$(database)/documents/mkt_merges/$(x); }
     function mkmShape(d, id) {
       return d.keys().hasOnly(['kind', 'from', 'to', 'pts', 'ref', 'reqId', 'reason', 'byName', 'origBy', 'origAt', 'seed', 'by', 'at', 'cv'])
@@ -539,7 +539,10 @@ service cloud.firestore {
         && (!('seed' in d) || d.seed == true)
         && (d.kind != 'merge' || (d.ref == id && 'from' in d && 'to' in d))
         && d.by == userEmail() && d.at == request.time && cvOk(d)
-        && id.matches('^[A-Za-z0-9_-]{1,120}$');
+        && id.matches('^[A-Za-z0-9_-]{1,120}$')
+        // v56.39 (مراجعة الأمن): معرّف ثابت للقرار — التراجع <الدمج>-u والرفض <الطلب>-r؛ ولا يحجز غيرهما هذه اللاحقة (منع تعطيل التراجع)، فقرار واحد لكل دمج/طلب.
+        //   نسخ التاريخ (seed) يحمل معرّفاته الأصلية العشوائية للتراجع والرفض.
+        && (d.kind in ['undo', 'rej'] ? (('seed' in d) || id == d.ref + (d.kind == 'undo' ? '-u' : '-r')) : !id.matches('^.*-[ur]$'));
     }
     function mkmIs(x, k) { return exists(mkmDoc(x)) && get(mkmDoc(x)).data.kind == k; }
     // صاحب الطلب = كاتبه، أو كاتبه الأصلي إن كان منسوخًا من التاريخ (origBy) — فلا يعتمده صاحبه بعد نسخه باسم المسؤول

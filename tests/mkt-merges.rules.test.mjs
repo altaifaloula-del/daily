@@ -53,22 +53,22 @@ test('MKM-2 الشكل: الكاتب والوقت من الخادم، والمر
 test('MKM-3 فصل المهام على الخادم: صاحب الطلب لا يعتمد التراجع ولا يرفضه بنفسه', async () => {
   const g = id('mg'); await assertSucceeds(merge('acct', g, 80));
   const r = id('mg'); await assertSucceeds(put('acct', r, { kind: 'undoReq', ref: g }), 'طلب تراجع');
-  await assertFails(put('acct', id('mg'), { kind: 'undo', ref: g, reqId: r }), 'صاحب الطلب يعتمد نفسه');
-  await assertFails(put('acct', id('mg'), { kind: 'rej', ref: r }), 'صاحب الطلب يرفض نفسه');
-  await assertFails(put('acct2', id('mg'), { kind: 'undo', ref: 'mg-nothing', reqId: r }), 'طلب لدمج آخر');
-  await assertSucceeds(put('acct2', id('mg'), { kind: 'undo', ref: g, reqId: r }), 'شخص آخر يعتمد');
+  await assertFails(put('acct', g + '-u', { kind: 'undo', ref: g, reqId: r }), 'صاحب الطلب يعتمد نفسه');
+  await assertFails(put('acct', r + '-r', { kind: 'rej', ref: r }), 'صاحب الطلب يرفض نفسه');
+  await assertFails(put('acct2', 'mg-nothing' + '-u', { kind: 'undo', ref: 'mg-nothing', reqId: r }), 'طلب لدمج آخر');
+  await assertSucceeds(put('acct2', g + '-u', { kind: 'undo', ref: g, reqId: r }), 'شخص آخر يعتمد');
   const r2 = id('mg'); await assertSucceeds(put('acct2', r2, { kind: 'undoReq', ref: g }));
-  await assertSucceeds(put('acct', id('mg'), { kind: 'rej', ref: r2 }), 'شخص آخر يرفض');
+  await assertSucceeds(put('acct', r2 + '-r', { kind: 'rej', ref: r2 }), 'شخص آخر يرفض');
   await assertFails(put('acct', id('mg'), { kind: 'undoReq', ref: 'mg-missing' }), 'طلب لدمج غير موجود');
-  await assertFails(put('acct2', id('mg'), { kind: 'rej', ref: g }), 'رفض ما ليس طلبًا');
+  await assertFails(put('acct2', g + '-r', { kind: 'rej', ref: g }), 'رفض ما ليس طلبًا');
 });
 
 test('MKM-4 التراجع بلا طلب: مسموح لدمج بلا نقاط فقط', async () => {
   const z = id('mg'); await assertSucceeds(merge('acct', z, 0));
-  await assertSucceeds(put('acct', id('mg'), { kind: 'undo', ref: z }), 'دمج بلا نقاط');
+  await assertSucceeds(put('acct', z + '-u', { kind: 'undo', ref: z }), 'دمج بلا نقاط');
   const p = id('mg'); await assertSucceeds(merge('acct', p, 40));
-  await assertFails(put('acct', id('mg'), { kind: 'undo', ref: p }), 'دمج نقل نقاطًا بلا طلب');
-  await assertFails(put('acct2', id('mg'), { kind: 'undo', ref: p }), 'ولا من غيره بلا طلب');
+  await assertFails(put('acct', p + '-u', { kind: 'undo', ref: p }), 'دمج نقل نقاطًا بلا طلب');
+  await assertFails(put('acct2', p + '-u', { kind: 'undo', ref: p }), 'ولا من غيره بلا طلب');
 });
 
 test('MKM-5 نسخ التاريخ: لمسؤول النظام وحده، ويحمل الكاتب الأصلي نصًا', async () => {
@@ -81,9 +81,9 @@ test('MKM-5 نسخ التاريخ: لمسؤول النظام وحده، ويحم
 test('MKM-7 الطلب المنسوخ من التاريخ: صاحبه الأصلي (origBy) لا يعتمده ولا يرفضه بعد نسخه', async () => {
   const g = id('mg'); await assertSucceeds(put('owner', g, { kind: 'merge', ref: g, from: '500000001', to: '500000002', pts: 30, seed: true, origBy: U.acct }));
   const r = id('mg'); await assertSucceeds(put('owner', r, { kind: 'undoReq', ref: g, seed: true, origBy: U.acct }));
-  await assertFails(put('acct', id('mg'), { kind: 'undo', ref: g, reqId: r }), 'صاحبه الأصلي يعتمد');
-  await assertFails(put('acct', id('mg'), { kind: 'rej', ref: r }), 'صاحبه الأصلي يرفض');
-  await assertSucceeds(put('acct2', id('mg'), { kind: 'undo', ref: g, reqId: r }), 'غيره يعتمد');
+  await assertFails(put('acct', g + '-u', { kind: 'undo', ref: g, reqId: r }), 'صاحبه الأصلي يعتمد');
+  await assertFails(put('acct', r + '-r', { kind: 'rej', ref: r }), 'صاحبه الأصلي يرفض');
+  await assertSucceeds(put('acct2', g + '-u', { kind: 'undo', ref: g, reqId: r }), 'غيره يعتمد');
 });
 
 test('MKM-8 القراءة تمر بفحص التحقق الثنائي حين تفرضه السياسة', async () => {
@@ -91,6 +91,21 @@ test('MKM-8 القراءة تمر بفحص التحقق الثنائي حين ت
   await env.withSecurityRulesDisabled(async (ctx) => { await setDoc(doc(ctx.firestore(), 'platform', 'security'), { roles: ['head_office'] }); });
   await assertFails(getDoc(doc(as('acct2'), 'mkt_merges', g)), 'دور مركزي بلا تحقق ثنائي');
   await env.withSecurityRulesDisabled(async (ctx) => { await deleteDoc(doc(ctx.firestore(), 'platform', 'security')); });
+});
+
+test('MKM-9 (v56.39): معرّف القرار ثابت — لا يُحجز التراجع، وقرار واحد لكل طلب، وتراجع واحد لكل دمج', async () => {
+  const g = id('mg'); await assertSucceeds(merge('acct', g, 20));
+  await assertFails(put('acct', g + '-u', { kind: 'undoReq', ref: g }), 'حجز معرّف التراجع بطلب');
+  await assertFails(put('acct', g + '-u', { kind: 'merge', ref: g + '-u', from: '500000001', to: '500000002', pts: 0 }), 'حجز معرّف التراجع بدمج');
+  const r = id('mg'); await assertSucceeds(put('acct', r, { kind: 'undoReq', ref: g }));
+  await assertFails(put('acct2', id('mg'), { kind: 'undo', ref: g, reqId: r }), 'تراجع بمعرّف عشوائي');
+  await assertSucceeds(put('acct2', r + '-r', { kind: 'rej', ref: r }), 'رفض');
+  await assertFails(put('acct', r + '-r', { kind: 'rej', ref: r }), 'رفض ثانٍ لنفس الطلب');
+  const r2 = id('mg'); await assertSucceeds(put('acct', r2, { kind: 'undoReq', ref: g }));
+  await assertSucceeds(put('acct2', g + '-u', { kind: 'undo', ref: g, reqId: r2 }), 'اعتماد طلب قائم');
+  const r3 = id('mg'); await assertSucceeds(put('acct', r3, { kind: 'undoReq', ref: g }));
+  await assertFails(put('owner', g + '-u', { kind: 'undo', ref: g, reqId: r3 }), 'تراجع ثانٍ لنفس الدمج');
+  await assertFails(put('acct', r3 + '-x-r', { kind: 'undoReq', ref: g }), 'لاحقة الرفض محجوزة');
 });
 
 test('MKM-6 القراءة: المركز والمسؤول فقط', async () => {

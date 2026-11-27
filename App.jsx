@@ -3767,7 +3767,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.38';
+const APP_VER = 'v56.39';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3882,7 +3882,12 @@ function PlatformApp() {
   const opsNow = useRef(null); opsNow.current = ops;   // v29.5: للحارس المركزي للإقفال داخل commitOrg
   const [pulse, setPulse] = useState({ presence: {}, audit: [] });
   const [me, setMe] = useState(null);
-  useEffect(() => { lynReset(); }, [me ? (me.id || me.email || me.name || '') : '']);   // v56.37: لا تنتقل أسماء الولاء المحمّلة إلى مستخدم آخر على الجهاز نفسه
+  useEffect(() => { lynReset(); mkmSrvSet(null); }, [me ? (me.id || me.email || me.name || '') : '']);   // v56.37: لا تنتقل أسماء الولاء المحمّلة إلى مستخدم آخر على الجهاز نفسه
+  const [, setMkmTick] = useState(0);   // v56.39: مصدر الدمج على الخادم — يُحمَّل للمركز ثم يُعاد الرسم
+  const mkmSrcFlag = !!(org && mkmSrcOn(org)); const meCentral = !!(me && ((ROLES[me.role] || {}).scope === 'all' || (ROLES[me.role] || {}).admin));
+  const meKey = me ? (me.id || me.email || me.name || '') : '';
+  const mkmStale = mkmSrcFlag && meCentral ? mkmSrvStale(opsRaw) : '';   // سجل كتبه مستخدم آخر بعد التحميل ⇒ إعادة تحميل
+  useEffect(() => { if (!mkmSrcFlag || !meCentral) { mkmSrvSet(null); return; } let dead = false; mkmSrvLoad().then(() => { if (!dead) setMkmTick(t => t + 1); }).catch(() => { }); return () => { dead = true; }; }, [mkmSrcFlag, meCentral, meKey, mkmStale]);
   useEffect(() => { _rptCtx.user = (me && me.name) || ''; }, [me]);   // v50.0: اسم الطابع في تذييل كل تقرير
   useEffect(() => { ERR_CTX.role = (me && me.role) || ''; ERR_CTX.branchId = (me && me.branchId) || ''; }, [me]);   // v38.5 سياق سجل الأخطاء
   const [tab, setTab] = useState('home');
@@ -7185,7 +7190,22 @@ const MKT_SEG_ORDER = ['vip', 'loyal', 'risk', 'inactive', 'potential', 'new', '
 const mktDays = (a, b) => Math.round((new Date(String(b).slice(0, 10) + 'T12:00:00') - new Date(String(a).slice(0, 10) + 'T12:00:00')) / 864e5);
 // خريطة الدمج المعتمد: من ← إلى (تتبّع السلاسل)
 /* v56.12 (G4): التراجع عن الدمج بسجل إلحاق {undoOf} — لا يُعدَّل سجل الدمج ولا يُحذف */
-function mktMergesLive(ops) { const M = (ops && ops.mktMerges) || []; const un = new Set(M.filter(x => x.undoOf).map(x => x.undoOf));
+/* v56.39 — مصدر الدمج على الخادم (org.mkmSrc.on، معطّل افتراضيًا): سجل الدمج أو الطلب أو القرار يُكتب في mkt_merges أولًا فيفرض الخادم فصل المهام قبل أي أثر،
+   ولا يُعتدّ في الحساب (الدمج الفعّال، الطلبات، تدقيق الولاء) إلا بما في الخادم — فالمكتوب في المستند المركزي مباشرةً بلا سجل محمي لا أثر له. */
+const mkmSrcOn = (org) => !!(org && org.mkmSrc && org.mkmSrc.on) && mkmOn(org);
+let _mkmSrv = null;   // السجلات المحمية { id: سجل بصيغة mktMerges } (تُحمَّل للمركز عند التفعيل)؛ null ⇒ المصدر كما هو
+let _mkmGen = 0;     // يُبطل تحميلًا قديمًا بدأ قبل تبديل المستخدم (يرتفع عند التصفير فقط)
+/** سجل الخادم ⇐ صيغة mktMerges — تُبنى من حقول الخادم وحدها (مراجعة الأمن: لا حقل زائد من المصدر، ولا يُخفيها حذف من المصدر) */
+const mkmLegacy = (r) => { const at = r.origAt || (r.at && typeof r.at.toDate === 'function' ? r.at.toDate().toISOString() : (typeof r.at === 'string' ? r.at : ''));
+  const base = { id: r.id, reason: r.reason || '', by: r.byName || r.origBy || r.by || '', ...(r.by ? { byEmail: r.origBy || r.by } : {}), at };
+  return r.kind === 'merge' ? { ...base, from: r.from, to: r.to, pts: Number(r.pts) || 0 } : r.kind === 'undoReq' ? { ...base, undoReq: r.ref }
+    : r.kind === 'rej' ? { ...base, rejOf: r.ref } : { ...base, undoOf: r.ref, ...(r.reqId ? { reqId: r.reqId } : {}) }; };
+const mkmSrvSet = (recs) => { if (!recs) _mkmGen++; _mkmSrv = recs ? new Map((recs || []).filter(r => r && r.id && r.kind).map(r => [r.id, mkmLegacy(r)])) : null; };
+/** مع «الخادم مصدر الدمج» وتحميل سجلاته: الدمج والطلبات والقرارات من الخادم وحده بترتيب وقتها — المستند المركزي لا يُقرأ */
+const mkmEff = (ops) => _mkmSrv ? [..._mkmSrv.values()].sort((a, b) => String(a.at || '').localeCompare(String(b.at || ''))) : ((ops && ops.mktMerges) || []);
+/** مفتاح ما في المصدر ولم يُحمَّل من الخادم — يتغير بكل كتابة جديدة فيُعاد التحميل (سجل كتبه مستخدم آخر) */
+const mkmSrvStale = (ops) => !_mkmSrv ? '' : ((ops && ops.mktMerges) || []).filter(x => x && x.id && !_mkmSrv.has(x.id)).map(x => x.id).sort().join(',');
+function mktMergesLive(ops) { const M = mkmEff(ops); const un = new Set(M.filter(x => x.undoOf).map(x => x.undoOf));
   return M.filter(x => !x.undoOf && !x.undone && !x.undoReq && !x.rejOf && !un.has(x.id)); }   // v56.35: الطلبات والرفض ليست دمجًا
 /* v56.35 (الدفعة 4 — قرارا المجلس M3/M4 بتفويض المالك، معطّلة افتراضيًا org.mktCtl.on):
    M3 تصدير أرقام العملاء للمركز وحده (المدير أو المالك) والموافقين فقط؛ وتصدير غير الموافقين للمالك وحده بسبب إلزامي، والتسجيل قبل التنزيل.
@@ -7193,7 +7213,7 @@ function mktMergesLive(ops) { const M = (ops && ops.mktMerges) || []; const un =
 const mktCtlOn = (org) => !!(org && org.mktCtl && org.mktCtl.on);
 const mktCanExport = (org, me) => { if (!mktCtlOn(org)) return true; const R = ROLES[(me || {}).role] || {}; return R.scope === 'all' && !!(R.admin || R.approver); };
 const mktCanExportAll = (org, me) => mktCtlOn(org) && !!(ROLES[(me || {}).role] || {}).admin;
-function mktUndoPending(ops) { const M = (ops && ops.mktMerges) || []; const done = new Set(M.filter(x => x.undoOf && x.reqId).map(x => x.reqId)); const rej = new Set(M.filter(x => x.rejOf).map(x => x.rejOf));
+function mktUndoPending(ops) { const M = mkmEff(ops); const done = new Set(M.filter(x => x.undoOf && x.reqId).map(x => x.reqId)); const rej = new Set(M.filter(x => x.rejOf).map(x => x.rejOf));
   return M.filter(x => x.undoReq && !done.has(x.id) && !rej.has(x.id)); }
 /* v56.12 (المراقب المالي 3): التراجع عن الدمج يُمنع إن صُرفت النقاط المنقولة (رصيد المدموج إليه أقل منها) أو تلاه دمج يمس أحد الرقمين — فلا رصيد سالب ولا صرف مرتين */
 function mktUnmergeBlock(ops, loyTx, x) {
@@ -8071,7 +8091,7 @@ function commsTplErr(t) { if (!String(t.name || '').trim()) return 'اسم ال�
 const LOY_AUDIT_WHY = { noOrder: 'نقاط فاتورة بلا فاتورة', mismatch: 'لا تطابق نقاط الفاتورة', notVoid: 'عكس إلغاء لفاتورة غير ملغاة', noReturn: 'خصم مرتجع بلا مستند مرتجع', noMerge: 'دمج بلا سجل دمج معتمد', unknown: 'حركة بمصدر غير معروف', dup: 'معرّف مكرر', cpnNoOrder: 'حجز كوبون بلا فاتورة' };
 function loyAudit(doc, ops, opt) {
   opt = opt || {}; const now = opt.now || Date.now(); const P = {}; const os = (ops && ops.posOrders) || []; os.forEach(o => { P[o.id] = o; });
-  const oldest = os.reduce((m, o) => (!m || String(o.date) < m ? String(o.date) : m), ''); const merges = new Set(((ops && ops.mktMerges) || []).map(m => m.id));
+  const oldest = os.reduce((m, o) => (!m || String(o.date) < m ? String(o.date) : m), ''); const merges = new Set(mkmEff(ops).map(m => m.id));
   const flags = [], seen = new Set(); const manual = { n: 0, pts: 0, list: [] }; let checked = 0, outOfRange = 0;
   const flag = (t, why, extra) => flags.push({ id: t.id, phone: t.phone, pts: Number(t.pts) || 0, at: t.at, ord: t.ord || '', why, ...(extra || {}) });
   ((doc && doc.tx) || []).forEach(t => {
@@ -15044,7 +15064,14 @@ async function mkmMirror(items, seed, onProgress) {
 }
 const mkmQueue = (items) => { _grrChain = _grrChain.then(() => mkmMirror(items, false)).catch(() => null); return _grrChain; };
 const mkmSeed = (items, onProgress) => mkmMirror(items || [], true, onProgress);
-export { mkmOn, mkmRecord, mkmDiff, mkmCompare, mkmViolations, mkmSeed };
+/** كتابة السجل المحمي أولًا (بانتظار الرد) — رفض الخادم يوقف العملية قبل أي أثر */
+async function mkmWrite(x) {
+  const c = await ctlIdentity(); if (!c) return { err: 'السجل المحمي يعمل على قاعدة Firestore فقط' };
+  try { await mkmPut(c, x, false); if (_mkmSrv) _mkmSrv.set(x.id, mkmLegacy({ id: x.id, ...mkmRecord(x), by: c.email, at: x.at || nowISO() })); return { ok: true }; }
+  catch (e) { const code = (e && e.code) || 'error'; return { err: /permission/i.test(code) ? 'رفضه الخادم (فصل المهام أو الصلاحية)' : 'تعذّر الحفظ (' + code + ')' }; }
+}
+async function mkmSrvLoad() { const g = _mkmGen; const R = await grrLoad('mkt_merges', '', [], true); if (!R || R.err) return R || null; if (g !== _mkmGen) return null; mkmSrvSet(R); return R; }
+export { mkmOn, mkmRecord, mkmDiff, mkmCompare, mkmViolations, mkmSeed, mkmSrcOn, mkmSrvSet, mkmEff, mkmWrite, mkmSrvLoad, mkmSrvStale };
 
 /* ===== v49.0 — المرحلة 01 (قرار G1-ب): القيود اليدوية سجلات مستقلة (fin_journal/{id}) — نسخ مطابق (mirror) =====
    الوثيقة الحالية (journalManual) تبقى المصدر في هذه المرحلة؛ كل إنشاء/اعتماد/رفض/حذف قبل الاعتماد يُنسخ إلى سجل تحرسه القواعد
