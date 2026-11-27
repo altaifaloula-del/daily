@@ -11,6 +11,8 @@ import { BudgetV } from './BudgetV.jsx';   // v56.41 الدفعة 6 (E5)
 import { PrepaidCard } from './PrepaidCard.jsx';   // v56.41 الدفعة 6 (T4)
 import { DeptShiftMap } from './DeptShiftMap.jsx';   // v56.42 الدفعة 8 (U3)
 import { ImpairCard } from './ImpairCard.jsx';   // v56.43 الدفعة 10 (E8)
+import { WhtCard, whtCanEdit } from './WhtCard.jsx';
+import { whtOn } from '../../App.jsx';   // v56.47 (E7) ضريبة الاستقطاع
 import { impOn } from '../../App.jsx';
 import { budVOn, ppOn } from '../../App.jsx';
 import { eclOn } from '../../App.jsx';
@@ -3553,6 +3555,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
               </div>
             </div>
             <div className="note">⚠️ <b>بشفافية:</b> حاسبة <b>استرشادية</b> بطريقة «مصادر الأموال». تُطبَّق حسب <b>نوع الملكية</b>: الزكاة (2.5%) على الحصة السعودية/الخليجية، و<b>ضريبة الدخل</b> (20% افتراضيًا) على الحصة الأجنبية من صافي الربح. المنشأة الأجنبية بالكامل تخضع لضريبة الدخل فقط، والسعودية للزكاة فقط. ليست إقرارًا رسميًا — الوعاء الرسمي يخضع لضوابط الهيئة، والوعاء لا يقل عن صافي الربح المعدّل (طُبّق تلقائيًا). راجِع محاسبك.</div>
+            {(whtOn(org) || whtCanEdit(me)) && <WhtCard org={org} ops={ops} me={me} commitOrg={commitOrg} say={say} />}
           </div>
         );
       })()}

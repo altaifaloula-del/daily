@@ -4295,3 +4295,65 @@ test('v56.46 الدفعة 12 (P9): «آجل» في الكاشير للعميل �
   assert.equal(await p.evaluate(() => (window.cur.posOrders || []).length), 0, 'بلا تفويض الخادم لا تصدر فاتورة');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.47 (E7): سند صرف لمورد غير مقيم — نوع الاستقطاع المؤكَّد إلزامي، والسند يحمل الإجمالي والاستقطاع، وبطاقة الإعداد', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Hub/admin/finhub:treasury');
+  await p.evaluate(() => { window.setOrg(g => ({ ...g, taxCfg: { enabled: false }, wht: { on: true, types: [{ id: 'wt1', name: 'خدمات فنية (تجريبي)', rate: 5, ok: true }, { id: 'wt2', name: 'نوع غير مؤكَّد', rate: 15, ok: false }] },
+    suppliers: (g.suppliers || []).map(s => s.id === 's1' ? { ...s, nonResident: true, country: 'دولة تجريبية' } : s) })); window.setOps(o => ({ ...o, cashVouchers: [], invoices: [] })); });
+  await p.waitForTimeout(300);
+  await p.locator('[data-tabcv]').click(); await p.waitForTimeout(200);
+  await p.locator('[data-newcv="pv"]').click(); await p.waitForTimeout(150);
+  await p.locator('[data-cvpt="sup"]').click(); await p.selectOption('select[aria-label="جهة السند"]', 'sup:s1');
+  await p.locator('[data-cvpm="bank"]').click(); await p.fill('input[aria-label="مبلغ السند"]', '10000'); await p.fill('input[aria-label="بيان السند"]', 'خدمة تجريبية');
+  await p.waitForSelector('[data-cv-whtbox]');
+  assert.deepEqual(await p.locator('[data-cv-whttype] option').evaluateAll(os => os.map(o => o.value)), ['', 'wt1'], 'المؤكَّد فقط');
+  await p.locator('[data-cvsave]').click(); await p.waitForFunction(() => /اختر نوع ضريبة الاستقطاع/.test(window.lastSay || ''));
+  assert.equal(await p.evaluate(() => (window.cur.cashVouchers || []).length), 0);
+  await p.selectOption('[data-cv-whttype]', 'wt1');
+  assert.match(await p.locator('[data-cv-whtcalc]').innerText(), /9,500/);
+  await p.locator('[data-cvsave]').click(); await p.waitForFunction(() => (window.cur.cashVouchers || []).length === 1);
+  const v = await p.evaluate(() => { const v = window.cur.cashVouchers[0]; return [v.no, v.amount, v.fund, v.whtType, v.whtRate, v.whtAmt, v.whtCountry]; });
+  assert.deepEqual(v, ['PV-000001', 10000, '1201', 'wt1', 5, 500, 'دولة تجريبية']);
+  await p.waitForFunction(() => /PV-000001/.test((document.querySelector('.mz-docv iframe') || {}).srcdoc || ''));
+  const doc = await p.evaluate(() => (document.querySelector('.mz-docv iframe') || {}).srcdoc || '');
+  assert.match(doc, /المبلغ الإجمالي/); assert.match(doc, /ضريبة الاستقطاع/); assert.match(doc, /الصافي المدفوع/); assert.match(doc, /9,500/);
+  await p.locator('.mz-docv button', { hasText: 'إغلاق' }).click().catch(() => {}); await p.waitForTimeout(150);
+  assert.equal(await p.locator('[data-cv-wht]').count(), 1, 'القائمة تُظهر الاستقطاع والصافي');
+  assert.deepEqual(errs, []); await ctx.close();
+  { const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Admin/admin');
+    await p.click('button:has-text("صيانة النظام")'); await p.waitForSelector('[data-whtcard]');
+    assert.equal(await p.locator('[data-wht-types]').count(), 0, 'بلا تفعيل ولا أنواع: لا جدول');
+    p.removeAllListeners('dialog'); p.on('dialog', d => d.accept().catch(() => {}));
+    await p.click('[data-wht-toggle]'); await p.waitForFunction(() => (window.curOrg.wht || {}).on === true);
+    await p.click('[data-wht-add]'); await p.fill('[data-wht-types] input[aria-label="اسم نوع الاستقطاع"]', 'نوع تجريبي'); await p.fill('[data-wht-types] input[aria-label="نسبة نوع الاستقطاع"]', '5');
+    await p.click('[data-wht-save]'); await p.waitForFunction(() => ((window.curOrg.wht || {}).types || []).length === 1);
+    assert.deepEqual(await p.evaluate(() => window.curOrg.wht.types.map(t => [t.name, t.rate, t.ok])), [['نوع تجريبي', 5, false]], 'لا يؤكَّد إلا بوسم صريح');
+    assert.deepEqual(errs, []); await ctx.close(); }
+});
+
+test('v56.47 (P4): قائمة أسعار التطبيق في الكاشير — الدفع بتطبيق له أسعار يُمنع بقائمة «المطعم»، واختيار القائمة يعيد التسعير ويُحفظ على الطلب', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/bm');
+  await p.evaluate(() => {
+    window.setOrg(g => ({ ...g, taxCfg: { enabled: true, rate: 15 }, posCfg: { branches: ['b1'], autoPrint: false }, deliveryApps: [{ id: 'jahez', n: 'جاهز', c: 0 }, { id: 'toyou', n: 'تويو', c: 0 }],
+      products: [{ id: 'k', name: 'كبسة', sellPrice: 58, cat: 'رئيسي', appPrices: { jahez: 65 } }] }));
+    window.setOps(o => ({ ...o, posTabs: [], kdsTickets: [], posOrders: [] }));
+  }); await p.waitForTimeout(400);
+  const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); }
+  await p.locator('.pos-tile:has-text("كبسة")').click();
+  assert.equal(await p.locator('[data-pricelist]').count(), 0, 'بلا تفعيل لا منتقي');
+  await p.evaluate(() => window.setOrg(g => ({ ...g, posCfg: { ...g.posCfg, appPrices: true } }))); await p.waitForTimeout(300);
+  await p.waitForSelector('[data-pricelist]');
+  assert.deepEqual(await p.locator('select[aria-label="قائمة الأسعار"] option').allInnerTexts(), ['المطعم', 'جاهز'], 'التطبيق ذو الأسعار فقط');
+  await p.locator('button:has-text("تطبيق توصيل")').click(); await p.waitForSelector('.modal');
+  await p.click('.modal button:has-text("تأكيد")'); await p.waitForFunction(() => /أسعار خاصة/.test(window.lastSay || ''));
+  assert.equal(await p.evaluate(() => (window.cur.posOrders || []).length + (JSON.parse(localStorage.getItem('mizan:posQueue') || '[]')).length), 0);
+  await p.keyboard.press('Escape'); await p.waitForTimeout(200);
+  await p.selectOption('select[aria-label="قائمة الأسعار"]', 'jahez'); await p.waitForTimeout(200);
+  assert.ok(await p.locator('.pos-line:has-text("كبسة")').innerText().then(t => /65/.test(t)), 'السطر بسعر التطبيق');
+  await p.locator('button:has-text("تطبيق توصيل")').click(); await p.waitForSelector('.modal');
+  await p.click('.modal button:has-text("تأكيد")');
+  await p.waitForFunction(() => (window.cur.posOrders || []).length === 1, null, { timeout: 15000 });
+  const o = await p.evaluate(() => { const o = window.cur.posOrders[0]; return [o.priceList, o.lines[0].price, o.total, o.payments[0].m, o.payments[0].appId]; });
+  assert.deepEqual(o, ['jahez', 65, 65, 'app', 'jahez']);
+  assert.deepEqual(errs, []); await ctx.close();
+});

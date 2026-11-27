@@ -3,6 +3,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Upload, Truck, FileBarChart, ChevronDown, Printer, FileText, Building2, ClipboardCheck, Users, Plus, AlertTriangle, CalendarDays, Trash2, Check, X, Banknote } from 'lucide-react';
 import { poNeedsAppr, wfOn, wfState, wfCanAct, wfApprove } from '../../App.jsx';   // v49.5 مسارات الاعتماد
 import { deptOn, deptList, DEPT_SHARED } from '../../App.jsx';   // v56.27 E4
+import { whtPayBlock } from '../../App.jsx';   // v56.47 (E7) المورد غير المقيم يُسدَّد بسند الصرف فقط
 import { canEditRec, autoCfgOf, poSuggestions, DocLink, RowGrip, moveIdx, projList, uomOf, uomOk, lineUnits, lineFac, UomSelect, DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, _xe, roleEdit, rolePost, buildAccounting, INV_BILLERS, itemsSeq, vatNoOk, supVatOf, ItemPick, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, poWhOf, brSigCheck, signoff, signDecision, sigFailMsg, pjBackfill, pjMissing, INV_CLS, invCls } from '../../App.jsx';
 import { cloud, bfKey } from '../../storage';
 import { ExpImport } from './ExpImport.jsx';   // v53.1
@@ -218,7 +219,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     if (typedNo) { const o = invNoTaken(sp.id, typedNo); if (o && (!orig || o.id !== orig.id)) return say('فاتورة مكررة: رقم ' + typedNo + ' للمورد «' + sp.name + '» مسجّل بتاريخ ' + (o.date || '') + ' بمبلغ ' + money(o.amount) + ' — لم يُحفظ', 'no'); }
     const twin = (ops.invoices || []).find(i => !i.creditNote && (!orig || i.id !== orig.id) && i.supplierId === sp.id && (i.date || '') === (f.date || today()) && Math.abs((i.amount || 0) - v) < 0.01);
     if (twin && !window.confirm('تنبيه: يوجد فاتورة للمورد نفسه بنفس التاريخ والمبلغ (' + money(v) + ') برقم ' + (twin.invoiceNo || '') + '.\nهل هذه فاتورة مختلفة فعلًا؟')) return;
-    const py = payOf(f, Math.round((k.fcNet + k.fcVat) * 100) / 100, v, k.fxR, f.date || today()); if (py.err) return say(py.err, 'no');
+    const py = payOf(f, Math.round((k.fcNet + k.fcVat) * 100) / 100, v, k.fxR, f.date || today(), sp.id); if (py.err) return say(py.err, 'no');
     if (!(await ensureVat(sp.id, k.vat, f.vatNo))) return;
     const rDate = f.date || today(); const wid = whOn(org) ? (f.whId || MAIN_WH) : ''; const tw = wid ? whOf(org).find(w => w.id === wid) : null;
     const invId = uid('inv'), no = typedNo || autoNo();
@@ -495,9 +496,10 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
       </div>}
     </div>);
   // يعيد { pm, payments, paidAmount } أو { err } — gross بعملة الفاتورة، fxR سعرها (1 للريال)، grossSar بالريال
-  const payOf = (f, gross, grossSar, fxR, date) => {
+  const payOf = (f, gross, grossSar, fxR, date, supplierId) => {
     if (!f.pm || !PM_AR[f.pm]) return { err: 'اختر طريقة الدفع: آجل أو نقدًا أو تحويل بنكي أو شيك' };
     if (f.pm === 'credit') return { pm: 'credit', payments: [], paidAmount: 0 };
+    const wb = supplierId ? whtPayBlock(org, supplierId) : ''; if (wb) return { err: wb + ' — سجّل الفاتورة آجلة' };   // v56.47 (E7)
     if (f.pm === 'cheque' && !String(f.payRef || '').trim()) return { err: 'أدخل رقم الشيك' };
     const fc = f.payAmt === '' || f.payAmt == null ? gross : Number(f.payAmt) || 0;
     if (!(fc > 0)) return { err: 'أدخل المبلغ المدفوع' }; if (fc > gross + 0.005) return { err: 'المدفوع أكبر من قيمة الفاتورة' };
@@ -601,7 +603,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     const k0 = purKey({ supplierId: p2.supplierId, invoiceNo: c.supInvNo.trim() }); const o = (ops.invoices || []).find(i => purKey(i) === k0);
     if (o) return say('فاتورة مكررة: رقم ' + c.supInvNo.trim() + ' للمورد مسجّل بتاريخ ' + (o.date || '') + ' — لم يُحفظ', 'no');
     const k = cvCalc(c);
-    const pyC = payOf(c, k.gross, k.gross, 1, c.date); if (pyC.err) return say(pyC.err, 'no');
+    const pyC = payOf(c, k.gross, k.gross, 1, c.date, p2.supplierId); if (pyC.err) return say(pyC.err, 'no');
     if (!(await ensureVat(p2.supplierId, k.vat, c.vatNo))) return;
     const inv = invFromCv(c, p2); inv.pm = pyC.pm; if (pyC.payments.length) { inv.payments = pyC.payments; inv.paidAmount = pyC.paidAmount; }
     const cDoc = c.img ? await archiveImg(c.img, { branchId: inv.branchId, title: 'فاتورة مورد ' + inv.invoiceNo + ' — ' + p2.supplierName, amount: inv.amount, ref: inv.invoiceNo }) : (c.docId || null); if (cDoc) inv.docId = cDoc;
@@ -659,7 +661,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     if (periodLocked(org, f.date)) return say(LOCK_MSG(f.date), 'no');
     const typedNo = (f.invoiceNo || '').trim();
     if (typedNo) { const k0 = purKey({ supplierId: sp.id, invoiceNo: typedNo }); const o = (ops.invoices || []).find(i => purKey(i) === k0); if (o) return say('فاتورة مكررة: رقم ' + typedNo + ' للمورد «' + sp.name + '» مسجّل بتاريخ ' + (o.date || ''), 'no'); }
-    const pyS = payOf(f, k.gross, Math.round((sum(ls, l => toS(l.n)) + toS(k.vat)) * 100) / 100, fxR, f.date); if (pyS.err) return say(pyS.err, 'no');
+    const pyS = payOf(f, k.gross, Math.round((sum(ls, l => toS(l.n)) + toS(k.vat)) * 100) / 100, fxR, f.date, sp.id); if (pyS.err) return say(pyS.err, 'no');
     if (!(await ensureVat(sp.id, k.vat, f.vatNo))) return;
     const autoNo = () => { const pre = 'SVC-' + today().replace(/-/g, '').slice(2) + '-'; let n = 1; while ((ops.invoices || []).some(i => i.invoiceNo === pre + String(n).padStart(3, '0'))) n++; return pre + String(n).padStart(3, '0'); };
     const br = org.branches.find(b => b.id === f.branchId);
@@ -746,6 +748,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
 
   const settle = async () => {
     const inv = pay;
+    const wb = whtPayBlock(org, inv.supplierId); if (wb) return say(wb, 'no');   // v56.47 (E7): لا سداد مركزي ولا لمشتريات الوردية لمورد غير مقيم — لا توجيه صامت
     // v8.1: فاتورة مشتقة من وردية → السداد يُسجل في سجل مستقل وقيده (ذمم/بنك) يتولد تلقائياً
     if (inv.source === 'closing') {
       const v = Math.min(amt, cRem(inv));

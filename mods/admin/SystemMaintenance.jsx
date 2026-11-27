@@ -21,6 +21,7 @@ import { DS_BLOCKED, dsRanges, dsRouteOpen, dsLive, dsMapOf, dsAccOk } from '../
 import { cvApprRanges } from '../../App.jsx';
 import { mktCtlOn } from '../../App.jsx';   // v56.35 ضوابط التسويق   // v56.32 اعتماد سندات الصرف   // v56.29 أوامر الصرف   // v56.23 (G2) شريط التحكم   // v56.18 (POS 6a) أثر فواتير نقطة البيع في قيد الإغلاق   // v56.17 (GROWTH 2) سجلات الموافقة والولاء المحمية   // v56.12 (GROWTH G1) سجلات التسويق في الفروع
 import { DsPreCard, DsDupCard } from '../acct/DsBatch11.jsx';   // v56.45 الدفعة 11
+import { WhtCard } from '../acct/WhtCard.jsx';   // v56.47 (E7) ضريبة الاستقطاع
 import { WorkflowsCard } from './Workflows.jsx';   // v49.5 MQ-059
 import { FL_START, flOn, flScope, flCompare, flLoad, flPost, FL_GROUPS, flLvl, flUnclassified, flCorrect, flReadOn } from '../../App.jsx';   // v56.9 D1 دفتر القيود المخزّن
 import { fjCompare, fjLoad, fjOn, fjState, fpLockedTo, fpLoad, fmLoad, fmSet, fjSeed, FD_KINDS, fdCompare, fdLoad, fdSeed } from '../../App.jsx';   // v49.0 المرحلة 01
@@ -338,6 +339,7 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
       <DsPreCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <DsDupCard org={org} ops={ops} me={me} commit={commit} say={say} canPost={jeOwner(me) || ['accountant', 'finance_department'].includes(me && me.role)} />
       <CvApprCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
+      <WhtCard org={org} ops={ops} me={me} commitOrg={commitOrg} say={say} />
       <MktCtlCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <FinStrictCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <LedgerCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
