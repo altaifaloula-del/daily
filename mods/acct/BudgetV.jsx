@@ -17,7 +17,7 @@ export function BudgetV({ org, ops, A, me, commit, say, canPost }) {
   const bf = br === '*' ? undefined : br;
   const BM = B ? budMonthMap(B, mon, bf) : {};
   const ym = year + '-' + String(mon).padStart(2, '0');
-  const act = useMemo(() => { const M = {}; (A.entries || []).forEach(e => { if (String(e.date || '').slice(0, 7) !== ym) return; if (bf !== undefined && String(e.branchId || '') !== bf) return;
+  const act = useMemo(() => { const M = {}; (A.entries || []).forEach(e => { if (e.closing || String(e.date || '').slice(0, 7) !== ym) return;   // قيد الإقفال السنوي لا يدخل الفعلي if (bf !== undefined && String(e.branchId || '') !== bf) return;
     (e.lines || []).forEach(l => { M[l.code] = (M[l.code] || 0) + (Number(l.debit) || 0) - (Number(l.credit) || 0); }); }); return M; }, [A, ym, bf]);
   const rows = accs.map(a => { const budget = r2(BM[a.code] || 0); const actual = r2(a.kind === 'exp' ? (act[a.code] || 0) : -(act[a.code] || 0)); const v = r2(actual - budget);
     return { a, budget, actual, v, over: a.kind === 'exp' ? v > 0.005 : v < -0.005 }; }).filter(r => r.budget || Math.abs(r.actual) > 0.004);
@@ -54,7 +54,7 @@ export function BudgetV({ org, ops, A, me, commit, say, canPost }) {
         التجاوز يُنبَّه إليه ولا يمنع الصرف.</div>
       <div className="tw"><table className="tb" data-budv-table><thead><tr><th>الحساب</th><th style={{ textAlign: 'end' }}>الموازنة</th><th style={{ textAlign: 'end' }}>الفعلي</th><th style={{ textAlign: 'end' }}>الانحراف</th><th>الحالة</th></tr></thead>
         <tbody>{rows.map(r => <tr key={r.a.code}><td>{r.a.code} · {r.a.name}</td><td className="num" style={{ textAlign: 'end' }}>{r.budget ? money(r.budget) : '—'}</td><td className="num" style={{ textAlign: 'end' }}>{money(r.actual)}</td>
-          <td className={'num' + (r.v < 0 ? ' neg' : '')} style={{ textAlign: 'end' }}>{money(r.v)}</td><td><span className={'badge ' + (r.over ? 'b-rose' : 'b-mint')}>{r.a.kind === 'exp' ? (r.over ? 'تجاوز' : 'ضمن الموازنة') : (r.over ? 'دون الهدف' : 'تحقّق الهدف')}</span></td></tr>)}
+          <td className={'num' + (r.over ? ' neg' : '')} style={{ textAlign: 'end' }}>{money(r.v)}</td><td><span className={'badge ' + (r.over ? 'b-rose' : 'b-mint')}>{r.a.kind === 'exp' ? (r.over ? 'تجاوز' : 'ضمن الموازنة') : (r.over ? 'دون الهدف' : 'تحقّق الهدف')}</span></td></tr>)}
           {!rows.length && <tr><td colSpan={5}><div className="empty">لا موازنة ولا حركة لهذا الشهر</div></td></tr>}</tbody></table></div>
     </div>
     <div className="card">

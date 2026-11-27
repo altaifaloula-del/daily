@@ -2783,7 +2783,8 @@ function buildAccounting(org, ops) {
   (ops.prepaids || []).forEach(x => { if (!x || x.status !== 'approved' || !x.assetAcc || !x.expAcc) return; const a = budR2(x.amount); if (!(a > 0)) return;
     const br = x.branchId ? { branchId: x.branchId } : {}, nm = String(x.desc || '').slice(0, 80) + (x.no ? ' (' + x.no + ')' : '');
     push({ id: 'pp:' + x.id + ':r', date: x.date, ...br, title: 'مصروف مدفوع مقدمًا — ' + nm, src: 'المصروفات المدفوعة مقدمًا', ref: x.no || '', lines: [L(x.assetAcc, a, 0), L(x.expAcc, 0, a)] });
-    ppSchedule(x).forEach(s => push({ id: 'pp:' + x.id + ':' + s.ym, date: s.date, ...br, title: 'إطفاء مصروف مدفوع مقدمًا ' + s.ym + ' — ' + nm, src: 'المصروفات المدفوعة مقدمًا', ref: x.no || '', lines: [L(x.expAcc, s.amount, 0), L(x.assetAcc, 0, s.amount)] })); });
+    const curYm = today().slice(0, 7);   // (التحقق المحاسبي) لا قيد بتاريخ مستقبلي — يُولَّد إطفاء الشهر حين يحل، كالإهلاك
+    ppSchedule(x).forEach(s => s.ym <= curYm && s.amount > 0 && push({ id: 'pp:' + x.id + ':' + s.ym, date: s.date, ...br, title: 'إطفاء مصروف مدفوع مقدمًا ' + s.ym + ' — ' + nm, src: 'المصروفات المدفوعة مقدمًا', ref: x.no || '', lines: [L(x.expAcc, s.amount, 0), L(x.assetAcc, 0, s.amount)] })); });
 
   // 6-ج) v46.6 سندات القبض والصرف والمقاصّة: الجزء الموزَّع على فواتير يُقيَّد مع الفاتورة (سدادها/تحصيلها)، والباقي «على الحساب» هنا
   (ops.cashVouchers || []).forEach(v => {
@@ -9283,7 +9284,7 @@ async function loyPiiStrip() {
 }
 /* ===== v56.41 — الدفعة 6 (قرارات المجلس E5 وT4) =====
    E5 الموازنات بالإصدارات (ops.budgets، معطّلة افتراضيًا org.budgetV.on): { id, year, ver, status: draft|submitted|approved|superseded|rejected,
-   lines: [{ code, month 1..12, branchId? , projectId?, deptId?, amount }], by, byId, ... }. يعدّها المحاسب، ويعتمدها المالك أو الإدارة المالية أو العامة غير المُعدّ؛
+   lines: [{ code, month 1..12, branchId? , projectId?, deptId?, amount }], by, byId, ... }. يعدّها المحاسب، ويعتمدها المالك أو الإدارة المالية غير المُعدّ؛
    المعتمد لا يُعدَّل (التعديل إصدار جديد)، واعتماد إصدار يستبدل المعتمد قبله للسنة نفسها. التجاوز ينبّه ولا يمنع (E5.3).
    org.budget القديمة تُقرأ «إصدارًا صفريًا» كما هي بلا نقل (E5.4). */
 const budVOn = (org) => !!(org && org.budgetV && org.budgetV.on);
@@ -9302,7 +9303,8 @@ function budMonthMap(B, month, branchId) {
   const M = {}; ((B && B.lines) || []).forEach(l => { if (Number(l.month) !== Number(month)) return; if (branchId !== undefined && String(l.branchId || '') !== String(branchId)) return;
     M[l.code] = budR2((M[l.code] || 0) + (Number(l.amount) || 0)); }); return M;
 }
-const budCanApprove = (me, b) => !!me && (jeOwner(me) || ['finance_department', 'general_management'].includes(me.role)) && (b && b.byId ? b.byId !== me.id : !!b && b.by !== me.name);
+const budCanApprove = (me, b) => !!me && (jeOwner(me) || me.role === 'finance_department') &&   // E5.2: المالك أو الإدارة المالية
+   (b && b.byId ? b.byId !== me.id : !!b && b.by !== me.name);
 /** إصدار جديد للسنة (مسودة) نسخةً من آخر إصدار أو فارغًا */
 function budNewVersion(ops, year, me, fromB) {
   const vs = ((ops && ops.budgets) || []).filter(b => String(b.year) === String(year)); const ver = vs.reduce((m, b) => Math.max(m, Number(b.ver) || 0), 0) + 1;
@@ -9311,7 +9313,7 @@ function budNewVersion(ops, year, me, fromB) {
 /** الاعتماد: غير المُعدّ، والمرفوع وحده، ويستبدل المعتمد السابق للسنة نفسها */
 function budApprove(d, id, me) {
   const b = (d.budgets || []).find(x => x.id === id); if (!b || b.status !== 'submitted') return { err: 'تغيّرت حالة الموازنة — حدّث الشاشة' };
-  if (!budCanApprove(me, b)) return { err: 'يعتمدها المالك أو الإدارة المالية أو العامة، وغير من أعدّها' };
+  if (!budCanApprove(me, b)) return { err: 'يعتمدها المالك أو الإدارة المالية، وغير من أعدّها' };
   if (!(b.lines || []).some(l => Number(l.amount) > 0)) return { err: 'الموازنة بلا مبالغ' };
   const at = nowISO();
   return { next: { ...d, budgets: (d.budgets || []).map(x => x.id === id ? { ...x, status: 'approved', apprBy: me.name, apprById: me.id || '', apprAt: at }
@@ -9330,16 +9332,23 @@ function ppSchedule(x) {
   for (let k = 0; k < n; k++) { const ym = ppAddM(x.start, k); out.push({ ym, date: ppMonthEnd(ym), amount: k === n - 1 ? budR2(a - per * (n - 1)) : per }); }
   return out;
 }
+/** (التحقق المحاسبي) الأصل: متداول 14xx غير سلف الموظفين 1401؛ المصروف: 5xxx غير تسوية المخزون 5150 */
+const ppAssetOk = (c, A) => /^14\d{2,}$/.test(String(c || '')) && String(c) !== '1401' && (!A || (A.accounts || []).some(y => String(y.code) === String(c) && !y.cash));
+const ppExpOk = (c, A) => /^5\d+$/.test(String(c || '')) && String(c) !== '5150' && (!A || (A.accounts || []).some(y => String(y.code) === String(c)));
 function ppCheck(org, ops, x, A) {
   if (!(budR2(x.amount) > 0)) return 'أدخل المبلغ';
   const n = Number(x.months); if (!Number.isInteger(n) || n < 2 || n > 120) return 'عدد أشهر الإطفاء من 2 إلى 120';
+  if (budR2(x.amount) < n * 0.01) return 'المبلغ أصغر من أن يُقسَّط على هذه الأشهر';
   if (!String(x.desc || '').trim()) return 'اكتب الوصف (مثال: إيجار فرع العليا سنة)';
   if (!x.date || periodLocked(org, x.date)) return 'تاريخ الدفعة في فترة مقفلة أو غير محدد';
   if (String(x.date) > today()) return 'لا يُقبل تاريخ مستقبلي';
   if (!/^\d{4}-\d{2}$/.test(String(x.start || '')) || String(x.start) < String(x.date).slice(0, 7)) return 'أول شهر إطفاء لا يسبق شهر الدفعة';
   const has = (c) => !A || (A.accounts || []).some(y => String(y.code) === String(c) && !y.cash);
-  if (!/^1\d{3,}$/.test(String(x.assetAcc || '')) || String(x.assetAcc).startsWith('13') || !has(x.assetAcc)) return 'اختر حساب المصروف المدفوع مقدمًا (أصل 1xxx غير النقد والذمم)';
-  if (!/^5\d+$/.test(String(x.expAcc || '')) || !has(x.expAcc)) return 'اختر حساب المصروف الذي سُجّلت عليه الدفعة (5xxx)';
+  if (!ppAssetOk(x.assetAcc, A)) return 'اختر حساب المصروف المدفوع مقدمًا (أصل متداول 14xx غير سلف الموظفين 1401)';
+  if (!ppExpOk(x.expAcc, A)) return 'اختر حساب المصروف الذي سُجّلت عليه الدفعة (5xxx غير تسوية المخزون)';
+  // (التحقق المحاسبي) لا مستندان للدفعة نفسها: الحساب والتاريخ والمبلغ والفرع
+  const dup = ((ops && ops.prepaids) || []).find(y => y.id !== x.id && y.status !== 'rejected' && y.expAcc === x.expAcc && y.date === x.date && budR2(y.amount) === budR2(x.amount) && String(y.branchId || '') === String(x.branchId || ''));
+  if (dup) return 'يوجد مستند للدفعة نفسها (' + (dup.no || dup.desc) + ')';
   return '';
 }
 function ppApprove(org, d, id, me, A) {
@@ -9348,7 +9357,7 @@ function ppApprove(org, d, id, me, A) {
   const e = ppCheck(org, d, x, A); if (e) return { err: e };
   return { next: { ...d, prepaids: (d.prepaids || []).map(y => y.id === id ? { ...y, status: 'approved', approvedBy: me.name, approvedById: me.id || '', approvedAt: nowISO() } : y) } };
 }
-export { budVOn, BUD_ST, budActive, budMonthMap, budCanApprove, budNewVersion, budApprove, ppOn, ppSchedule, ppCheck, ppApprove };   // v56.41 الدفعة 6
+export { budVOn, BUD_ST, budActive, budMonthMap, budCanApprove, budNewVersion, budApprove, ppOn, ppSchedule, ppCheck, ppApprove, ppAssetOk, ppExpOk };   // v56.41 الدفعة 6
 export { eclOn, eclAccs, eclLive, eclAllowBal, eclWoOf, eclRecOf, eclAllowOk, eclCheck, eclApprove };   // v56.40 الدفعة 7 (E6)
 export { loyPiiOn, lypSetOn, lynReset, lypReleaseOk, loyNamesByBr, loyStrip, loyWithNames, loyPiiPlan, loyGet, loyPiiCopy, loyPiiStrip };
 const posQueue = () => { try { return JSON.parse(localStorage.getItem(POS_Q_KEY) || '[]'); } catch { return []; } };
