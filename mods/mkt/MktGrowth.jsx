@@ -7,6 +7,7 @@ import { Field, Kpi, Modal, money, makeXlsx, today, nowISO, uid, normPhone, loyP
   mktCfg, mktCanApprove, MKT_SEGS, MKT_SEG_ORDER, crmBuild, crmSegment, crmDupes, mktKpis, mktCanContact,
   loyX, loyTier, loyPeriodicTx, mktProfiles, rewardCoupon, cpnKey, posR2, CAMP_ST, campNextNo, campStatusOf, campStats, buildAccounting, recCfgOf, recStats, dtLocal, brReport, printScreen, AI_GROWTH_PRESETS, growthDigest, aiGrowthAsk, COMMS_PROVIDERS, COMMS_CH, COMMS_VARS, commsCfgOf, commsRender, smsParts, commsTplErr, loyAudit, LOY_AUDIT_WHY,
   logAudit, MKT_RW_KEY, rwPendSplit, rwUndoTx, mktUnmergeBlock, mktBrOn, mktRecBranch, mktMergesLive } from '../../App.jsx';
+import { mktCtlOn, mktCanExport, mktCanExportAll, mktUndoPending } from '../../App.jsx';   // v56.35 الدفعة 4
 import { Megaphone, Sparkles, Building2, Bot, MessageSquare } from 'lucide-react';
 import { Gift, Gift as Ticket } from 'lucide-react';
 
@@ -43,8 +44,8 @@ export function MktGrowth({ org, ops, me, myBranches, commit, commitOrg, say }) 
       {!central && view === 'cmp' && <div className="note">الحملات تُخطط وتُعتمد من المركز.</div>}
       {loy && view === 'dash' && <Dash org={org} ops={ops} list={list} brIds={central ? null : brIds} myBranches={myBranches} brName={brName} />}
       {loy && view === 'crm' && <Crm list={list} brName={brName} onOpen={setSel} />}
-      {loy && view === 'seg' && <Seg list={list} cfg={cfg} say={say} />}
-      {loy && view === 'gov' && <Gov list={list} ops={ops} me={me} canApp={canApp && central} commit={commit} say={say} setLoy={setLoy} loyD={loy} />}
+      {loy && view === 'seg' && <Seg list={list} cfg={cfg} say={say} org={org} me={me} />}
+      {loy && view === 'gov' && <Gov list={list} ops={ops} org={org} me={me} canApp={canApp && central} commit={commit} say={say} setLoy={setLoy} loyD={loy} />}
       {loy && view === 'loy' && <Loy org={org} ops={ops} loy={loy} setLoy={setLoy} canApp={canApp} me={me} commit={commit} commitOrg={commitOrg} say={say} bTag={bTag} list={list} />}
       {loy && view === 'cpn' && <Cpn org={org} ops={ops} loy={loy} canApp={canApp} me={me} commitOrg={commitOrg} say={say} brName={brName} />}
       {loy && view === 'cmp' && <Cmp org={org} ops={ops} list={list} canApp={canApp} me={me} commit={commit} commitOrg={commitOrg} say={say} brName={brName} />}
@@ -181,34 +182,51 @@ function Profile({ c, org, ops, loy, setLoy, canApp, brName, me, commit, commitO
   </Modal>);
 }
 
-function Seg({ list, cfg, say }) {
+function Seg({ list, cfg, say, org, me }) {
   const cnt = {}; const tagCnt = {}; list.forEach(c => { cnt[c.cls] = (cnt[c.cls] || 0) + 1; c.tags.forEach(t => { tagCnt[t] = (tagCnt[t] || 0) + 1; }); });
   const S = cfg.seg;
   const RULE = { vip: 'صافي مشترياته ≥ ' + money(S.vipSpend) + ' أو ضمن أعلى ' + S.vipTopPct + '% إنفاقًا', loyal: S.loyalVisits + ' زيارات فأكثر خلال ' + S.loyalDays + ' يومًا', risk: S.riskMinVisits + ' زيارات فأكثر وآخرها قبل أكثر من ' + S.riskDays + ' يومًا', inactive: 'لا شراء منذ أكثر من ' + S.inactiveDays + ' يومًا',
     potential: 'زيارة أو زيارتان ومتوسط فاتورته ≥ ' + S.potMult + '× المتوسط العام', new: 'أول ظهور خلال ' + S.newDays + ' يومًا', regular: 'ما عدا ذلك' };
-  const exp = (k, onlyOk) => { const L = list.filter(c => (c.cls === k || c.tags.includes(k)) && (!onlyOk || mktCanContact(c.consent, 'any')));
+  const exp = (k, onlyOk) => {
+    if (!mktCanExport(org, me)) return say && say('تصدير أرقام العملاء للمركز وحده (المدير أو المالك) — ضوابط التسويق', 'no');   // v56.35 M3
+    let why = ''; if (!onlyOk) { if (!mktCanExportAll(org, me)) return say && say('تصدير غير الموافقين للمالك وحده', 'no'); why = window.prompt('سبب تصدير أرقام غير الموافقين (إلزامي):', '') || ''; if (!why.trim()) return; }
+    const L = list.filter(c => (c.cls === k || c.tags.includes(k)) && (!onlyOk || mktCanContact(c.consent, 'any')));
     // v56.12 (G6): تصدير أرقام العملاء يُسجَّل في سجل التدقيق (من، أي شريحة، كم رقمًا)
     // لا تنزيل قبل نجاح التسجيل (المراجعة الأمنية 8أ)
-    return logAudit({ actionType: 'export', targetType: 'customer', targetId: 'seg:' + k, title: 'صدّر أرقام شريحة عملاء', details: MKT_SEGS[k].ar + ' · ' + L.length + ' رقم' + (onlyOk ? ' (الموافقون فقط)' : '') })
+    return logAudit({ actionType: 'export', targetType: 'customer', targetId: 'seg:' + k, title: 'صدّر أرقام شريحة عملاء', details: MKT_SEGS[k].ar + ' · ' + L.length + ' رقم' + (onlyOk ? ' (الموافقون فقط)' : ' (كل الأرقام — السبب: ' + why.trim() + ')') })
       .then(ok => { if (ok === false) return say && say('تعذّر تسجيل التصدير في سجل التدقيق — لم يُنزَّل الملف', 'no');
     dl('شريحة_' + MKT_SEGS[k].ar, [['الجوال', 'الاسم', 'الشريحة', 'الزيارات', 'صافي المشتريات', 'آخر شراء', 'الموافقة'], ...L.map(c => [c.phone, c.name, MKT_SEGS[c.cls].ar, c.n, c.net, c.last, mktCanContact(c.consent, 'any') ? 'موافق' : 'غير مسجّلة'])]); }); };
   return (<div className="card">
     <div className="card-t">الشرائح — تصنيف رئيسي واحد لكل عميل بالأولوية، وقد يحمل وسومًا أخرى</div>
     <div className="tw"><table className="tb" data-segtable><thead><tr><th>الشريحة</th><th>القاعدة</th><th style={{ textAlign: 'end' }}>تصنيف رئيسي</th><th style={{ textAlign: 'end' }}>يحمل الوسم</th><th /></tr></thead>
       <tbody>{MKT_SEG_ORDER.map(k => <tr key={k} data-seg={k}><td><span className={'badge ' + MKT_SEGS[k].c}>{MKT_SEGS[k].ar}</span></td><td style={{ fontSize: 12 }}>{RULE[k]}</td><td className="num" style={{ textAlign: 'end' }}>{cnt[k] || 0}</td><td className="num" style={{ textAlign: 'end' }}>{k === 'regular' ? '—' : (tagCnt[k] || 0)}</td>
-        <td><button className="btn sm gh" onClick={() => exp(k, true)} title="الموافقون على التسويق فقط"><Download size={12} />تصدير المسموح بمراسلتهم</button></td></tr>)}</tbody></table></div>
+        <td>{mktCanExport(org, me) && <button className="btn sm gh" data-seg-exp onClick={() => exp(k, true)} title="الموافقون على التسويق فقط"><Download size={12} />تصدير المسموح بمراسلتهم</button>}
+          {mktCanExportAll(org, me) && <button className="btn sm gh" data-seg-expall onClick={() => exp(k, false)} title="للمالك وحده بسبب إلزامي">تصدير الكل…</button>}</td></tr>)}</tbody></table></div>
     <div className="note" style={{ marginTop: 8 }}>التصدير يشمل الموافقين على التسويق فقط حمايةً للبيانات. القواعد تُضبط من «الإعدادات».</div>
   </div>);
 }
 
-function Gov({ list, ops, me, canApp, commit, say, setLoy, loyD }) {
+function Gov({ list, ops, org, me, canApp, commit, say, setLoy, loyD }) {
   const groups = crmDupes(list, mktProfiles(ops)); const [mg, setMg] = useState(null); const live = mktMergesLive(ops);
   const WHY = { name: 'اسم متطابق', email: 'بريد واحد', b2b: 'نفس العميل الآجل' };
-  const undo = async (x) => { if (!canApp) return; const blk = mktUnmergeBlock(ops, (loyD || {}).tx, x); if (blk) return say('لا يمكن التراجع: ' + blk, 'no'); const why = window.prompt('سبب التراجع عن دمج ' + x.from + ' ← ' + x.to + ' (إلزامي):'); if (!why || !why.trim()) return;
+  // v56.35 M4: مع ضوابط التسويق، التراجع الذي يحرّك نقاطًا يصبح طلبًا يعتمده غير صاحبه
+  const pend = mktUndoPending(ops);
+  const requestUndo = async (x) => { const blk = mktUnmergeBlock(ops, (loyD || {}).tx, x); if (blk) return say('لا يمكن التراجع: ' + blk, 'no');
+    if (pend.some(r => r.undoReq === x.id)) return say('يوجد طلب تراجع قائم لهذا الدمج', 'no');
+    const why = window.prompt('سبب طلب التراجع عن دمج ' + x.from + ' ← ' + x.to + ' (إلزامي):'); if (!why || !why.trim()) return;
+    const ok = await commit(d => ({ ...d, mktMerges: [...(d.mktMerges || []), { id: uid('mg'), undoReq: x.id, reason: why.trim(), by: me.name, byId: me.id || '', at: nowISO() }] }), { actionType: 'create', targetType: 'customer', targetId: x.to, need: 'edit', title: 'طلب تراجع عن دمج يمس النقاط', details: x.from + ' ← ' + x.to + ' · ' + x.pts + ' نقطة · ' + why.trim() });
+    if (ok) say('أُرسل الطلب — يعتمده شخص آخر ✓'); };
+  const decideReq = async (r, okd) => { const x = live.find(m => m.id === r.undoReq); const mine = r.byId ? r.byId === me.id : r.by === me.name;
+    if (mine) return say('لا يعتمد الطلب صاحبه', 'no');
+    if (!okd) { const why = window.prompt('سبب الرفض:', ''); if (why === null) return; const ok = await commit(d => ({ ...d, mktMerges: [...(d.mktMerges || []), { id: uid('mg'), rejOf: r.id, reason: why, by: me.name, byId: me.id || '', at: nowISO() }] }), { actionType: 'update', targetType: 'customer', targetId: r.undoReq, need: 'edit', title: 'رفض طلب تراجع عن دمج', details: why }); if (ok) say('رُفض الطلب'); return; }
+    if (!x) return say('الدمج لم يعد قائمًا', 'no'); return undo(x, r); };
+  const undo = async (x, req) => { if (!canApp) return; const blk = mktUnmergeBlock(ops, (loyD || {}).tx, x); if (blk) return say('لا يمكن التراجع: ' + blk, 'no');
+    if (!req && mktCtlOn(org) && Number(x.pts) > 0) return requestUndo(x);
+    const why = req ? req.reason : window.prompt('سبب التراجع عن دمج ' + x.from + ' ← ' + x.to + ' (إلزامي):'); if (!why || !why.trim()) return;
     const id = uid('mg'); const at = nowISO();
     if (Number(x.pts) > 0) { const r = await loyPost([{ id: x.id + ':uo', phone: x.to, pts: -Number(x.pts), at, br: '', ord: 'تراجع عن دمج ' + x.from }, { id: x.id + ':ui', phone: x.from, pts: Number(x.pts), at, br: '', ord: 'تراجع عن دمج إلى ' + x.to }]);
       if (!r) return say('تعذّر إرجاع النقاط — لم يتم التراجع', 'no'); setLoy(r); }
-    const ok = await commit(d => ({ ...d, mktMerges: [...(d.mktMerges || []), { id, undoOf: x.id, reason: why.trim(), by: me.name, byId: me.id || '', at }] }), { actionType: 'update', targetType: 'customer', targetId: x.to, need: 'edit', title: 'تراجع عن دمج ملف عميل', details: x.from + ' ← ' + x.to + ' · ' + (Number(x.pts) || 0) + ' نقطة · ' + why.trim() });
+    const ok = await commit(d => ({ ...d, mktMerges: [...(d.mktMerges || []), { id, undoOf: x.id, reason: why.trim(), by: me.name, byId: me.id || '', at, ...(req ? { reqId: req.id, reqBy: req.by } : {}) }] }), { actionType: 'update', targetType: 'customer', targetId: x.to, need: 'edit', title: 'تراجع عن دمج ملف عميل', details: x.from + ' ← ' + x.to + ' · ' + (Number(x.pts) || 0) + ' نقطة · ' + why.trim() });
     if (ok) say('أُلغي الدمج وعاد الملفان منفصلين ✓'); else say('نُقلت النقاط ولم يُحفظ سجل التراجع — أعد المحاولة (لن تتحرك النقاط مرة ثانية)', 'no'); };
   const doMerge = async () => {
     if (!canApp) return say('دمج العملاء يتطلب صلاحية الاعتماد', 'no');
@@ -236,7 +254,9 @@ function Gov({ list, ops, me, canApp, commit, say, setLoy, loyD }) {
       {!groups.length && <div className="empty">لا احتمالات تكرار.</div>}
       {live.length > 0 && <div style={{ marginTop: 10 }} data-merges><div className="card-t" style={{ fontSize: 13 }}>عمليات الدمج القائمة</div>
         {live.map(x => <div key={x.id} className="mono-b" style={{ marginBottom: 4, gap: 6, flexWrap: 'wrap' }}><span>{x.from} ← {x.to} · {String(x.at || '').slice(0, 10)} · {x.reason}</span>
-          {canApp && <button className="btn sm gh" data-unmerge onClick={() => undo(x)}>تراجع…</button>}</div>)}</div>}
+          {canApp && !pend.some(r => r.undoReq === x.id) && <button className="btn sm gh" data-unmerge onClick={() => undo(x)}>{mktCtlOn(org) && Number(x.pts) > 0 ? 'طلب تراجع…' : 'تراجع…'}</button>}
+          {pend.filter(r => r.undoReq === x.id).map(r => <span key={r.id} className="row" style={{ gap: 4 }} data-unmerge-req><span className="badge b-amber">طلب تراجع من {r.by}: {r.reason}</span>
+            {canApp && !(r.byId ? r.byId === me.id : r.by === me.name) && <><button className="btn sm" data-unmerge-ok onClick={() => decideReq(r, true)}>اعتماد</button><button className="btn sm gh" data-unmerge-no onClick={() => decideReq(r, false)}>رفض</button></>}</span>)}</div>)}</div>}
     </div>
     {mg && <Modal title="دمج ملفي عميل" icon={GitMerge} onClose={() => setMg(null)} foot={<><button className="btn pri" data-merge-save onClick={doMerge}>دمج</button><button className="btn gh" onClick={() => setMg(null)}>إلغاء</button></>}>
       <div className="grid g2">

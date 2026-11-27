@@ -3767,7 +3767,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.34';
+const APP_VER = 'v56.35';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3827,6 +3827,7 @@ export { FL_START, flOn, flKey, flNo, flLines, flRecord, flScope, flCompare, flL
 export { FL_GROUPS, flLvl, flGroupOf, flUnclassified, flReversalOf, flCorrect };   // v56.11 D3
 export { flReadOn, flEntriesOf, flBalDiff, flDayBefore };   // v56.14 D4
 export { ctlBarOn };
+export { mktCtlOn, mktCanExport, mktCanExportAll, mktUndoPending };   // v56.35
 export { loyMonthAdj, posLoyOpening, posMisLoyRanges, posMisLoyFrom, posMisLoyAt, posGlNote };   // v56.33
 export { cvLive, cvApprRanges, cvApprAt, cvApprOpenFrom, cvNeedsAppr, cvApprove };   // v56.32
 export { DS_BLOCKED, dsRanges, dsRouteAt, dsRouteOpen, dsLive, dsBlockReason, dsOpenFrom, dsMapOf, dsAccOk, dsAccOf, dsPostDate, dsFundOf, dsCashOut, dsBankOk, lockedLedgerSig };   // v56.29
@@ -7183,7 +7184,15 @@ const mktDays = (a, b) => Math.round((new Date(String(b).slice(0, 10) + 'T12:00:
 // خريطة الدمج المعتمد: من ← إلى (تتبّع السلاسل)
 /* v56.12 (G4): التراجع عن الدمج بسجل إلحاق {undoOf} — لا يُعدَّل سجل الدمج ولا يُحذف */
 function mktMergesLive(ops) { const M = (ops && ops.mktMerges) || []; const un = new Set(M.filter(x => x.undoOf).map(x => x.undoOf));
-  return M.filter(x => !x.undoOf && !x.undone && !un.has(x.id)); }
+  return M.filter(x => !x.undoOf && !x.undone && !x.undoReq && !x.rejOf && !un.has(x.id)); }   // v56.35: الطلبات والرفض ليست دمجًا
+/* v56.35 (الدفعة 4 — قرارا المجلس M3/M4 بتفويض المالك، معطّلة افتراضيًا org.mktCtl.on):
+   M3 تصدير أرقام العملاء للمركز وحده (المدير أو المالك) والموافقين فقط؛ وتصدير غير الموافقين للمالك وحده بسبب إلزامي، والتسجيل قبل التنزيل.
+   M4 التراجع عن دمج يحرّك نقاطًا يصبح طلبًا يعتمده غير صاحبه؛ والتراجع بلا نقاط يكفيه اعتماد واحد. */
+const mktCtlOn = (org) => !!(org && org.mktCtl && org.mktCtl.on);
+const mktCanExport = (org, me) => { if (!mktCtlOn(org)) return true; const R = ROLES[(me || {}).role] || {}; return R.scope === 'all' && !!(R.admin || R.approver); };
+const mktCanExportAll = (org, me) => mktCtlOn(org) && !!(ROLES[(me || {}).role] || {}).admin;
+function mktUndoPending(ops) { const M = (ops && ops.mktMerges) || []; const done = new Set(M.filter(x => x.undoOf && x.reqId).map(x => x.reqId)); const rej = new Set(M.filter(x => x.rejOf).map(x => x.rejOf));
+  return M.filter(x => x.undoReq && !done.has(x.id) && !rej.has(x.id)); }
 /* v56.12 (المراقب المالي 3): التراجع عن الدمج يُمنع إن صُرفت النقاط المنقولة (رصيد المدموج إليه أقل منها) أو تلاه دمج يمس أحد الرقمين — فلا رصيد سالب ولا صرف مرتين */
 function mktUnmergeBlock(ops, loyTx, x) {
   const later = mktMergesLive(ops).filter(m => m.id !== x.id && String(m.at || '') > String(x.at || '') && [m.from, m.to].some(p => p === x.from || p === x.to));

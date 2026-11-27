@@ -4012,3 +4012,22 @@ test('v56.34 ولاء 6ب: تسوية الولاء الشهرية — معاين
   assert.match(await p.locator('[data-loymonth-res]').innerText(), /منتهية/);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.35 ضوابط التسويق: تصدير الكل للمالك وحده بسبب، والتراجع عن دمج يمس النقاط يصبح طلبًا', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/MktGrowth/admin');
+  await p.evaluate(() => { try { localStorage.setItem('rms8:loy', JSON.stringify({ members: {}, tx: [{ id: 'm1:i', phone: '511111111', pts: 30, at: new Date().toISOString() }] })); } catch { } });
+  await p.reload(); await p.waitForTimeout(400);
+  await p.evaluate(() => { const td = new Date(); td.setHours(12); window.setOrg(o => ({ ...o, mktCtl: { on: true } }));
+    window.setOps(o => ({ ...o, mktConsents: [], mktMerges: [{ id: 'm1', from: '522222222', to: '511111111', pts: 30, reason: 'تحقق', by: 'آخر', byId: 'z', at: td.toISOString() }], posOrders: window.__spg(td.toISOString().slice(0, 10)) })); });
+  await p.waitForTimeout(400);
+  await p.click('[data-mktv="seg"]'); await p.waitForTimeout(200);
+  assert.ok(await p.locator('[data-seg-expall]').count() > 0, 'المالك يرى «تصدير الكل»');
+  await p.click('[data-mktv="gov"]'); await p.waitForTimeout(200);
+  assert.match(await p.locator('[data-unmerge]').first().innerText(), /طلب تراجع/);
+  await p.evaluate(() => { window.prompt = () => 'خطأ في الدمج'; }); await p.locator('[data-unmerge]').first().click();
+  await p.waitForFunction(() => (window.cur.mktMerges || []).some(x => x.undoReq === 'm1'));
+  assert.equal(await p.evaluate(() => window.cur.mktMerges.some(x => x.undoOf === 'm1')), false, 'لم يُنفَّذ قبل الاعتماد');
+  assert.ok(await p.locator('[data-unmerge-req]').count() === 1);
+  assert.equal(await p.locator('[data-unmerge-ok]').count(), 0, 'صاحب الطلب لا يعتمده');
+  assert.deepEqual(errs, []); await ctx.close();
+});

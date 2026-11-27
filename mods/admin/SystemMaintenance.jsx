@@ -13,7 +13,8 @@ import { posGlOpen, posGlRanges, posGlCheck } from '../../App.jsx';
 import { loyMonthAdj, posLoyOpening, posMisLoyRanges, posMisLoyFrom, posGlNote, jeOwner, posGlFrom } from '../../App.jsx';   // v56.33 (الدفعة 2 — P1/P2)
 import { ctlBarOn } from '../../App.jsx';
 import { DS_BLOCKED, dsRanges, dsRouteOpen, dsLive, dsMapOf, dsAccOk } from '../../App.jsx';
-import { cvApprRanges } from '../../App.jsx';   // v56.32 اعتماد سندات الصرف   // v56.29 أوامر الصرف   // v56.23 (G2) شريط التحكم   // v56.18 (POS 6a) أثر فواتير نقطة البيع في قيد الإغلاق   // v56.17 (GROWTH 2) سجلات الموافقة والولاء المحمية   // v56.12 (GROWTH G1) سجلات التسويق في الفروع
+import { cvApprRanges } from '../../App.jsx';
+import { mktCtlOn } from '../../App.jsx';   // v56.35 ضوابط التسويق   // v56.32 اعتماد سندات الصرف   // v56.29 أوامر الصرف   // v56.23 (G2) شريط التحكم   // v56.18 (POS 6a) أثر فواتير نقطة البيع في قيد الإغلاق   // v56.17 (GROWTH 2) سجلات الموافقة والولاء المحمية   // v56.12 (GROWTH G1) سجلات التسويق في الفروع
 import { WorkflowsCard } from './Workflows.jsx';   // v49.5 MQ-059
 import { FL_START, flOn, flScope, flCompare, flLoad, flPost, FL_GROUPS, flLvl, flUnclassified, flCorrect, flReadOn } from '../../App.jsx';   // v56.9 D1 دفتر القيود المخزّن
 import { fjCompare, fjLoad, fjOn, fjState, fpLockedTo, fpLoad, fmLoad, fmSet, fjSeed, FD_KINDS, fdCompare, fdLoad, fdSeed } from '../../App.jsx';   // v49.0 المرحلة 01
@@ -324,6 +325,7 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
       <CtlBarCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <DsRouteCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <CvApprCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
+      <MktCtlCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <FinStrictCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <LedgerCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <JournalRecordsCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
@@ -744,6 +746,22 @@ function CvApprCard({ org, commitOrg, say, isAdm }) {
       {R.filter(r => r.to).map((r, i) => <div key={i}>نطاق سابق: {r.from} ← {r.to}</div>)}</div>
     {isAdm && !on && <div className="row" style={{ gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}><label style={{ fontSize: 12 }}>يسري من <input className="inp" type="date" aria-label="تاريخ بدء اعتماد سندات الصرف" value={from} min={today()} onChange={e => setFrom(e.target.value)} /></label></div>}
     {isAdm && <div className="row" style={{ marginTop: 8 }}><button className={'btn sm ' + (on ? 'gh' : 'pri')} onClick={toggle} data-cvappr-toggle>{on ? 'إيقاف' : 'تفعيل'}</button></div>}
+  </div>);
+}
+
+/* v56.35 (الدفعة 4 — قرارا المجلس M3/M4): ضوابط التسويق — معطّلة افتراضيًا. لا أثر على أي قيد أو بيانات. */
+function MktCtlCard({ org, commitOrg, say, isAdm }) {
+  const on = mktCtlOn(org);
+  const toggle = async () => { if (!isAdm) return;
+    const ok = await commitOrg(o => ({ ...o, mktCtl: { ...(o.mktCtl || {}), on: !on, at: nowISO() } }), { actionType: 'settings', targetType: 'system_settings', targetId: 'mktCtl', title: on ? 'أوقف ضوابط التسويق' : 'فعّل ضوابط التسويق', details: on ? '' : 'تصدير المركز والموافقين؛ اعتماد ثانٍ للتراجع الذي يمس النقاط' });
+    if (ok) say(on ? 'أُوقفت ضوابط التسويق' : 'فُعّلت ضوابط التسويق ✓'); };
+  return (<div className="card" data-mktctl>
+    <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />ضوابط التسويق (حماية بيانات العملاء)</div>
+      <span className={'badge ' + (on ? 'b-sky' : 'b-dim')}>{on ? 'مفعّلة' : 'غير مفعّلة'}</span></div>
+    <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
+      بقرار المجلس: تصدير أرقام العملاء للمركز وحده (المدير أو المالك) والموافقين على التسويق فقط؛ وتصدير غير الموافقين للمالك وحده بسبب إلزامي يُسجَّل في سجل التدقيق قبل التنزيل.
+      والتراجع عن دمج ملفي عميل يحرّك نقاطًا يصبح طلبًا يعتمده شخص غير صاحبه (التراجع بلا نقاط يكفيه اعتماد واحد).</div>
+    {isAdm && <button className={'btn sm ' + (on ? 'gh' : 'pri')} onClick={toggle} data-mktctl-toggle>{on ? 'إيقاف' : 'تفعيل'}</button>}
   </div>);
 }
 
