@@ -731,7 +731,7 @@ const BR_COLS = ['posTabs', 'kdsTickets', 'posDeliveries', 'closings', 'transfer
   'prepCounts',
   // v56.12 (G1) — سجلات التسويق برقم فرع العميل (القديمة بلا فرع تبقى مركزية عبر splitOps)
   'mktConsents', 'mktProfiles', 'mktReferrals'];
-const CORE_COLS = ['impairDocs', 'impairTests', 'expDeptPicks', 'budgets', 'prepaids', 'eclDocs', 'closeTasks', 'ctlCases', 'rfqs', 'cashVouchers', 'prodOrders', 'archLog', 'cardRecons', 'ledgerSnaps', 'salesInvoices', 'advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'jeRecurring', 'mktMerges', 'mktCampaigns', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
+const CORE_COLS = ['impairDocs', 'impairTests', 'expDeptPicks', 'budgets', 'prepaids', 'eclDocs', 'closeTasks', 'ctlCases', 'rfqs', 'cashVouchers', 'prodOrders', 'archLog', 'cardRecons', 'ledgerSnaps', 'salesInvoices', 'advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'jeRecurring', 'mktMerges', 'mktCampaigns', 'commsJobs', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
 
 // تقسيم ops المدمجة إلى مستند مركزي + مستند لكل فرع
 function splitOps(ops, branchIds) {
@@ -4023,7 +4023,7 @@ function emptyOrg(company) {
 }
 
 function emptyOps() {
-  return { impairDocs: [], impairTests: [], expDeptPicks: [], budgets: [], prepaids: [], eclDocs: [], rfqs: [], posDeliveries: [], cashVouchers: [], jeRecurring: [], mktConsents: [], mktMerges: [], mktProfiles: [], mktReferrals: [], actions: [], countSessions: [], wasteRequests: [], posImports: [], posOrders: [], posShifts: [], ledgerSnaps: [], stockCounts: [], leaveRequests: [], productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
+  return { impairDocs: [], impairTests: [], expDeptPicks: [], budgets: [], prepaids: [], eclDocs: [], rfqs: [], posDeliveries: [], cashVouchers: [], jeRecurring: [], mktConsents: [], mktMerges: [], mktProfiles: [], mktReferrals: [], commsJobs: [], actions: [], countSessions: [], wasteRequests: [], posImports: [], posOrders: [], posShifts: [], ledgerSnaps: [], stockCounts: [], leaveRequests: [], productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
     attendanceEvents: [], hrPins: [], shiftTemplates: [], shiftAssignments: [], shiftSwapRequests: [], branchTransferRequests: [], taskTemplates: [], taskAssignments: [], taskCompletions: [], pointsEntries: [], qualityReviews: [], rewardRequests: [], hrSignDocs: [], hrCorrective: [], hrPips: [], hrTraining: [], hrKpiEntries: [], hrScoreSnapshots: [], purchaseReqs: [], poInbox: [], poReceipts: [] };
 }
 
@@ -4034,7 +4034,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.49';
+const APP_VER = 'v56.50';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -8339,13 +8339,13 @@ async function aiGrowthAsk(digest, question) {
    لا مفاتيح ولا أسرار هنا (مستند المنشأة يقرؤه كل الأعضاء) — مفتاح المزوّد يوضع لاحقًا في متغيرات الخادم */
 const COMMS_PROVIDERS = { '': '— لم يُحدَّد بعد —', whatsapp_cloud: 'واتساب للأعمال (Cloud API)', unifonic: 'Unifonic', taqnyat: 'تقنيات (Taqnyat)', msegat: 'مسجات (Msegat)', twilio: 'Twilio', other: 'مزوّد آخر' };
 const COMMS_CH = { whatsapp: 'واتساب', sms: 'رسائل SMS', email: 'البريد الإلكتروني' };
-const COMMS_VARS = { name: 'اسم العميل', points: 'رصيد النقاط', coupon: 'رمز الكوبون', branch: 'اسم الفرع', company: 'اسم المنشأة' };
+const COMMS_VARS = { name: 'اسم العميل', points: 'رصيد النقاط', coupon: 'رمز الكوبون', branch: 'اسم الفرع', company: 'اسم المنشأة', amount: 'المبلغ المستحق', due: 'تاريخ الاستحقاق' };   // v56.50: amount/due لتذكير الآجل
 const COMMS_DEF = { provider: '', channels: { whatsapp: true, sms: false, email: false }, senderName: '', quietFrom: '22:00', quietTo: '09:00', maxPerMonth: 4, optOutText: 'لإيقاف الرسائل أرسل: إيقاف', templates: [] };
 function commsCfgOf(org) {
   const c = { ...COMMS_DEF, ...((((org && org.mkt) || {}).comms) || {}) }; const hm = (v, d) => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(v)) ? String(v) : d;
   return { provider: COMMS_PROVIDERS[c.provider] != null ? c.provider : '', channels: { ...COMMS_DEF.channels, ...(c.channels || {}) }, senderName: String(c.senderName || '').slice(0, 11),
     quietFrom: hm(c.quietFrom, '22:00'), quietTo: hm(c.quietTo, '09:00'), maxPerMonth: Math.min(30, Math.max(0, Number(c.maxPerMonth) || 0)), optOutText: String(c.optOutText || '').slice(0, 80),
-    templates: (Array.isArray(c.templates) ? c.templates : []).slice(0, 30), sendingEnabled: false };
+    templates: (Array.isArray(c.templates) ? c.templates : []).slice(0, 30), sendOn: !!c.sendOn, sendingEnabled: false };   // v56.50 sendOn: مسار الإرسال (والمحوّل الآن تجريبي) — sendingEnabled يبقى false حتى يُربط مزوّد فعلي
 }
 /** القالب بالمتغيرات {name}… — المتغير المجهول يبقى كما هو ويُبلَّغ عنه */
 function commsRender(body, vars) { const unknown = []; const out = String(body || '').replace(/\{(\w+)\}/g, (m, k) => { if (!(k in COMMS_VARS)) { unknown.push(k); return m; } return vars && vars[k] != null ? String(vars[k]) : m; }); return { text: out, unknown }; }
@@ -8357,6 +8357,102 @@ function commsQuiet(cfg, d) { d = d || new Date(); const m = d.getHours() * 60 +
   const a = p(cfg.quietFrom), b = p(cfg.quietTo); if (a === b) return false; return a < b ? (m >= a && m < b) : (m >= a || m < b); }
 function commsTplErr(t) { if (!String(t.name || '').trim()) return 'اسم القالب مطلوب'; if (!COMMS_CH[t.ch]) return 'اختر القناة'; if (String(t.body || '').trim().length < 5) return 'نص القالب قصير';
   const u = commsRender(t.body, {}).unknown; if (u.length) return 'متغير غير معروف: {' + u[0] + '}'; if (String(t.body).length > 1000) return 'النص أطول من 1000 حرف'; return ''; }
+/* ═════ v56.50 — إرسال الرسائل للعملاء: «دفعة رسائل» ops.commsJobs (المستند المركزي) — مسار مستقل عن المزوّد، معطّل افتراضيًا (org.mkt.comms.sendOn) ═════
+   حقائق المالك (2026-11-27): لا مزوّد ولا حساب ولا اسم مرسل بعد؛ الأنواع: حملة تسويقية · إشعار ولاء · تذكير استحقاق الآجل؛ يعتمد الإرسال المالك أو المدير العام ولا يعتمده منشئه.
+   قرارات المجلس M1/M2: SMS أولًا عبر مزوّد سعودي مرخّص، الحساب باسم المنشأة، والمفتاح في متغيرات الخادم وحده.
+   الدفعة: { id, no, kind:'campaign'|'loy'|'ar', ch:'sms', tplId, filter, est:{ n, parts }, status: draft→pending→approved→sent|failed|cancelled, by, byId, at, approvedBy, approvedById, approvedAt, sentAt, result }
+   الجمهور يُحسب هنا (commsAudience) ويُعاد حسابه في الخادم من بياناته (/api/comms/send) — لا يُوثق بقائمة المتصفح. */
+const COMMS_KINDS = { campaign: 'حملة تسويقية', loy: 'إشعار ولاء', ar: 'تذكير استحقاق (آجل)' };
+const COMMS_JOB_ST = { draft: { ar: 'مسودة', c: 'b-dim' }, pending: { ar: 'بانتظار الاعتماد', c: 'b-amber' }, approved: { ar: 'معتمدة', c: 'b-sky' }, sent: { ar: 'أُرسلت', c: 'b-mint' }, failed: { ar: 'فشلت', c: 'b-rose' }, cancelled: { ar: 'ملغاة', c: 'b-dim' } };
+const commsSendOn = (org) => !!(org && org.mkt && org.mkt.comms && org.mkt.comms.sendOn);
+/** الاعتماد: المالك (مسؤول النظام) أو المدير العام، ولا يعتمد المنشئ دفعته */
+const commsCanApprove = (me, job) => !!me && (jeOwner(me) || me.role === 'general_management') && (!job || (job.byId ? job.byId !== me.id : job.by !== me.name));
+/** الوقت بتوقيت الرياض (UTC+3 بلا توقيت صيفي) — الخادم يعمل بتوقيت UTC */
+const commsRiy = (now) => { const d = new Date((Number(now) || Date.now()) + 3 * 3600e3); const ymd = d.toISOString().slice(0, 10); return { ymd, ym: ymd.slice(0, 7), md: ymd.slice(5), min: d.getUTCHours() * 60 + d.getUTCMinutes() }; };
+const commsAddDays = (ymd, k) => new Date(Date.parse(ymd + 'T12:00:00Z') + k * 864e5).toISOString().slice(0, 10);
+/** ساعات الهدوء بتوقيت الرياض (لا بتوقيت الجهاز) */
+function commsQuietRiy(cfg, now) { const m = commsRiy(now).min; const p = (s) => { const [h, mi] = String(s).split(':').map(Number); return h * 60 + mi; };
+  const a = p(cfg.quietFrom), b = p(cfg.quietTo); if (a === b) return false; return a < b ? (m >= a && m < b) : (m >= a || m < b); }
+/** جوال سعودي (بعد normPhone): 5 ثم 8 أرقام — غيره لا يُرسل إليه عبر مزوّد سعودي ويُعدّ «غير صالح» */
+const commsPhoneOk = (ph) => /^5\d{8}$/.test(String(ph || ''));
+/** الرقم مقنّعًا للعرض: أول رقمين وآخر رقمين فقط */
+const commsMask = (ph) => { const s = String(ph || ''); return s.length < 5 ? '•••' : s.slice(0, 2) + '•'.repeat(s.length - 4) + s.slice(-2); };
+/** بصمة رقم غير قابلة للعرض (FNV-1a) — لعدّ الرسائل الشهرية لكل رقم دون حفظ الرقم في الدفعة */
+const commsKey = (ph) => { let h = 0x811c9dc5; const s = 'c:' + String(ph || ''); for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return 'h' + h.toString(16).padStart(8, '0'); };
+/** مرشّح الدفعة بحدود معقولة (الناقص = بلا شرط) */
+function commsFilterOf(kind, f) { f = f || {}; const n = (v, lo, hi) => { const x = Math.floor(Number(v)); return isFinite(x) && x >= lo && x <= hi ? x : null; };
+  if (kind === 'loy') return { minPts: n(f.minPts, 0, 1e7), expDays: n(f.expDays, 1, 365), bday: !!f.bday };
+  if (kind === 'ar') return { dueDays: n(f.dueDays, 0, 90) == null ? 3 : n(f.dueDays, 0, 90), overdueOnly: !!f.overdueOnly };
+  return {}; }
+/** فحص الدفعة قبل الحفظ */
+function commsJobErr(org, job) {
+  const x = job || {}; if (!COMMS_KINDS[x.kind]) return 'اختر نوع الرسائل'; if (x.ch !== 'sms') return 'القناة الوحيدة الآن رسائل SMS (قرار المجلس M1)';
+  const t = commsCfgOf(org).templates.find(y => y.id === x.tplId); if (!t) return 'اختر قالبًا'; if (t.ch !== 'sms') return 'القالب ليس لقناة SMS';
+  const e = commsTplErr(t); if (e) return e; return ''; }
+/** آخر حالة موافقة للرقم على قناة SMS (أو «كل القنوات») */
+const commsConsent = (ops, ph) => { const cs = mktConsentOf(ops, ph); return (cs.ch || {}).sms || cs.all; };
+/**
+ * الجمهور (نقي): campaign = الموافقون صراحةً على SMS وحدهم، بلا من طلب الإيقاف، وبحد maxPerMonth لكل رقم (من الدفعات المرسلة فعلًا هذا الشهر، لا التجريبية)؛
+ * loy = أعضاء الولاء الموافقون بمرشّح (رصيد ≥ س، نقاط تنتهي خلال ن يومًا، ميلاد اليوم)؛ ar = عملاء الآجل المستحق خلال ن يومًا أو المتأخر برصيد > 0 (رسالة خدمية: بلا موافقة تسويقية لكن تحترم الإيقاف).
+ * يعيد { n, parts, skipped, quiet, list:[{ phone, name, text, parts }], sample:[{ m (مقنّع), name, parts }] } — list للخادم وللتصدير المسجّل فقط، والواجهة تعرض sample.
+ */
+function commsAudience(org, ops, loy, job, now) {
+  ops = ops || {}; const cfg = commsCfgOf(org); const R = commsRiy(now); const kind = (job || {}).kind; const F = commsFilterOf(kind, (job || {}).filter);
+  const tpl = cfg.templates.find(t => t.id === (job || {}).tplId); const A = mktAlias(ops);
+  const sk = { noConsent: 0, optOut: 0, cap: 0, invalid: 0, noPhone: 0 }; const out = new Map();
+  const company = ((org && org.company) || {}).name || ''; const stop = cfg.optOutText ? '\n' + cfg.optOutText : '';
+  // الإيقاف: أي رقم مدموج في الرقم نفسه آخر حالته «out» يوقفه (الأحوط)
+  const outSet = new Set(); const seenC = new Set(); (ops.mktConsents || []).forEach(c => { if (c && c.phone && !seenC.has(c.phone)) { seenC.add(c.phone); if (commsConsent(ops, c.phone) === 'out') outSet.add(A(c.phone)); } });
+  const add = (ph, vars) => { if (!ph) { sk.noPhone++; return; } if (!commsPhoneOk(ph)) { sk.invalid++; return; } if (outSet.has(ph)) { sk.optOut++; return; } if (out.has(ph)) return;
+    const text = (tpl ? commsRender(tpl.body, { company, ...vars }).text : '') + stop; out.set(ph, { phone: ph, name: vars.name || '', text, parts: smsParts(text).parts }); };
+  const bal = {}; ((loy && loy.tx) || []).forEach(t => { if (!t || !t.phone) return; const p = A(t.phone); bal[p] = (bal[p] || 0) + (Number(t.pts) || 0); });
+  const mem = (loy && loy.members) || {}; const nameOf = (ph) => ((mem[ph] || {}).name) || '';
+  const r2 = (x) => Math.round(x * 100) / 100;
+  if (kind === 'campaign') {
+    const used = {}; const max = cfg.maxPerMonth;
+    ((ops.commsJobs) || []).forEach(j => { if (!j || j.status !== 'sent' || j.kind !== 'campaign' || !j.result || j.result.dry || commsRiy(Date.parse(j.sentAt || 0)).ym !== R.ym) return; (j.result.rcpt || []).forEach(k => { used[k] = (used[k] || 0) + 1; }); });
+    [...seenC].map(A).filter((p, i, a) => a.indexOf(p) === i).sort().forEach(ph => {
+      if (outSet.has(ph)) { sk.optOut++; return; } if (commsConsent(ops, ph) !== 'in') { sk.noConsent++; return; }
+      if ((used[commsKey(ph)] || 0) >= max) { sk.cap++; return; }
+      add(ph, { name: nameOf(ph), points: r2(bal[ph] || 0) }); });
+  } else if (kind === 'loy') {
+    const X = loyX(org); const P = mktProfiles(ops); const phones = new Set(); Object.keys(mem).forEach(p => phones.add(A(p))); Object.keys(bal).forEach(p => phones.add(p));
+    [...phones].sort().forEach(ph => { const b = r2(bal[ph] || 0);
+      if (F.minPts != null && !(b >= F.minPts)) return;
+      if (F.expDays != null) { if (!(Number(X.expireMonths) > 0)) return; const e = Math.min(b, loyExpiring(loy, ph, X.expireMonths, commsAddDays(R.ymd, F.expDays))); if (!(e > 0)) return; }
+      if (F.bday && String((P[ph] || {}).bday || '') !== R.md) return;
+      if (outSet.has(ph)) { sk.optOut++; return; } if (commsConsent(ops, ph) !== 'in') { sk.noConsent++; return; }
+      add(ph, { name: nameOf(ph), points: b }); });
+  } else if (kind === 'ar') {
+    const lim = commsAddDays(R.ymd, F.dueDays); const C = {};
+    arDocs(ops, org).forEach(x => { if (!x || x.kind === 'credit' || x.terms !== 'credit' || x.inClosing || !x.customerKey) return; const rem = siRem(ops, x); if (!(rem > 0.004)) return;
+      const due = String(x.dueDate || x.date || '').slice(0, 10); if (!due || due > lim || (F.overdueOnly && due >= R.ymd)) return;
+      const c = C[x.customerKey] || (C[x.customerKey] = { key: x.customerKey, amt: 0, due, ph: '', name: (x.buyer || {}).name || '' }); c.amt += rem; if (due < c.due) c.due = due; if (!c.ph && x.buyer && x.buyer.phone) c.ph = normPhone(x.buyer.phone); });
+    const parts = (org && org.partners) || [];
+    Object.values(C).sort((a, b) => a.key.localeCompare(b.key)).forEach(c => { const p = parts.find(y => (y.key || ('cust:' + y.id)) === c.key) || {}; const ph = p.phone ? normPhone(p.phone) : c.ph;
+      add(ph ? A(ph) : '', { name: p.name || c.name, amount: r2(c.amt).toFixed(2), due: c.due }); });
+  }
+  const list = [...out.values()]; const parts = list.reduce((a, x) => a + x.parts, 0);
+  return { n: list.length, parts, skipped: sk, quiet: commsQuietRiy(cfg, now), list, sample: list.slice(0, 5).map(x => ({ m: commsMask(x.phone), name: x.name, parts: x.parts })) };
+}
+/** تنقّل الحالة في الواجهة: إرسال للاعتماد، اعتماد، رفض، إلغاء — الإرسال نفسه من الخادم وحده (sent/failed تُسجَّل بعد رده) */
+function commsJobMove(job, to, me, at) {
+  const x = job || {}; at = at || nowISO(); const who = { name: (me || {}).name || '', id: (me || {}).id || '' };
+  if (to === 'pending') { if (x.status !== 'draft') return { err: 'الدفعة ليست مسودة' }; return { next: { ...x, status: 'pending', submittedAt: at } }; }
+  if (to === 'approved' || to === 'rejected') { if (x.status !== 'pending') return { err: 'تغيّرت حالة الدفعة — حدّث الشاشة' };
+    if (!commsCanApprove(me, x)) return { err: 'يعتمدها المالك أو المدير العام، ولا يعتمد المنشئ دفعته' };
+    return to === 'approved' ? { next: { ...x, status: 'approved', approvedBy: who.name, approvedById: who.id, approvedAt: at } } : { next: { ...x, status: 'cancelled', rejected: true, rejectedBy: who.name, rejectedById: who.id, rejectedAt: at } }; }
+  if (to === 'cancelled') { if (!['draft', 'pending', 'approved'].includes(x.status)) return { err: 'لا تُلغى دفعة بهذه الحالة' }; return { next: { ...x, status: 'cancelled', cancelledBy: who.name, cancelledAt: at } }; }
+  return { err: 'انتقال غير مسموح' };
+}
+const commsNextNo = (ops) => { const n = ((ops && ops.commsJobs) || []).reduce((m, c) => Math.max(m, parseInt(String(c.no || '').replace(/\D/g, ''), 10) || 0), 0) + 1; return 'MSG-' + String(n).padStart(4, '0'); };
+/** نداء الخادم للإرسال (المحوّل الحالي تجريبي بلا إرسال فعلي) */
+async function commsApi(jobId) {
+  const b = srvBase(); if (!b) throw new Error('الخادم غير مهيأ لهذه النسخة');
+  const r = await fetch(b + '/api/comms/send', { method: 'POST', headers: await aiHeaders(), body: JSON.stringify({ jobId }) });
+  const j = await r.json().catch(() => ({})); if (!r.ok) { const e = new Error(j.error || ('HTTP ' + r.status)); e.code = j.code || ''; e.status = r.status; e.result = j.result; throw e; } return j;
+}
+export { COMMS_KINDS, COMMS_JOB_ST, commsSendOn, commsCanApprove, commsRiy, commsQuietRiy, commsPhoneOk, commsMask, commsKey, commsFilterOf, commsJobErr, commsAudience, commsJobMove, commsNextNo, commsApi };   // v56.50
 /* v52.6 — BUG-00-12 (رقابة كاشفة): مستند الولاء/الكوبونات يكتبه كل عضو نشط (لازم للبيع في كل فرع) ولا تفحص القواعد محتواه،
    فنطابق كل حركة نقاط وكل حجز كوبون مع مصدره (الفاتورة/المرتجع/الإلغاء/الدمج/الجائزة/الدوري/التعديل اليدوي) ونُبرز ما لا مصدر له أو لا يطابقه */
 const LOY_AUDIT_WHY = { noOrder: 'نقاط فاتورة بلا فاتورة', mismatch: 'لا تطابق نقاط الفاتورة', notVoid: 'عكس إلغاء لفاتورة غير ملغاة', noReturn: 'خصم مرتجع بلا مستند مرتجع', noMerge: 'دمج بلا سجل دمج معتمد', unknown: 'حركة بمصدر غير معروف', dup: 'معرّف مكرر', cpnNoOrder: 'حجز كوبون بلا فاتورة' };

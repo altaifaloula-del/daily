@@ -9,7 +9,9 @@ import { Field, Kpi, Modal, money, makeXlsx, today, nowISO, uid, normPhone, loyP
   logAudit, MKT_RW_KEY, rwPendSplit, rwUndoTx, mktUnmergeBlock, mktBrOn, mktRecBranch, mktMergesLive, loyGet, mkmSrcOn, mkmWrite } from '../../App.jsx';
 import { mktCtlOn, mktCanExport, mktCanExportAll, mktUndoPending } from '../../App.jsx';   // v56.35 الدفعة 4
 import { Megaphone, Sparkles, Building2, Bot, MessageSquare } from 'lucide-react';
-import { Gift, Gift as Ticket } from 'lucide-react';
+import { Gift, Gift as Ticket, Send } from 'lucide-react';
+import { CommsJobs } from './CommsJobs.jsx';   // v56.50 دفعات الرسائل
+import { commsSendOn, jeOwner } from '../../App.jsx';
 
 const CH = { all: 'كل القنوات', whatsapp: 'واتساب', sms: 'رسائل SMS', email: 'البريد', app: 'إشعارات التطبيق' };
 const anDay = (iso, k) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + k); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
@@ -33,7 +35,7 @@ export function MktGrowth({ org, ops, me, myBranches, commit, commitOrg, say }) 
   useEffect(() => { if (!loy || !canApp) return; const P = rwPend().filter(x => !x.uid || x.uid === (me.id || me.email || '')); if (!P.length) return; const { done, refund, wait } = rwPendSplit(P, org.posPromos, Date.now(), loy.tx);
     (async () => { const o2 = await cloud.get(KEYS.org, null).catch(() => null); const sp = o2 ? rwPendSplit(P, o2.posPromos, Date.now(), loy.tx) : { done, refund, wait }; const left = [...sp.wait]; const refund2 = sp.refund; if (refund2.length) { const r = await loyPost(refund2.map(x => rwUndoTx(x, nowISO()))); if (r) { setLoy(r); say('أُعيدت نقاط ' + refund2.length + ' استبدال لم يصدر كوبونه ✓'); logAudit({ actionType: 'update', targetType: 'customer', targetId: 'loyalty', title: 'أعاد نقاط استبدال لم يصدر كوبونه', details: refund2.map(x => x.phone + ' · ' + x.pts + ' · ' + x.code).join('، ') }).catch(() => { }); } else left.push(...refund2); }
       const others = rwPend().filter(x => !P.includes(x) && !P.some(y => y.txid === x.txid)); rwPendSet([...others, ...left]); void done; })(); }, [!!loy]);
-  const V = [['dash', 'لوحة التسويق', Target], ['crm', 'ملفات العملاء', Users], ['seg', 'الشرائح', Layers], ['loy', 'الولاء والمكافآت', Gift], ['cpn', 'الكوبونات', Ticket], ['cmp', 'الحملات', Megaphone], ['rec', 'التوصيات', Sparkles], ['brr', 'تقارير الفروع', Building2], ['ai', 'المساعد الذكي', Bot], ['com', 'إعدادات التواصل', MessageSquare], ['gov', 'الموافقات والتكرار', ShieldCheck], ['cfg', 'الإعدادات', Settings]];
+  const V = [['dash', 'لوحة التسويق', Target], ['crm', 'ملفات العملاء', Users], ['seg', 'الشرائح', Layers], ['loy', 'الولاء والمكافآت', Gift], ['cpn', 'الكوبونات', Ticket], ['cmp', 'الحملات', Megaphone], ['rec', 'التوصيات', Sparkles], ['brr', 'تقارير الفروع', Building2], ['ai', 'المساعد الذكي', Bot], ['msg', 'الرسائل', Send], ['com', 'إعدادات التواصل', MessageSquare], ['gov', 'الموافقات والتكرار', ShieldCheck], ['cfg', 'الإعدادات', Settings]];
   return (
     <div className="grid" style={{ gap: 12 }} data-mkt>
       <div className="row" style={{ gap: 6, flexWrap: 'wrap' }} role="tablist" aria-label="أقسام التسويق">
@@ -50,7 +52,9 @@ export function MktGrowth({ org, ops, me, myBranches, commit, commitOrg, say }) 
       {loy && view === 'cpn' && <Cpn org={org} ops={ops} loy={loy} canApp={canApp} me={me} commitOrg={commitOrg} say={say} brName={brName} />}
       {loy && view === 'cmp' && <Cmp org={org} ops={ops} list={list} canApp={canApp} me={me} commit={commit} commitOrg={commitOrg} say={say} brName={brName} />}
       {loy && view === 'ai' && <Ai org={org} ops={ops} list={list} central={central} brIds={brIds} />}
-      {view === 'com' && <Com org={org} canApp={canApp} commitOrg={commitOrg} say={say} />}
+      {view === 'com' && <Com org={org} me={me} canApp={canApp} commitOrg={commitOrg} say={say} />}
+      {!central && view === 'msg' && <div className="note">دفعات الرسائل تُنشأ وتُعتمد من المركز.</div>}
+      {loy && central && view === 'msg' && <CommsJobs org={org} ops={ops} loy={loy} me={me} commit={commit} say={say} canApp={canApp} />}
       {view === 'brr' && <Brr org={org} ops={ops} central={central} brIds={brIds} />}
       {view === 'rec' && <Rec org={org} ops={ops} central={central} brIds={brIds} myBranches={myBranches} canApp={canApp} commitOrg={commitOrg} say={say} />}
       {view === 'cfg' && <Cfg cfg={cfg} canApp={canApp} commitOrg={commitOrg} say={say} />}
@@ -595,7 +599,7 @@ function Ai({ org, ops, list, central, brIds }) {
 }
 
 /* v52.5 — إعدادات التواصل مع العملاء (تمهيد للمرحلة I) — لا إرسال ولا مفاتيح هنا */
-function Com({ org, canApp, commitOrg, say }) {
+function Com({ org, me, canApp, commitOrg, say }) {
   const C = commsCfgOf(org);
   const [F, setF] = useState(() => JSON.parse(JSON.stringify({ provider: C.provider, channels: C.channels, senderName: C.senderName, quietFrom: C.quietFrom, quietTo: C.quietTo, maxPerMonth: String(C.maxPerMonth), optOutText: C.optOutText, templates: C.templates })));
   const [t, setT] = useState(null);
@@ -605,7 +609,8 @@ function Com({ org, canApp, commitOrg, say }) {
     if (!(mp >= 0 && mp <= 30)) return say('الحد الشهري بين 0 و30 رسالة', 'no');
     if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(v.quietFrom) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(v.quietTo)) return say('ساعات الهدوء غير صحيحة', 'no');
     const comms = { provider: v.provider, channels: v.channels, senderName: String(v.senderName || '').trim().slice(0, 11), quietFrom: v.quietFrom, quietTo: v.quietTo, maxPerMonth: mp, optOutText: String(v.optOutText || '').trim().slice(0, 80), templates: v.templates };
-    const ok = await commitOrg(g => ({ ...g, mkt: { ...(g.mkt || {}), comms } }), { actionType: 'update', targetType: 'settings', targetId: 'mkt.comms', need: 'edit', title: 'عدّل إعدادات التواصل مع العملاء', details: (COMMS_PROVIDERS[comms.provider] || '') + ' · ' + comms.templates.length + ' قالب' });
+    // v56.50: مفتاح مسار الإرسال يُحفظ من بطاقته وحدها — حفظ الإعدادات لا يمسّه
+    const ok = await commitOrg(g => ({ ...g, mkt: { ...(g.mkt || {}), comms: { ...comms, ...((((g.mkt || {}).comms) || {}).sendOn ? { sendOn: true } : {}) } } }), { actionType: 'update', targetType: 'settings', targetId: 'mkt.comms', need: 'edit', title: 'عدّل إعدادات التواصل مع العملاء', details: (COMMS_PROVIDERS[comms.provider] || '') + ' · ' + comms.templates.length + ' قالب' });
     if (ok !== false) { say('حُفظت إعدادات التواصل ✓'); if (next) setF(next); }
     return ok;
   };
@@ -614,8 +619,17 @@ function Com({ org, canApp, commitOrg, say }) {
     const next = { ...F, templates: [...F.templates.filter(x => x.id !== rec.id), rec] }; const ok = await save(next); if (ok !== false) setT(null); };
   const delTpl = (id) => { if (window.confirm('حذف القالب؟')) save({ ...F, templates: F.templates.filter(x => x.id !== id) }); };
   const R = t ? commsRender(t.body, sample) : null; const SP = t && t.ch === 'sms' ? smsParts(R.text + (F.optOutText ? '\n' + F.optOutText : '')) : null;
-  const dis = !canApp;
+  const dis = !canApp; const sOn = commsSendOn(org); const isAdm = jeOwner(me);
+  const togSend = async () => { if (!isAdm) return say('لمسؤول النظام', 'no');
+    if (!sOn && !window.confirm('تفعيل مسار إرسال الرسائل؟ المحوّل الحالي تجريبي لا يرسل شيئًا فعلًا؛ كل دفعة تحتاج اعتماد المالك أو المدير العام.')) return;
+    const ok = await commitOrg(g => { const c0 = { ...((((g.mkt || {}).comms) || {})) }; if (sOn) delete c0.sendOn; else c0.sendOn = true; return { ...g, mkt: { ...(g.mkt || {}), comms: c0 } }; },
+      { actionType: 'update', targetType: 'settings', targetId: 'mkt.comms.sendOn', need: 'edit', title: sOn ? 'أوقف مسار إرسال الرسائل' : 'فعّل مسار إرسال الرسائل (تجريبي)', details: sOn ? 'إيقاف' : 'تفعيل' });
+    if (ok !== false) say(sOn ? 'أُوقف مسار الإرسال' : 'فُعّل مسار الإرسال (المحوّل التجريبي)'); };
   return (<div className="grid" style={{ gap: 12 }} data-com>
+    <div className="card" data-comsend><div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}><div className="card-t" style={{ margin: 0 }}>مسار إرسال الرسائل</div>
+      <span className={'badge ' + (sOn ? 'b-mint' : 'b-dim')} data-comsend-st>{sOn ? 'مفعّل (تجريبي — بلا إرسال فعلي)' : 'غير مفعّل'}</span>
+      {isAdm && <button className="btn sm gh" style={{ marginInlineStart: 'auto' }} data-comsend-toggle onClick={togSend}>{sOn ? 'إيقاف' : 'تفعيل'}</button>}</div>
+      <div className="note" style={{ marginTop: 6 }}>يسمح بإنشاء دفعات الرسائل في «الرسائل» واعتمادها وإرسالها تجريبيًا من الخادم. لا تُرسل رسالة فعلًا حتى يُختار مزوّد ويُفتح حساب باسم المنشأة ويُسجَّل اسم المرسل ويُضاف المفتاح في إعدادات الخادم. التفعيل لمسؤول النظام.</div></div>
     <div className="card" style={{ borderColor: 'rgba(217,164,65,.5)' }}><div className="note" data-comoff>الإرسال للعملاء <b>غير مفعّل</b> — هذه الإعدادات تمهيد للمرحلة I. يُفعَّل الإرسال بعد اعتمادك للمزوّد والتكلفة، ويُضاف مفتاح المزوّد في إعدادات الخادم (لا يُحفظ هنا أبدًا). الرسائل التسويقية تُرسل فقط لمن سجّل موافقة صريحة، وتحترم ساعات الهدوء والحد الشهري.</div></div>
     <div className="card" data-comcfg>
       <div className="card-t">المزوّد والقنوات</div>
