@@ -110,3 +110,12 @@ test('قرار المالك — نقل الأصل بين الفروع «من ش�
     assert.ok(A.entries.every(e => e.balanced));
   } finally { mock.timers.reset(); }
 });
+
+test('v56.48 (التحقق المستقل): الفرع ضمن بصمة الأشهر المقفلة — تغيير فرع قيد هبوط مقفل يُكشف، وبلا فرع البصمة كما كانت', () => {
+  const lk = on({ ...base, periodLocks: { lockedThrough: '2025-08' } }, [{ from: '2025-06' }]);
+  const ops = { impairDocs: [imp('i1', '2025-07-10')] };
+  const s1 = E.lockedLedgerSig(lk, ops, '2025-08');
+  const moved = { ...lk, assets: [{ ...aB, branchId: 'b2' }, aC] };
+  assert.notEqual(E.lockedLedgerSig(moved, ops, '2025-08'), s1, 'تغيير الفرع في شهر مقفل يغيّر البصمة');
+  assert.ok(!/\|b:/.test(E.lockedLedgerSig({ ...base, periodLocks: { lockedThrough: '2025-08' } }, {}, '2025-08')), 'قيود بلا فرع: الصيغة القديمة حرفيًا');
+});

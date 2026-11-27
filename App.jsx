@@ -666,7 +666,7 @@ function lockedLedgerSig(org, ops, lt) {
   try {
     return buildAccounting(org || {}, ops || {}).entries
       .filter(e => e.date && String(e.date).slice(0, 7) <= lt)
-      .map(e => e.id + '|' + e.date + '|' + e.lines.map(l => l.code + ':' + (Math.round((l.debit || 0) * 100)) + ':' + (Math.round((l.credit || 0) * 100))).join(','))
+      .map(e => e.id + '|' + e.date + (e.branchId ? '|b:' + e.branchId : '') + '|' + e.lines.map(l => l.code + ':' + (Math.round((l.debit || 0) * 100)) + ':' + (Math.round((l.credit || 0) * 100))).join(','))
       .sort().join('\n');
   } catch (e) { console.warn('lockedLedgerSig', e); return null; }
 }
@@ -3105,7 +3105,7 @@ function buildAccounting(org, ops) {
     // v56.43 (E8): قيود الهبوط وعكسه المعتمدة، ورصيد الهبوط لكل حساب مجمع
     const impBy = {}; let impBal = 0;
     aImps.forEach(x => { const v = impR2(x.amount); const s = x.kind === 'rev' ? -1 : 1; impBal = impR2(impBal + s * v); impBy[x.accAcc] = impR2((impBy[x.accAcc] || 0) + s * v);
-      /* (قرار المجلس) على المركز الرئيسي كالإهلاك المجمّع — فلا تتحمل قائمة الفرع الهبوط دون إهلاكه */ push({ id: 'imp:' + x.id, date: x.date, ...(depBrOf(org, a, x.date) ? { branchId: depBrOf(org, a, x.date) } : {}) /* v56.48: داخل نطاق التوزيع بفرع الأصل */, title: (x.kind === 'rev' ? 'عكس هبوط قيمة أصل — ' : 'هبوط قيمة أصل — ') + (a.name || '') + (x.no ? ' (' + x.no + ')' : ''),
+      /* v56.48: على فرع الأصل في شهر المستند داخل نطاق توزيع الإهلاك (assetBrAt)، وإلا على المركز الرئيسي كالإهلاك المجمّع (قرار المجلس v56.43) */ push({ id: 'imp:' + x.id, date: x.date, ...(depBrOf(org, a, x.date) ? { branchId: depBrOf(org, a, x.date) } : {}) /* v56.48: داخل نطاق التوزيع بفرع الأصل */, title: (x.kind === 'rev' ? 'عكس هبوط قيمة أصل — ' : 'هبوط قيمة أصل — ') + (a.name || '') + (x.no ? ' (' + x.no + ')' : ''),
         src: 'الأصول الثابتة', ref: a.id, lines: x.kind === 'rev' ? [L(x.accAcc, v, 0), L(x.lossAcc, 0, v)] : [L(x.lossAcc, v, 0), L(x.accAcc, 0, v)] }); });
     const book = Math.round((cost - accum - impBal) * 100) / 100;
     // بيع/استبعاد الأصل: إخراجه بالتكلفة + إقفال مجمّع إهلاكه، والفرق مع سعر البيع ربح (4201) أو خسارة (5801)
