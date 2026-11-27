@@ -214,11 +214,12 @@ function Gov({ list, ops, org, me, canApp, commit, say, setLoy, loyD }) {
   const requestUndo = async (x) => { const blk = mktUnmergeBlock(ops, (loyD || {}).tx, x); if (blk) return say('لا يمكن التراجع: ' + blk, 'no');
     if (pend.some(r => r.undoReq === x.id)) return say('يوجد طلب تراجع قائم لهذا الدمج', 'no');
     const why = window.prompt('سبب طلب التراجع عن دمج ' + x.from + ' ← ' + x.to + ' (إلزامي):'); if (!why || !why.trim()) return;
-    const ok = await commit(d => ({ ...d, mktMerges: [...(d.mktMerges || []), { id: uid('mg'), undoReq: x.id, reason: why.trim(), by: me.name, byId: me.id || '', at: nowISO() }] }), { actionType: 'create', targetType: 'customer', targetId: x.to, need: 'edit', title: 'طلب تراجع عن دمج يمس النقاط', details: x.from + ' ← ' + x.to + ' · ' + x.pts + ' نقطة · ' + why.trim() });
+    const ok = await commit(d => ({ ...d, mktMerges: [...(d.mktMerges || []), { id: uid('mg'), undoReq: x.id, reason: why.trim(), by: me.name, byId: me.id || '', ...(me.email ? { byEmail: me.email } : {}), at: nowISO() }] }), { actionType: 'create', targetType: 'customer', targetId: x.to, need: 'edit', title: 'طلب تراجع عن دمج يمس النقاط', details: x.from + ' ← ' + x.to + ' · ' + x.pts + ' نقطة · ' + why.trim() });
     if (ok) say('أُرسل الطلب — يعتمده شخص آخر ✓'); };
-  const decideReq = async (r, okd) => { const x = live.find(m => m.id === r.undoReq); const mine = r.byId ? r.byId === me.id : r.by === me.name;
+  const decideReq = async (r, okd) => { if (!canApp) return; const x = live.find(m => m.id === r.undoReq);
+    const mine = (r.byEmail && me.email && r.byEmail === me.email) || (r.byId ? r.byId === me.id : r.by === me.name);   // (مراجعة الأمن) البريد أولًا
     if (mine) return say('لا يعتمد الطلب صاحبه', 'no');
-    if (!okd) { const why = window.prompt('سبب الرفض:', ''); if (why === null) return; const ok = await commit(d => ({ ...d, mktMerges: [...(d.mktMerges || []), { id: uid('mg'), rejOf: r.id, reason: why, by: me.name, byId: me.id || '', at: nowISO() }] }), { actionType: 'update', targetType: 'customer', targetId: r.undoReq, need: 'edit', title: 'رفض طلب تراجع عن دمج', details: why }); if (ok) say('رُفض الطلب'); return; }
+    if (!okd) { const why = window.prompt('سبب الرفض (إلزامي):', ''); if (!why || !why.trim()) return; const ok = await commit(d => ({ ...d, mktMerges: [...(d.mktMerges || []), { id: uid('mg'), rejOf: r.id, reason: why, by: me.name, byId: me.id || '', at: nowISO() }] }), { actionType: 'update', targetType: 'customer', targetId: r.undoReq, need: 'edit', title: 'رفض طلب تراجع عن دمج', details: why }); if (ok) say('رُفض الطلب'); return; }
     if (!x) return say('الدمج لم يعد قائمًا', 'no'); return undo(x, r); };
   const undo = async (x, req) => { if (!canApp) return; const blk = mktUnmergeBlock(ops, (loyD || {}).tx, x); if (blk) return say('لا يمكن التراجع: ' + blk, 'no');
     if (!req && mktCtlOn(org) && Number(x.pts) > 0) return requestUndo(x);
@@ -256,7 +257,7 @@ function Gov({ list, ops, org, me, canApp, commit, say, setLoy, loyD }) {
         {live.map(x => <div key={x.id} className="mono-b" style={{ marginBottom: 4, gap: 6, flexWrap: 'wrap' }}><span>{x.from} ← {x.to} · {String(x.at || '').slice(0, 10)} · {x.reason}</span>
           {canApp && !pend.some(r => r.undoReq === x.id) && <button className="btn sm gh" data-unmerge onClick={() => undo(x)}>{mktCtlOn(org) && Number(x.pts) > 0 ? 'طلب تراجع…' : 'تراجع…'}</button>}
           {pend.filter(r => r.undoReq === x.id).map(r => <span key={r.id} className="row" style={{ gap: 4 }} data-unmerge-req><span className="badge b-amber">طلب تراجع من {r.by}: {r.reason}</span>
-            {canApp && !(r.byId ? r.byId === me.id : r.by === me.name) && <><button className="btn sm" data-unmerge-ok onClick={() => decideReq(r, true)}>اعتماد</button><button className="btn sm gh" data-unmerge-no onClick={() => decideReq(r, false)}>رفض</button></>}</span>)}</div>)}</div>}
+            {canApp && !((r.byEmail && me.email && r.byEmail === me.email) || (r.byId ? r.byId === me.id : r.by === me.name)) && <><button className="btn sm" data-unmerge-ok onClick={() => decideReq(r, true)}>اعتماد</button><button className="btn sm gh" data-unmerge-no onClick={() => decideReq(r, false)}>رفض</button></>}</span>)}</div>)}</div>}
     </div>
     {mg && <Modal title="دمج ملفي عميل" icon={GitMerge} onClose={() => setMg(null)} foot={<><button className="btn pri" data-merge-save onClick={doMerge}>دمج</button><button className="btn gh" onClick={() => setMg(null)}>إلغاء</button></>}>
       <div className="grid g2">
