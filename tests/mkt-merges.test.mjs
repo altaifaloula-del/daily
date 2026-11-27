@@ -61,17 +61,19 @@ test('MKM v56.39: مصدر الدمج على الخادم — بلا تفعيل 
   E.mkmSrvSet(null);
 });
 
-test('MKM v56.39 (مراجعة الأمن): المطابقة بالمحتوى لا بالمعرّف — سجل مزوّر بمعرّف حقيقي لا أثر له', () => {
+test('MKM v56.39 (مراجعة الأمن): مع التحميل يُبنى الدمج من الخادم وحده — لا تزوير بالمعرّف ولا بحقل زائد ولا بالحذف من المصدر', () => {
   const g = { id: 'mg-1', from: '500000001', to: '500000002', pts: 5, at: '1' };
-  // (أ) في الخادم «طلب» بالمعرّف Z، وفي المصدر «تراجع» بالمعرّف نفسه
-  E.mkmSrvSet([{ id: 'mg-1', kind: 'merge', ref: 'mg-1', from: '500000001', to: '500000002', pts: 5 }, { id: 'mg-z', kind: 'undoReq', ref: 'mg-1' }]);
-  assert.deepEqual(E.mktMergesLive({ mktMerges: [g, { id: 'mg-z', undoOf: 'mg-1', at: '2' }] }).map(x => x.id), ['mg-1'], 'الدمج باقٍ');
-  // (ب) دمج في الخادم بنقاط 0 ومقابله في المصدر بنقاط 5
-  E.mkmSrvSet([{ id: 'mg-1', kind: 'merge', ref: 'mg-1', from: '500000001', to: '500000002', pts: 0 }]);
-  assert.deepEqual(E.mktMergesLive({ mktMerges: [g] }), [], 'نقاط مختلفة ⇒ لا يُعتدّ به');
-  // (ج) تراجع بطلب آخر
-  E.mkmSrvSet([{ id: 'mg-1', kind: 'merge', ref: 'mg-1', from: '500000001', to: '500000002', pts: 5 }, { id: 'mg-1-u', kind: 'undo', ref: 'mg-1', reqId: 'mg-q' }]);
-  assert.deepEqual(E.mktMergesLive({ mktMerges: [g, { id: 'mg-1-u', undoOf: 'mg-1', reqId: 'mg-other', at: '3' }] }).map(x => x.id), ['mg-1'], 'رقم طلب مختلف');
-  assert.deepEqual(E.mktMergesLive({ mktMerges: [g, { id: 'mg-1-u', undoOf: 'mg-1', reqId: 'mg-q', at: '3' }] }), [], 'المطابق يسري');
-  E.mkmSrvSet(null);
+  const S = [{ id: 'mg-1', kind: 'merge', ref: 'mg-1', from: '500000001', to: '500000002', pts: 5, at: '2026-01-01T00:00:00Z' }, { id: 'mg-z', kind: 'undoReq', ref: 'mg-1', by: 'a@x.com', at: '2026-01-02T00:00:00Z' }];
+  E.mkmSrvSet(S);
+  // (أ) «طلب» في الخادم و«تراجع» بالمعرّف نفسه في المصدر، أو بحقل undoOf زائد
+  for (const fake of [{ id: 'mg-z', undoOf: 'mg-1' }, { id: 'mg-z', undoReq: 'mg-1', undoOf: 'mg-1' }])
+    assert.deepEqual(E.mktMergesLive({ mktMerges: [g, fake] }).map(x => x.id), ['mg-1'], 'الدمج باقٍ');
+  // (ب) دمج مُعلَّم undone في المصدر، أو بنقاط مختلفة
+  assert.deepEqual(E.mktMergesLive({ mktMerges: [{ ...g, undone: true }] }).map(x => [x.id, x.pts]), [['mg-1', 5]], 'نقاط الخادم وحاله');
+  // (ج) حذف الطلب من المصدر لا يُخفيه
+  assert.deepEqual(E.mktUndoPending({ mktMerges: [g] }).map(x => [x.id, x.byEmail]), [['mg-z', 'a@x.com']], 'الطلب من الخادم');
+  // (د) حذف التراجع من المصدر لا يعيد الدمج
+  E.mkmSrvSet([...S, { id: 'mg-1-u', kind: 'undo', ref: 'mg-1', reqId: 'mg-z', at: '2026-01-03T00:00:00Z' }]);
+  assert.deepEqual(E.mktMergesLive({ mktMerges: [g] }), [], 'التراجع من الخادم');
+  E.mkmSrvSet(null); assert.deepEqual(E.mktMergesLive({ mktMerges: [g] }).map(x => x.id), ['mg-1'], 'بلا تحميل كما كان');
 });

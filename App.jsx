@@ -3886,7 +3886,7 @@ function PlatformApp() {
   const [, setMkmTick] = useState(0);   // v56.39: مصدر الدمج على الخادم — يُحمَّل للمركز ثم يُعاد الرسم
   const mkmSrcFlag = !!(org && mkmSrcOn(org)); const meCentral = !!(me && ((ROLES[me.role] || {}).scope === 'all' || (ROLES[me.role] || {}).admin));
   const meKey = me ? (me.id || me.email || me.name || '') : '';
-  const mkmStale = mkmSrcFlag && meCentral && mkmSrvStale(opsRaw);   // سجل كتبه مستخدم آخر بعد التحميل ⇒ إعادة تحميل
+  const mkmStale = mkmSrcFlag && meCentral ? mkmSrvStale(opsRaw) : '';   // سجل كتبه مستخدم آخر بعد التحميل ⇒ إعادة تحميل
   useEffect(() => { if (!mkmSrcFlag || !meCentral) { mkmSrvSet(null); return; } let dead = false; mkmSrvLoad().then(() => { if (!dead) setMkmTick(t => t + 1); }).catch(() => { }); return () => { dead = true; }; }, [mkmSrcFlag, meCentral, meKey, mkmStale]);
   useEffect(() => { _rptCtx.user = (me && me.name) || ''; }, [me]);   // v50.0: اسم الطابع في تذييل كل تقرير
   useEffect(() => { ERR_CTX.role = (me && me.role) || ''; ERR_CTX.branchId = (me && me.branchId) || ''; }, [me]);   // v38.5 سياق سجل الأخطاء
@@ -7193,16 +7193,18 @@ const mktDays = (a, b) => Math.round((new Date(String(b).slice(0, 10) + 'T12:00:
 /* v56.39 — مصدر الدمج على الخادم (org.mkmSrc.on، معطّل افتراضيًا): سجل الدمج أو الطلب أو القرار يُكتب في mkt_merges أولًا فيفرض الخادم فصل المهام قبل أي أثر،
    ولا يُعتدّ في الحساب (الدمج الفعّال، الطلبات، تدقيق الولاء) إلا بما في الخادم — فالمكتوب في المستند المركزي مباشرةً بلا سجل محمي لا أثر له. */
 const mkmSrcOn = (org) => !!(org && org.mkmSrc && org.mkmSrc.on) && mkmOn(org);
-let _mkmSrv = null;   // السجلات المحمية بمحتواها { id: سجل } (تُحمَّل للمركز عند التفعيل)؛ null ⇒ بلا تصفية
-let _mkmGen = 0;     // يُبطل تحميلًا قديمًا بدأ قبل تبديل المستخدم
-const mkmSrvSet = (recs) => { _mkmGen++; _mkmSrv = recs ? new Map((recs || []).map(r => [r.id, r])) : null; };
-/** يُعتدّ بالسجل إن طابق الخادم في النوع والمرجع والرقمين والنقاط ورقم الطلب (مراجعة الأمن: المعرّف وحده يُزوَّر) */
-const mkmMatch = (x, r) => { if (!x || !r) return false; const e = mkmRecord(x);
-  return r.kind === e.kind && r.ref === e.ref && String(r.from || '') === String(e.from || '') && String(r.to || '') === String(e.to || '')
-    && Math.abs((Number(r.pts) || 0) - (Number(e.pts) || 0)) <= 0.001 && String(r.reqId || '') === String(e.reqId || ''); };
-const mkmEff = (ops) => { const M = (ops && ops.mktMerges) || []; return _mkmSrv ? M.filter(x => x && mkmMatch(x, _mkmSrv.get(x.id))) : M; };
-/** في المصدر سجل لم يُحمَّل من الخادم بعد ⇒ يلزم إعادة التحميل (سجل كتبه مستخدم آخر) */
-const mkmSrvStale = (ops) => !!_mkmSrv && ((ops && ops.mktMerges) || []).some(x => x && x.id && !_mkmSrv.has(x.id));
+let _mkmSrv = null;   // السجلات المحمية { id: سجل بصيغة mktMerges } (تُحمَّل للمركز عند التفعيل)؛ null ⇒ المصدر كما هو
+let _mkmGen = 0;     // يُبطل تحميلًا قديمًا بدأ قبل تبديل المستخدم (يرتفع عند التصفير فقط)
+/** سجل الخادم ⇐ صيغة mktMerges — تُبنى من حقول الخادم وحدها (مراجعة الأمن: لا حقل زائد من المصدر، ولا يُخفيها حذف من المصدر) */
+const mkmLegacy = (r) => { const at = r.origAt || (r.at && typeof r.at.toDate === 'function' ? r.at.toDate().toISOString() : (typeof r.at === 'string' ? r.at : ''));
+  const base = { id: r.id, reason: r.reason || '', by: r.byName || r.origBy || r.by || '', ...(r.by ? { byEmail: r.origBy || r.by } : {}), at };
+  return r.kind === 'merge' ? { ...base, from: r.from, to: r.to, pts: Number(r.pts) || 0 } : r.kind === 'undoReq' ? { ...base, undoReq: r.ref }
+    : r.kind === 'rej' ? { ...base, rejOf: r.ref } : { ...base, undoOf: r.ref, ...(r.reqId ? { reqId: r.reqId } : {}) }; };
+const mkmSrvSet = (recs) => { if (!recs) _mkmGen++; _mkmSrv = recs ? new Map((recs || []).filter(r => r && r.id && r.kind).map(r => [r.id, mkmLegacy(r)])) : null; };
+/** مع «الخادم مصدر الدمج» وتحميل سجلاته: الدمج والطلبات والقرارات من الخادم وحده بترتيب وقتها — المستند المركزي لا يُقرأ */
+const mkmEff = (ops) => _mkmSrv ? [..._mkmSrv.values()].sort((a, b) => String(a.at || '').localeCompare(String(b.at || ''))) : ((ops && ops.mktMerges) || []);
+/** مفتاح ما في المصدر ولم يُحمَّل من الخادم — يتغير بكل كتابة جديدة فيُعاد التحميل (سجل كتبه مستخدم آخر) */
+const mkmSrvStale = (ops) => !_mkmSrv ? '' : ((ops && ops.mktMerges) || []).filter(x => x && x.id && !_mkmSrv.has(x.id)).map(x => x.id).sort().join(',');
 function mktMergesLive(ops) { const M = mkmEff(ops); const un = new Set(M.filter(x => x.undoOf).map(x => x.undoOf));
   return M.filter(x => !x.undoOf && !x.undone && !x.undoReq && !x.rejOf && !un.has(x.id)); }   // v56.35: الطلبات والرفض ليست دمجًا
 /* v56.35 (الدفعة 4 — قرارا المجلس M3/M4 بتفويض المالك، معطّلة افتراضيًا org.mktCtl.on):
@@ -15065,7 +15067,7 @@ const mkmSeed = (items, onProgress) => mkmMirror(items || [], true, onProgress);
 /** كتابة السجل المحمي أولًا (بانتظار الرد) — رفض الخادم يوقف العملية قبل أي أثر */
 async function mkmWrite(x) {
   const c = await ctlIdentity(); if (!c) return { err: 'السجل المحمي يعمل على قاعدة Firestore فقط' };
-  try { await mkmPut(c, x, false); if (_mkmSrv) _mkmSrv.set(x.id, { id: x.id, ...mkmRecord(x) }); return { ok: true }; }
+  try { await mkmPut(c, x, false); if (_mkmSrv) _mkmSrv.set(x.id, mkmLegacy({ id: x.id, ...mkmRecord(x), by: c.email, at: x.at || nowISO() })); return { ok: true }; }
   catch (e) { const code = (e && e.code) || 'error'; return { err: /permission/i.test(code) ? 'رفضه الخادم (فصل المهام أو الصلاحية)' : 'تعذّر الحفظ (' + code + ')' }; }
 }
 async function mkmSrvLoad() { const g = _mkmGen; const R = await grrLoad('mkt_merges', '', [], true); if (!R || R.err) return R || null; if (g !== _mkmGen) return null; mkmSrvSet(R); return R; }
