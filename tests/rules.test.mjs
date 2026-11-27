@@ -228,6 +228,22 @@ test('rms8_loy (v34.0): نقاط الولاء مشتركة — يقرؤها وي
   await assertFails(getDoc(doc(ghost(), 'platform', 'rms8_loy')));
 });
 
+test('v56.37: أسماء عملاء الولاء لكل فرع rms8_lyb_<الفرع> — الفرع والمركز فقط؛ وأسماء حركات المركز rms8_lyc للمركز وحده', async () => {
+  const v = (o) => ({ value: JSON.stringify(o), parts: 1, updatedAt: Date.now() });
+  await assertSucceeds(setDoc(doc(brA(), 'platform', 'rms8_lyb_b-AAA'), v({ names: { '551234567': 'سارة' } })), 'الفرع يكتب أسماء عملائه');
+  await assertSucceeds(getDoc(doc(brA(), 'platform', 'rms8_lyb_b-AAA')));
+  await assertSucceeds(getDoc(doc(central(), 'platform', 'rms8_lyb_b-AAA')), 'المركز يرى');
+  await assertFails(getDoc(doc(brB(), 'platform', 'rms8_lyb_b-AAA')), 'فرع آخر لا يرى');
+  await assertFails(setDoc(doc(brB(), 'platform', 'rms8_lyb_b-AAA'), v({ names: {} })), 'فرع آخر لا يكتب');
+  await assertFails(setDoc(doc(brB(), 'platform', 'rms8_lyb_b-AAA__0'), { chunk: 'x' }), 'ولا جزءًا منه');
+  await assertFails(setDoc(doc(viewer(), 'platform', 'rms8_lyb_b-AAA'), v({ names: {} })), 'عرض فقط');
+  await assertSucceeds(setDoc(doc(central(), 'platform', 'rms8_lyc'), v({ names: { '559999999': 'منى' } })), 'المركز يكتب أسماء حركاته');
+  await assertFails(getDoc(doc(brA(), 'platform', 'rms8_lyc')), 'الفرع لا يرى أسماء المركز');
+  await assertFails(setDoc(doc(brA(), 'platform', 'rms8_lyc'), v({ names: {} })));
+  await assertFails(getDoc(doc(visitor(), 'platform', 'rms8_lyb_b-AAA')));
+  await assertFails(setDoc(doc(brA(), 'platform', 'rms8_lyb_b-AAA'), { names: {} }), 'الشكل الحقيقي فقط');
+});
+
 /* ===== v28.0 — وحدة تقييم العملاء بالـ QR (qr_branches / qr_feedback) ===== */
 const RATINGS = { quality: 5, taste: 4, temp: 4, size: 5, staff: 3, speed: 2, pro: 4, clean: 5, vibe: 4, comfort: 4 };
 const fbDoc = (over) => ({ branchId: 'b-AAA', ratings: { ...RATINGS }, comment: 'ممتاز', tableNo: '7', invoiceNo: null, source: 'qr', createdAt: serverTimestamp(), ...over });

@@ -24,7 +24,7 @@ import { CSS } from './styles';
 import { LoginFx, WelcomeFx, markWelcome, clearWelcome } from './mods/login/LoginFx.jsx';   // v56.5 تجربة الدخول
 import { TX, getLang, setLangGlobal, isEn, domI18n } from './i18n';
 import { tenantFirebase, tenantFbReady, TENANT } from './tenant.js';
-import { cloud, KEYS, kb, authApi, brKey, bfKey, pushApi } from './storage';
+import { cloud, KEYS, kb, authApi, brKey, bfKey, lybKey, pushApi } from './storage';
 
 /* ===== v38.3 — تحميل التطبيقات عند الطلب =====
    الحزمة الأولى تحمل الدخول والرئيسية والهيكل فقط؛ كل تطبيق في ملف مستقل يُنزَّل عند فتحه (ثم يُجلب الباقي بهدوء في الخلفية).
@@ -3767,7 +3767,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.36';
+const APP_VER = 'v56.37';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3869,7 +3869,7 @@ function UpdateGate({ rel }) {
 function PlatformApp() {
   useEffect(() => { const h = setTimeout(prefetchMods, 2500); return () => clearTimeout(h); }, []);   // v38.3 جلب التطبيقات في الخلفية بعد ظهور الواجهة
   const [org, setOrg] = useState(null);
-  const orgNow = useRef(null); orgNow.current = org; grrSetOn(org);   // v56.17: مفتاح نسخ سجلات النمو لدفتر الولاء   // v29.5: للحارس المركزي للإقفال داخل writeOps
+  const orgNow = useRef(null); orgNow.current = org; grrSetOn(org); lypSetOn(org);   // v56.17: مفتاح نسخ سجلات النمو لدفتر الولاء   // v29.5: للحارس المركزي للإقفال داخل writeOps
   const [opsRaw, setOps] = useState({ closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [] });
   // v42.2: القراءة من السجلات المستقلة — ops المعروضة = مستند الفرع مدموجًا بالسجلات (السجل يغلب) متى فُعّلت
   const [clRecs, setClRecs] = useState(null);
@@ -3882,6 +3882,7 @@ function PlatformApp() {
   const opsNow = useRef(null); opsNow.current = ops;   // v29.5: للحارس المركزي للإقفال داخل commitOrg
   const [pulse, setPulse] = useState({ presence: {}, audit: [] });
   const [me, setMe] = useState(null);
+  useEffect(() => { lynReset(); }, [me ? (me.id || me.email || me.name || '') : '']);   // v56.37: لا تنتقل أسماء الولاء المحمّلة إلى مستخدم آخر على الجهاز نفسه
   useEffect(() => { _rptCtx.user = (me && me.name) || ''; }, [me]);   // v50.0: اسم الطابع في تذييل كل تقرير
   useEffect(() => { ERR_CTX.role = (me && me.role) || ''; ERR_CTX.branchId = (me && me.branchId) || ''; }, [me]);   // v38.5 سياق سجل الأخطاء
   const [tab, setTab] = useState('home');
@@ -4428,7 +4429,7 @@ function PlatformApp() {
     setSessWarnLeft(null); setLocked(false);
     // خروج سحابي صحيح: إنهاء جلسة المصادقة أيضاً حتى تظهر بوابة الدخول الحقيقية لا بوابة محلية
     if (authApi.enabled) { try { await authApi.signOutAll(); } catch { } setNeedAuth(true); }
-    setMe(null);
+    lynReset(); setMe(null);   // v56.37
   }, []);
   useEffect(() => {
     const cfg = (org && org.sessionCfg) || {};
@@ -9076,19 +9077,113 @@ const pendShiftsSet = (a) => { try { if (a.length) localStorage.setItem(POS_SC_K
 const POS_LQ_KEY = 'mizan:posLoyQ';
 const loyQ = () => { try { return JSON.parse(localStorage.getItem(POS_LQ_KEY) || '[]'); } catch { return []; } };
 const loyQSet = (a) => { try { localStorage.setItem(POS_LQ_KEY, JSON.stringify(a)); } catch { } };
+/* ===== v56.37 — MUKTASAB GROWTH: فصل أسماء عملاء الولاء عن الدفتر المشترك (مراجعة الأمن، توصية مقبولة من المالك) =====
+   الدفتر المشترك rms8_loy يبقى للنقاط (الجوال والنقاط والتاريخ) كي يكسب العميل ويستبدل في أي فرع كما هو؛
+   والاسم يُحفظ في مستند الفرع الذي جرت فيه الحركة rms8_lyb_<الفرع> (يقرؤه الفرع والمركز)، وحركات المركز في rms8_lyc (للمركز وحده).
+   مُطفأ افتراضيًا (org.loyPii.on). الأسماء القائمة تُنقل بأداة في «صيانة النظام» ثم تُحذف من المشترك بخطوة مستقلة. */
+const loyPiiOn = (org) => !!(org && org.loyPii && org.loyPii.on);
+let _lypFlag = false; const lypSetOn = (org) => { _lypFlag = loyPiiOn(org); };
+/* الذاكرة المؤقتة لكل مستند أسماء (لا خليط): العرض يدمج مستندات النطاق المطلوب وحده، وتُصفَّر عند الخروج أو تبدّل المستخدم (مراجعة الأمن) */
+let _lynDocs = {}, _lynScope = [];
+const lynReset = () => { _lynDocs = {}; _lynScope = []; };
+const lynKeyOf = (br) => (br ? lybKey(br) : KEYS.lyc);
+const lynScopeKeys = (brIds, central) => { const k = [...new Set((brIds || []).filter(Boolean))].map(b => lybKey(b)); if (central) k.push(KEYS.lyc); return k; };
+const lynNames = (keys) => { const N = {}; (keys || []).forEach(k => Object.entries(_lynDocs[k] || {}).forEach(([ph, nm]) => { if (!N[ph]) N[ph] = nm; })); return N; };
+/* طابور الأسماء على الجهاز: يُكتب قبل حفظ الدفتر ويُفرَّغ بعد نجاح حفظ الاسم في سجله — فلا يضيع اسم إن انقطع الاتصال بينهما */
+const LYN_Q_KEY = 'mizan:lynQ';
+const lynQ = () => { try { const v = JSON.parse(localStorage.getItem(LYN_Q_KEY) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } };
+const lynQSet = (a) => { try { if (a.length) localStorage.setItem(LYN_Q_KEY, JSON.stringify(a)); else localStorage.removeItem(LYN_Q_KEY); } catch { } };
+async function lynFlush() {
+  const Q = lynQ(); if (!Q.length) return true; const left = [];
+  for (const g of Q) { if (!(await lynMerge(g.br, g.names, true).catch(() => false)) && (g.n || 0) < 50) left.push({ ...g, n: (g.n || 0) + 1 }); }   // المرفوض دائمًا (بلا صلاحية) يُترك بعد 50 محاولة
+  const now = lynQ().filter(g => !Q.some(x => x.qid === g.qid)); lynQSet([...left, ...now]); return !left.length;
+}
+/** إصدار لا يعيد الأسماء إلى المشترك: يرفعه المدير تلقائيًا (التحديث الإجباري) — يُشترط قبل حذف الأسماء من المشترك */
+const LYP_MIN_CV = 563700;
+async function lypReleaseOk() { const r = await loadRelease().catch(() => null); return !r ? true : (Number(r.minCv) || 0) >= LYP_MIN_CV; }
+/** الحركات ⇒ الأسماء لكل مستند: { '<الفرع>' | '': { phone: name } } */
+function loyNamesByBr(txs) {
+  const G = {}; (txs || []).forEach(t => { const nm = String((t && t.name) || '').trim(); const ph = t && t.phone; if (!nm || !ph) return; const b = String(t.br || ''); (G[b] = G[b] || {})[ph] = nm.slice(0, 120); }); return G;
+}
+/** الدفتر بلا أسماء (الأعضاء والحركات) */
+function loyStrip(doc) {
+  const d = doc || {}; const members = {}; Object.entries(d.members || {}).forEach(([ph, m]) => { const { name, ...rest } = m || {}; void name; members[ph] = rest; });
+  return { ...d, members, tx: (d.tx || []).map(t => { if (!t || !('name' in t)) return t; const { name, ...rest } = t; void name; return rest; }) };
+}
+/** الدفتر للعرض: اسم العضو من مستندات الأسماء أولًا، ثم ما بقي في المشترك (قبل النقل) */
+function loyWithNames(doc, names) {
+  const d = doc || { members: {}, tx: [] }; const N = names || {}; if (!Object.keys(N).length) return d;
+  const members = { ...(d.members || {}) }; Object.entries(N).forEach(([ph, nm]) => { if (members[ph] || (d.tx || []).some(t => t.phone === ph)) members[ph] = { ...(members[ph] || {}), name: nm || (members[ph] || {}).name || '' }; });
+  return { ...d, members };
+}
+/** أسماء الولاء القائمة في المشترك موزعة على مستنداتها: الفرع الذي جرت فيه أول حركة باسم، أو كل فرع تعامل فيه العميل، والمركز لمن لا فرع له */
+function loyPiiPlan(doc) {
+  const d = doc || {}; const G = {}; const put = (b, ph, nm) => { if (!nm) return; (G[b] = G[b] || {}); if (!G[b][ph]) G[b][ph] = String(nm).slice(0, 120); };
+  const brsOf = {}; (d.tx || []).forEach(t => { if (!t || !t.phone) return; (brsOf[t.phone] = brsOf[t.phone] || new Set()).add(String(t.br || '')); if (t.name) put(String(t.br || ''), t.phone, t.name); });
+  Object.entries(d.members || {}).forEach(([ph, m]) => { const nm = m && m.name; if (!nm) return; const B = [...(brsOf[ph] || new Set(['']))]; const bs = B.filter(Boolean); (bs.length ? bs : ['']).forEach(b => put(b, ph, nm)); });
+  const nMem = Object.values(d.members || {}).filter(m => m && m.name).length, nTx = (d.tx || []).filter(t => t && t.name).length;
+  return { groups: G, nMem, nTx, docs: Object.keys(G).length, names: Object.values(G).reduce((a, g) => a + Object.keys(g).length, 0) };
+}
+/** دمج الأسماء في مستند — كتابة مشروطة. latest: الاسم الأحدث يغلب (كما كان «آخر اسم» في المشترك)؛ وإلا لا يُكتب فوق اسم قائم (النقل) */
+async function lynMerge(br, names, latest) {
+  const key = lynKeyOf(br);
+  for (let i = 0; i < 5; i++) {
+    const cur = (await cloud.get(key, null)) || { names: {} }; const N = { ...(cur.names || {}) }; let ch = 0;
+    Object.entries(names || {}).forEach(([ph, nm]) => { if (nm && (latest ? N[ph] !== nm : !N[ph])) { N[ph] = nm; ch++; } });
+    if (!ch) { _lynDocs[key] = N; return true; }
+    const r = await cloud.setIfUnchanged(key, { ...cur, names: N }); if (r === 'ok') { _lynDocs[key] = N; return true; } if (r === 'fail') return false;
+  }
+  return false;
+}
+/** تحميل الأسماء المسموحة: فروع المستخدم (والمركزي لأدوار المركز). المرفوض من الخادم يُتجاهل */
+async function lynLoad(brIds, central) {
+  const keys = lynScopeKeys(brIds, central); _lynScope = keys;
+  const R = await Promise.all(keys.map(k => cloud.tryGet ? cloud.tryGet(k).then(r => (r && r.ok && r.value) || null).catch(() => null) : cloud.get(k, null).catch(() => null)));
+  keys.forEach((k, i) => { _lynDocs[k] = ((R[i] && R[i].names) || {}); }); return lynNames(keys);
+}
+/** قراءة الدفتر للعرض (أسماء نطاق هذا الاستدعاء وحده مدموجة) — بلا تفعيل كما كان */
+async function loyGet(brIds, central) {
+  const d = (await cloud.get(KEYS.loy, null)) || { members: {}, tx: [] };
+  if (!_lypFlag) return d;
+  await lynFlush().catch(() => false); const N = await lynLoad(brIds, central); return loyWithNames(d, N);
+}
 // ترحيل حركات النقاط إلى المستند المشترك (كتابة مشروطة، ولا تُكرر حركة بنفس المعرّف)
 async function loyPost(txs) {
+  const lyp = _lypFlag;   // v56.37: مع الفصل لا يدخل الاسم المشترك؛ يُحفظ في مستند الفرع بعد نجاح الحفظ
   for (let i = 0; i < 5; i++) {
     const cur = (await cloud.get(KEYS.loy, null)) || { members: {}, tx: [] };
-    const have = new Set((cur.tx || []).map(t => t.id)); const add = (txs || []).filter(t => !have.has(t.id));
-    if (!add.length) return cur;
+    const have = new Set((cur.tx || []).map(t => t.id)); const add0 = (txs || []).filter(t => !have.has(t.id));
+    if (!add0.length) return lyp ? loyWithNames(cur, lynNames(_lynScope)) : cur;
+    const add = lyp ? loyStrip({ tx: add0 }).tx : add0;
+    const G = lyp ? loyNamesByBr(add0) : {}; const qids = [];
+    if (lyp && i === 0) { const Q = lynQ(); Object.entries(G).forEach(([b, g]) => { const qid = uid('lq'); qids.push(qid); Q.push({ qid, br: b, names: g }); }); lynQSet(Q); }   // قبل الحفظ
     const next = { ...cur, members: { ...(cur.members || {}) }, tx: [...(cur.tx || []), ...add] };
-    add.forEach(t => { const m = next.members[t.phone] || {}; next.members[t.phone] = { ...m, name: t.name || m.name || '', since: m.since || t.at, last: t.at }; });
+    add0.forEach(t => { const m = next.members[t.phone] || {}; next.members[t.phone] = lyp ? { ...m, since: m.since || t.at, last: t.at } : { ...m, name: t.name || m.name || '', since: m.since || t.at, last: t.at }; });
     const r = await cloud.setIfUnchanged(KEYS.loy, next);
-    if (r === 'ok') { if (_grrFlag) grrQueue('lyt', add.filter(t => t && t.id && grrPhone(t.phone))); return next; } if (r === 'fail') return null;   // v56.17: الحركات الجديدة → loy_tx
+    if (r === 'ok') { void qids; if (_grrFlag) grrQueue('lyt', add.filter(t => t && t.id && grrPhone(t.phone)));   // v56.17: الحركات الجديدة → loy_tx
+      if (lyp) { await lynFlush().catch(() => false); return loyWithNames(next, lynNames(_lynScope)); }   // ما لم يُحفظ يبقى في الطابور ويُعاد لاحقًا
+      return next; } if (r === 'fail') return null;
   }
   return null;
 }
+/** أداة النقل (مسؤول النظام): نسخ الأسماء إلى مستنداتها ثم التحقق بالقراءة — لا يُحذف شيء من المشترك هنا */
+async function loyPiiCopy(doc) {
+  const P = loyPiiPlan(doc); let ok = 0, fail = 0;
+  for (const [b, g] of Object.entries(P.groups)) { if (await lynMerge(b, g).catch(() => false)) ok++; else fail++; }
+  const miss = []; for (const [b, g] of Object.entries(P.groups)) { const v = await cloud.get(lynKeyOf(b), null).catch(() => null); const N = (v && v.names) || {}; Object.keys(g).forEach(ph => { if (!N[ph]) miss.push(ph); }); }
+  return { ok, fail, miss: miss.length, plan: P };
+}
+/** الخطوة الثانية (مسؤول النظام): حذف الأسماء من المشترك — فقط إن وُجد كل اسم في مستنده */
+async function loyPiiStrip() {
+  for (let i = 0; i < 5; i++) {
+    const cur = await cloud.get(KEYS.loy, null); if (!cur) return { err: 'لا دفتر' };
+    const P = loyPiiPlan(cur); if (!P.names) return { ok: true, n: 0 };
+    for (const [b, g] of Object.entries(P.groups)) { const v = await cloud.get(lynKeyOf(b), null).catch(() => null); const N = (v && v.names) || {}; if (Object.keys(g).some(ph => !N[ph])) return { err: 'أسماء لم تُنقل بعد — شغّل «نقل الأسماء» أولًا' }; }
+    const r = await cloud.setIfUnchanged(KEYS.loy, loyStrip(cur)); if (r === 'ok') return { ok: true, n: P.nMem + P.nTx }; if (r === 'fail') return { err: 'تعذّر الحفظ' };
+  }
+  return { err: 'تعارض متكرر — أعد المحاولة' };
+}
+export { loyPiiOn, lypSetOn, lynReset, lypReleaseOk, loyNamesByBr, loyStrip, loyWithNames, loyPiiPlan, loyGet, loyPiiCopy, loyPiiStrip };
 const posQueue = () => { try { return JSON.parse(localStorage.getItem(POS_Q_KEY) || '[]'); } catch { return []; } };
 const posQueueSet = (a) => { try { localStorage.setItem(POS_Q_KEY, JSON.stringify(a)); } catch { } };
 /* v56.0 (GAP-007): تعليق طلب سفري واستدعاؤه — مسودة على الجهاز لكل فرع (تعمل دون اتصال)، لا رقم فاتورة ولا عدّاد ولا بصمة

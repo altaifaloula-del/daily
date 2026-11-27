@@ -8,6 +8,7 @@ import { archKey, archivePlan, nowISO, printA4, uid, dtLocal, posSplitBranch, po
 import { clrCompare, clrLoad, clrOn, clrSeed, clrState, logAudit, clrRead, clrViewStats } from '../../App.jsx';   // v41.9 + v42.2
 import { posrOn, posrCompare, posrLoad, posrSeed, posrState, posrRepair } from '../../App.jsx';   // v56.4 (POS 2a) سجلات فواتير نقطة البيع
 import { MKT_BR_CV, mktBrOn } from '../../App.jsx';
+import { loyPiiOn, loyPiiPlan, loyPiiCopy, loyPiiStrip, lypReleaseOk } from '../../App.jsx';   // v56.37 فصل أسماء عملاء الولاء
 import { grrOn, mkcCompare, lytCompare, grrLoad, grrSeed, grrState, mkmOn, mkmCompare, mkmViolations, mkmSeed } from '../../App.jsx';
 import { posGlOpen, posGlRanges, posGlCheck } from '../../App.jsx';
 import { loyMonthAdj, posLoyOpening, posMisLoyRanges, posMisLoyFrom, posGlNote, jeOwner, posGlFrom } from '../../App.jsx';   // v56.33 (الدفعة 2 — P1/P2)
@@ -321,6 +322,7 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
       <PosRecordsCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <MktBranchCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <GrowthRecordsCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
+      <LoyPiiCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <PosGlCard org={org} ops={ops} me={me} commit={commit} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <CtlBarCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <DsRouteCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
@@ -762,6 +764,42 @@ function MktCtlCard({ org, commitOrg, say, isAdm }) {
       بقرار المجلس: تصدير أرقام العملاء للمركز وحده (المدير أو المالك) والموافقين على التسويق فقط؛ وتصدير غير الموافقين للمالك وحده بسبب إلزامي يُسجَّل في سجل التدقيق قبل التنزيل.
       والتراجع عن دمج ملفي عميل يحرّك نقاطًا يصبح طلبًا يعتمده شخص غير صاحبه (التراجع بلا نقاط يكفيه اعتماد واحد).</div>
     {isAdm && <button className={'btn sm ' + (on ? 'gh' : 'pri')} onClick={toggle} data-mktctl-toggle>{on ? 'إيقاف' : 'تفعيل'}</button>}
+  </div>);
+}
+
+/* v56.37 — فصل أسماء عملاء الولاء عن الدفتر المشترك (مراجعة الأمن، توصية مقبولة من المالك) */
+function LoyPiiCard({ org, commitOrg, say, isAdm }) {
+  const on = loyPiiOn(org); const st = (org && org.loyPii) || {}; const [busy, setBusy] = useState(''); const [plan, setPlan] = useState(null); const [cp, setCp] = useState(null);
+  const toggle = async () => { if (!isAdm) return;
+    if (on && st.strippedAt) return say('حُذفت الأسماء من الدفتر المشترك — لا يُوقف الفصل وإلا اختفت الأسماء من الشاشات', 'no');
+    if (on && !window.confirm('إيقاف الفصل؟\nالأسماء المسجّلة منذ التفعيل محفوظة في سجلات الفروع لكنها لن تظهر في الشاشات حتى تعيد التفعيل.')) return;
+    if (!on && !window.confirm('فصل أسماء عملاء الولاء؟\nالنقاط تبقى مشتركة بين الفروع كما هي؛ والاسم الجديد يُحفظ في سجل الفرع الذي جرت فيه الحركة، فلا يراه إلا ذلك الفرع والمركز.')) return;
+    const ok = await commitOrg(o => ({ ...o, loyPii: { ...(o.loyPii || {}), on: !on, at: nowISO() } }), { actionType: 'settings', targetType: 'system_settings', targetId: 'loyPii', title: on ? 'أوقف فصل أسماء عملاء الولاء' : 'فعّل فصل أسماء عملاء الولاء' });
+    if (ok) say(on ? 'أُوقف الفصل' : 'فُعّل — الأسماء الجديدة تُحفظ في سجل كل فرع. اضغط «معاينة» لنقل الأسماء القائمة'); };
+  const preview = async () => { setBusy('prev'); const d = await cloud.get(KEYS.loy, null).catch(() => null); setBusy(''); setPlan(loyPiiPlan(d || {})); setCp(null); };
+  const copy = async () => { if (!isAdm || !on) return; setBusy('copy'); const d = await cloud.get(KEYS.loy, null).catch(() => null); const r = await loyPiiCopy(d || {}); setBusy(''); setCp(r);
+    await logAudit({ actionType: 'migrate', targetType: 'system_settings', targetId: 'loyPii', title: 'نقل أسماء عملاء الولاء إلى سجلات الفروع', details: r.plan.names + ' اسمًا إلى ' + r.plan.docs + ' سجلًا' + (r.fail || r.miss ? ' · تعذّر ' + r.fail + ' سجل · ناقص ' + r.miss : '') });
+    say(r.fail || r.miss ? 'نُقل جزئيًا — ناقص ' + r.miss + '، أعد المحاولة' : 'نُقلت الأسماء ✓ — الدفتر المشترك لم يتغير بعد', r.fail || r.miss ? 'no' : 'ok'); };
+  const strip = async () => { if (!isAdm || !on || !cp || cp.fail || cp.miss) return;
+    if (!(await lypReleaseOk())) return say('ارفع الإصدار الإلزامي أولًا: افتح المنصة بحساب المدير بهذا الإصدار ليُحدَّث كل جهاز — وإلا أعاد جهاز قديم الأسماء إلى الدفتر المشترك', 'no');
+    if (!window.confirm('حذف ' + (plan ? plan.nMem + plan.nTx : '') + ' اسمًا من الدفتر المشترك؟\nالأسماء محفوظة في سجلات الفروع، والنقاط لا تتغير. بعد الحذف لا يُوقف الفصل.')) return;
+    setBusy('strip'); const r = await loyPiiStrip(); setBusy(''); if (r.err) return say(r.err, 'no');
+    await commitOrg(o => ({ ...o, loyPii: { ...(o.loyPii || {}), strippedAt: nowISO() } }), { actionType: 'migrate', targetType: 'system_settings', targetId: 'loyPii', title: 'حذف أسماء عملاء الولاء من الدفتر المشترك', details: r.n + ' اسمًا' });
+    say('حُذفت الأسماء من الدفتر المشترك ✓'); preview(); };
+  return (<div className="card" data-lypii>
+    <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />أسماء عملاء الولاء في سجل كل فرع</div>
+      <span className={'badge ' + (on ? 'b-sky' : 'b-dim')}>{on ? (st.strippedAt ? 'مفعّل · نُقلت الأسماء' : 'مفعّل') : 'غير مفعّل'}</span></div>
+    <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
+      اليوم يرى كل عضو أسماء كل عملاء الولاء. مع الفصل: <b>النقاط تبقى مشتركة</b> (يكسب العميل ويستبدل في أي فرع برقم جواله)، و<b>الاسم</b> يُحفظ في سجل الفرع الذي تعامل فيه العميل فلا يراه إلا ذلك الفرع والمركز.
+      الخطوات: تفعيل ← معاينة ← نقل الأسماء القائمة ← حذفها من الدفتر المشترك (بعد أن يُلزَم كل جهاز بهذا الإصدار). يبقى رقم الجوال والنقاط مشتركين لأن الاستبدال في أي فرع يحتاجهما. بعد الحذف أعد «المعاينة» دوريًا: «فيه أسماء» يعني جهازًا لم يُحدَّث.</div>
+    {plan && <div className="me-row" data-lypii-plan><span className="me-a"><b>في الدفتر المشترك</b><small>أسماء أعضاء {plan.nMem} · أسماء في الحركات {plan.nTx} · تُنقل {plan.names} إلى {plan.docs} سجلًا</small></span><span className={'badge ' + (plan.nMem + plan.nTx ? 'b-amber' : 'b-mint')}>{plan.nMem + plan.nTx ? 'فيه أسماء' : 'بلا أسماء'}</span></div>}
+    {cp && <div className="me-row" data-lypii-copy><span className="me-a"><b>النقل</b><small>سجلات {cp.ok}{cp.fail ? ' · تعذّر ' + cp.fail : ''} · ناقص بعد التحقق {cp.miss}</small></span><span className={'badge ' + (cp.fail || cp.miss ? 'b-rose' : 'b-mint')}>{cp.fail || cp.miss ? 'غير مكتمل' : 'مكتمل'}</span></div>}
+    <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+      {isAdm && <button className={'btn sm ' + (on ? 'gh' : 'pri')} onClick={toggle} data-lypii-toggle>{on ? 'إيقاف' : 'تفعيل'}</button>}
+      <button className="btn sm gh" disabled={!!busy} onClick={preview} data-lypii-prev>{busy === 'prev' ? 'جارٍ…' : 'معاينة'}</button>
+      {isAdm && on && plan && plan.names > 0 && <button className="btn sm gh" disabled={!!busy} onClick={copy} data-lypii-copybtn>{busy === 'copy' ? 'جارٍ…' : 'نقل الأسماء'}</button>}
+      {isAdm && on && cp && !cp.fail && !cp.miss && plan && (plan.nMem + plan.nTx) > 0 && <button className="btn sm no" disabled={!!busy} onClick={strip} data-lypii-strip>{busy === 'strip' ? 'جارٍ…' : 'حذف الأسماء من الدفتر المشترك'}</button>}
+    </div>
   </div>);
 }
 

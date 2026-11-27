@@ -6,7 +6,7 @@ import { Target, Users, Grid3x3 as Layers, ShieldCheck, Settings, Download, User
 import { Field, Kpi, Modal, money, makeXlsx, today, nowISO, uid, normPhone, loyPost, ROLES,
   mktCfg, mktCanApprove, MKT_SEGS, MKT_SEG_ORDER, crmBuild, crmSegment, crmDupes, mktKpis, mktCanContact,
   loyX, loyTier, loyPeriodicTx, mktProfiles, rewardCoupon, cpnKey, posR2, CAMP_ST, campNextNo, campStatusOf, campStats, buildAccounting, recCfgOf, recStats, dtLocal, brReport, printScreen, AI_GROWTH_PRESETS, growthDigest, aiGrowthAsk, COMMS_PROVIDERS, COMMS_CH, COMMS_VARS, commsCfgOf, commsRender, smsParts, commsTplErr, loyAudit, LOY_AUDIT_WHY,
-  logAudit, MKT_RW_KEY, rwPendSplit, rwUndoTx, mktUnmergeBlock, mktBrOn, mktRecBranch, mktMergesLive } from '../../App.jsx';
+  logAudit, MKT_RW_KEY, rwPendSplit, rwUndoTx, mktUnmergeBlock, mktBrOn, mktRecBranch, mktMergesLive, loyGet } from '../../App.jsx';
 import { mktCtlOn, mktCanExport, mktCanExportAll, mktUndoPending } from '../../App.jsx';   // v56.35 الدفعة 4
 import { Megaphone, Sparkles, Building2, Bot, MessageSquare } from 'lucide-react';
 import { Gift, Gift as Ticket } from 'lucide-react';
@@ -20,7 +20,7 @@ const dl = (name, rows) => { try { const blob = makeXlsx([{ name: name.slice(0, 
 export function MktGrowth({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const [view, setView] = useState('dash');
   const [loy, setLoy] = useState(null);
-  useEffect(() => { cloud.get(KEYS.loy, { members: {}, tx: [] }).then(d => setLoy(d || { members: {}, tx: [] })).catch(() => setLoy({ members: {}, tx: [] })); }, []);
+  useEffect(() => { loyGet(brIds, central).then(d => setLoy(d || { members: {}, tx: [] })).catch(() => setLoy({ members: {}, tx: [] })); }, []);   // v56.37: الأسماء المسموحة مدموجة إن فُصلت
   const R = ROLES[(me || {}).role] || {}; const central = R.scope === 'all' || R.admin;
   const brIds = (myBranches || []).map(b => b.id);
   const cfg = mktCfg(org); const canApp = mktCanApprove(me);

@@ -4,7 +4,7 @@ import { cloud, KEYS, brKey, bfKey } from '../../storage';
 import { Store, X, RefreshCw, FileText, Clock, ShieldCheck, Check, Plus, Printer, Download, Lock, Banknote, ChefHat, LayoutGrid, Send, Truck } from 'lucide-react';
 import { posAreas, tableArea, salesByArea, DLV_ST, posDrivers, dlvNeeded, dlvRecord, dlvMove, dlvSummary } from '../../App.jsx';   // v49.2 التوصيل   // v49.2 الصالات
 import { posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim } from '../../App.jsx';   // v42.9
-import { couponWhy, cpnReserve, cpnRelease, loyEarnX, loyTier } from '../../App.jsx';
+import { couponWhy, cpnReserve, cpnRelease, loyEarnX, loyTier, loyGet } from '../../App.jsx';
 import { domFilter, domOk, userBrIds, DomainChips, ROLES as ROLES_D } from '../../App.jsx';   // v53.0 مجالات النشاط   // v48.1 الكوبونات المحدودة والولاء المتقدم
 import { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, posReturnLoyDed, WASTE_REASONS } from '../../App.jsx';   // v46.8 المرتجع
 import { posDocView, APPS, CloudHealth, Field, Modal, Num, POS_SH_KEY, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, QUOTA_MSG, ROLES, businessDay, isoD, logClientError, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, makeXlsx, money, normPhone, nowISO, pendShiftsGet, pendShiftsSet, posCashNet, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posTotals, posZHtml, promoActive, promoHits, sha256Hex, uid, recCfgOf, recIndex, recFor } from '../../App.jsx';
@@ -37,8 +37,9 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const loyCfg = org.loyaltyCfg || {}; const [loy, setLoy] = useState(null);
   // v48.1: يُحمَّل دفتر الولاء أيضًا إن وُجد كوبون محدود/مشروط (سجل الاستخدام فيه) — ويُحدَّث عند كتابة الرمز
   const needLoy = !!loyCfg.enabled || (org.posPromos || []).some(p => Number(p.maxUses) > 0 || Number(p.perCust) > 0 || p.firstOnly || p.loyOnly || p.custPhone);
-  const reloadLoy = () => cloud.get(KEYS.loy, { members: {}, tx: [] }).then(d => setLoy(d || { members: {}, tx: [] })).catch(() => { });
-  useEffect(() => { if (!needLoy) return; let dead = false; cloud.get(KEYS.loy, { members: {}, tx: [] }).then(d => { if (!dead) setLoy(d || { members: {}, tx: [] }); }).catch(() => { }); return () => { dead = true; }; }, [needLoy]);
+  const lyScope = () => [(br || {}).id].filter(Boolean);   // v56.37: أسماء عملاء هذا الفرع فقط إن فُصلت
+  const reloadLoy = () => loyGet(lyScope(), false).then(d => setLoy(d || { members: {}, tx: [] })).catch(() => { });
+  useEffect(() => { if (!needLoy) return; let dead = false; loyGet(lyScope(), false).then(d => { if (!dead) setLoy(d || { members: {}, tx: [] }); }).catch(() => { }); return () => { dead = true; }; }, [needLoy]);
   useEffect(() => { if (!needLoy || !code.trim()) return; const t = setTimeout(reloadLoy, 350); return () => clearTimeout(t); }, [code, needLoy]);
   const [view, setView] = useState('sell'); const [showCart, setShowCart] = useState(false);
   const [ret, setRet] = useState(null);   // v46.8 نافذة المرتجع: { o, q:{i:qty}, reason, note, k }

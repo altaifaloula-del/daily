@@ -13,12 +13,14 @@ export const KEYS = {
   ops: 'rms8:ops',       // الهيكل القديم — يُجمَّد بعد الهجرة ويبقى نسخة تاريخية
   pulse: 'rms8:pulse',
   loy: 'rms8:loy',       // v34.0: عملاء الولاء ورصيد نقاطهم — مشترك بين كل الفروع
+  lyc: 'rms8:lyc',       // v56.37: أسماء عملاء الولاء من حركات المركز (للمركز وحده)
   files: 'rms8:files',   // الهيكل القديم للأرشيف — بعد الهجرة لكل فرع مستنده bf_
   hist: 'rms8:hist'
 };
 // v9: مستند لكل فرع (تشغيله وأرشيف صوره) — العزل الفعلي يفرضه الخادم عبر القواعد
 export const brKey = (branchId) => 'rms8:br_' + branchId;
 export const bfKey = (branchId) => 'rms8:bf_' + branchId;
+export const lybKey = (branchId) => 'rms8:lyb_' + branchId;   // v56.37: أسماء عملاء الولاء لكل فرع (يقرؤها الفرع والمركز)
 
 export const kb = (o) => Math.round(JSON.stringify(o || {}).length / 1024);
 
