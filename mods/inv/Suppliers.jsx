@@ -226,6 +226,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     const twin = (ops.invoices || []).find(i => !i.creditNote && (!orig || i.id !== orig.id) && i.supplierId === sp.id && (i.date || '') === (f.date || today()) && Math.abs((i.amount || 0) - v) < 0.01);
     if (twin && !window.confirm('تنبيه: يوجد فاتورة للمورد نفسه بنفس التاريخ والمبلغ (' + money(v) + ') برقم ' + (twin.invoiceNo || '') + '.\nهل هذه فاتورة مختلفة فعلًا؟')) return;
     const py = payOf(f, Math.round((k.fcNet + k.fcVat) * 100) / 100, v, k.fxR, f.date || today(), sp.id); if (py.err) return say(py.err, 'no');
+    if (needVat(sp.id, k.vat) && aiVatPending(f) && !f.vatOk) return say('أكّد أن الرقم الضريبي المقروء يخص هذا المورد قبل حفظه في بطاقته', 'no');   // v56.55 (F)
     if (!(await ensureVat(sp.id, k.vat, f.vatNo))) return;
     const rDate = f.date || today(); const wid = whOn(org) ? (f.whId || MAIN_WH) : ''; const tw = wid ? whOf(org).find(w => w.id === wid) : null;
     const invId = uid('inv'), no = typedNo || autoNo();
@@ -498,7 +499,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
       const r = await fetch(aiInvUrl(), { method: 'POST', headers: await aiHeaders(), body: JSON.stringify({ image: f0.img.url }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
-      const P = aiInvCheck(j.result, { suppliers: org.suppliers || [], invoices: ops.invoices || [], taxRate: Number((org.taxCfg || {}).rate) || 15, taxOn: !!(org.taxCfg || {}).enabled, today: today(), lockedThrough: ((org.periodLocks || {}).lockedThrough) || '' });
+      const P = aiInvCheck(j.result, { suppliers: org.suppliers || [], invoices: ops.invoices || [], taxRate: Number((org.taxCfg || {}).rate) || 15, taxOn: !!(org.taxCfg || {}).enabled, today: today(), lockedThrough: ((org.periodLocks || {}).lockedThrough) || '', excludeId: f0.replaces || '' });
       setNewInv(x => x && ({ ...x, aiBusy: false, aiP: { ...P, pick: P.supplierId || '' } }));
     } catch (e) { setNewInv(x => x && ({ ...x, aiBusy: false })); say('تعذّرت قراءة الفاتورة: ' + (e.message || 'خطأ غير معروف'), 'no'); }
   };
@@ -509,8 +510,13 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     if (F.invoiceNo) vals.invoiceNo = F.invoiceNo;
     if (F.date) vals.date = F.date;
     if (F.vat != null && (org.taxCfg || {}).enabled) vals.taxable = F.vat > 0.004;
-    if (F.supplierVatNo && vatNoOk(F.supplierVatNo) && !vatNoOk(supVatOf(org, sid || f.supplierId))) vals.vatNo = F.supplierVatNo;
-    return { ...f, ...vals, aiP: null, ai: { at: nowISO(), by: me.name, applied: Object.keys(vals), vals, total: F.total } }; });
+    // الرقم الضريبي المقروء لا يُملأ إلا لمورد مطابَق أو مختار صراحة من المرشّحين، وبطاقته بلا رقم
+    if (sid && F.supplierVatNo && vatNoOk(F.supplierVatNo) && !vatNoOk(supVatOf(org, sid))) vals.vatNo = F.supplierVatNo;
+    return { ...f, ...vals, vatOk: false, aiP: null, ai: { at: nowISO(), by: me.name, applied: Object.keys(vals), vals, total: F.total } }; });
+  // الرقم الضريبي المقروء ما زال كما طُبّق ولمورده نفسه ⇒ يلزم تأكيد صريح قبل كتابته في بطاقة المورد
+  const aiVatPending = (f) => !!(f && f.ai && f.ai.applied.includes('vatNo') && f.vatNo && String(f.vatNo) === String(f.ai.vals.vatNo) && f.supplierId === f.ai.vals.supplierId);
+  // تغيير المورد بعد التطبيق يمسح الرقم الضريبي المقروء (لا يُكتب رقم مورد في بطاقة مورد آخر)
+  const setInvSupplier = (id) => setNewInv(f => ({ ...f, supplierId: id, ...(f.ai && f.ai.applied.includes('vatNo') && String(f.vatNo || '') === String(f.ai.vals.vatNo) && id !== f.ai.vals.supplierId ? { vatNo: '', vatOk: false } : {}) }));
   const aiSug = (f, k) => f && f.ai && f.ai.applied.includes(k) && String(f.ai.vals[k]) === String(f[k]) ? <span className="badge b-amber" data-aisug={k} style={{ marginTop: 3 }}>مقترح</span> : null;
   const AiPanel = (f) => { const P = f.aiP; const F = P.fields; const sp = P.supplierId ? (org.suppliers || []).find(x => x.id === P.supplierId) : null;
     const pct = (k) => F.confidence[k] != null ? ' (' + Math.round(F.confidence[k] * 100) + '%)' : '';
@@ -519,13 +525,13 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     return (<div className="card" style={{ padding: 10, margin: '8px 0', borderColor: 'var(--amber)' }} data-aipanel>
       <div className="lbl" style={{ marginBottom: 6 }}><Sparkles size={13} /> مقترح من الذكاء الاصطناعي — راجع كل حقل قبل الحفظ</div>
       <div className="grid g2" style={{ gap: 4, fontSize: 12 }}>{rows.map(([k, v]) => <div key={k} data-aifield={k}><span style={{ color: 'var(--faint)' }}>{AI_INV_FIELD_AR[k]}{pct(k)}: </span><b className={typeof v === 'string' && /^[\d.,-]+$/.test(v) ? 'num' : ''}>{show(v)}</b></div>)}</div>
-      <div style={{ margin: '8px 0', fontSize: 12 }} data-aisupplier>{sp ? <span className="badge b-mint">المورد: {sp.name} — مطابق بالرقم الضريبي</span>
+      <div style={{ margin: '8px 0', fontSize: 12 }} data-aisupplier>{sp ? <><span className="badge b-mint">المورد: {sp.name} — مطابق بالرقم الضريبي</span><div className="hint" data-aisupcheck style={{ color: 'var(--amber)' }}>تحقق أن الفاتورة صادرة فعلًا من هذا المورد</div></>
         : P.supplierCandidates.length ? <Field label="المورد غير مطابق بالرقم الضريبي — اختر من المرشّحين بالاسم أو اتركه">
           <select className="sel" aria-label="مرشح المورد" value={P.pick || ''} onChange={e => { const v = e.target.value; setNewInv(x => ({ ...x, aiP: { ...x.aiP, pick: v } })); }}>
             <option value="">— لا تغيّر المورد —</option>{P.supplierCandidates.map(c => <option key={c.id} value={c.id}>{c.name} ({Math.round(c.score * 100)}%)</option>)}</select></Field>
         : <span className="hint">لا مورد مطابق ولا مرشّح — اختر المورد من القائمة يدويًا (لا يُنشأ مورد تلقائيًا)</span>}</div>
       {F.lines.length > 0 && <div className="hint" data-ailines>البنود المقروءة ({F.lines.length}) للمرجع فقط — تُختار بنود الفاتورة من الأصناف المضافة: {F.lines.slice(0, 8).map(l => (l.desc || '—') + (l.amount != null ? ' ' + money(l.amount) : '')).join(' · ')}{F.lines.length > 8 ? ' …' : ''}</div>}
-      {F.notes && <div className="hint">ملاحظة القراءة: {F.notes}</div>}
+      {F.notes && <div className="hint" data-ainotes style={{ color: 'var(--faint)', fontSize: 11, fontStyle: 'italic', opacity: 0.85 }}>نص مقروء من المستند — غير موثوق: <span>{F.notes}</span></div>}
       {P.warnings.length > 0 && <ul style={{ margin: '6px 0', paddingInlineStart: 18, color: 'var(--amber)', fontSize: 12 }} data-aiwarn>{P.warnings.map((w, i) => <li key={i} data-aiwarncode={w.code}>{w.text}</li>)}</ul>}
       <div className="row" style={{ gap: 6, marginTop: 6 }}>
         <button type="button" className="btn sm pri" data-aiapply onClick={aiInvApply}><Check size={13} />تطبيق على النموذج</button>
@@ -1171,7 +1177,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
             <button className="btn pri" onClick={saveInv}><Check size={14} />تسجيل الفاتورة</button></>}>
           <div className="grid g2">
             <Field label="المورد">
-              <select className="sel" value={newInv.supplierId} onChange={e => setNewInv(f => ({ ...f, supplierId: e.target.value }))}>
+              <select className="sel" value={newInv.supplierId} onChange={e => setInvSupplier(e.target.value)}>
                 {suppliers.map(sp => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
               </select>
               {aiSug(newInv, 'supplierId')}
@@ -1226,6 +1232,8 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
             {isFx(newInv.cur) && k.fxR > 0 && <div className="note" data-fxsar>بالريال: <b className="num">{money(k.net + k.vat)}</b> ر.س بسعر {newInv.rate}</div>}
             {VatNoField({ supplierId: (newInv.supplierId), vat: (k.vat), value: (newInv.vatNo), onChange: (v => setNewInv(f => ({ ...f, vatNo: v }))) })}
             {needVat(newInv.supplierId, k.vat) && aiSug(newInv, 'vatNo')}
+            {needVat(newInv.supplierId, k.vat) && aiVatPending(newInv) && <label className="row" style={{ gap: 6, fontSize: 12.5, margin: '4px 0' }} data-aivatok>
+              <input type="checkbox" aria-label="تأكيد الرقم الضريبي المقروء" checked={!!newInv.vatOk} onChange={e => setNewInv(f => ({ ...f, vatOk: e.target.checked }))} />أؤكد أن هذا الرقم الضريبي يخص هذا المورد</label>}
             {newInv.ai && newInv.ai.total != null && !isFx(newInv.cur) && Math.abs((k.net + k.vat) - newInv.ai.total) > 0.05 && <div className="hint" style={{ color: 'var(--amber)' }} data-aitotal>إجمالي الفاتورة المقروء <span className="num">{money(newInv.ai.total)}</span> لا يساوي إجمالي البنود المدخلة <span className="num">{money(k.net + k.vat)}</span> — راجع البنود</div>}
           </>); })()}
           {ImgField({ img: (newInv.img), onImg: ((img) => setNewInv(f => ({ ...f, img }))) })}
@@ -1326,7 +1334,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
           <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', margin: '8px 0', alignItems: 'flex-start' }} data-aicfg>
             <input type="checkbox" aria-label="قراءة فواتير الموردين بالذكاء الاصطناعي" checked={!!cfgF.aiRead} onChange={e => setCfgF(f => ({ ...f, aiRead: e.target.checked }))} />
             <span>قراءة صورة فاتورة المورد بالذكاء الاصطناعي (مقترح فقط)
-              <span className="hint" style={{ display: 'block' }}>عند الضغط على «قراءة الفاتورة» تُرسل صورة الفاتورة المرفقة إلى مزوّد الذكاء الاصطناعي لقراءتها، ولا تخزّنها المنصة لديه ولا في سجلاتها. النتيجة مقترح يراجعه المستخدم ويطبّقه على النموذج — لا يُحفظ ولا يُرحَّل شيء تلقائيًا.</span></span>
+              <span className="hint" style={{ display: 'block' }}>عند التفعيل تُرسَل صورة الفاتورة إلى مزوّد الذكاء الاصطناعي (خارج المملكة) لقراءتها فقط؛ المنصة لا تحفظ الصورة ولا نتيجة القراءة، وقد يحتفظ المزوّد بالمدخلات مؤقتًا وفق سياسته. النتائج مقترحات تراجعها قبل الحفظ.</span></span>
           </label>
           {cfgF.inspect && <Num label="تسامح فرق سعر الفاتورة عن أمر الشراء (% من الإجمالي)" value={cfgF.invVarPct} onChange={v => setCfgF(f => ({ ...f, invVarPct: v }))} hint="فاتورة المورد ضمن هذه النسبة تُقيَّد مباشرة، وفوقها تنتظر اعتماد شخص آخر. الفرق يُقيَّد في «فروق أسعار الشراء»" />}
           {cfgF.perpetual && <Field label="بداية الجرد المستمر (شهر)"><input type="month" className="inp" value={cfgF.perpetualFrom} onChange={e => setCfgF(f => ({ ...f, perpetualFrom: e.target.value }))} /></Field>}

@@ -11936,7 +11936,7 @@ function aiInvCheck(read, ctx) {
   const sups = (Array.isArray(c.suppliers) ? c.suppliers : []).filter(s => s && s.id && s.active !== false);
   const W = []; const w = (code, text) => W.push({ code, text });
   // المطابقة بالرقم الضريبي التام وحده
-  const byVat = vatDigits ? sups.filter(s => String(s.vatNo || s.tax || '').replace(/\D/g, '') === vatDigits) : [];
+  const byVat = vatDigits ? sups.filter(s => normDigits(String(s.vatNo || s.tax || '')).replace(/\D/g, '') === vatDigits) : [];   // الأرقام العربية-الهندية تُطبَّع في الطرفين
   const supplierId = byVat.length === 1 ? byVat[0].id : null;
   const cands = byVat.length > 1 ? byVat.map(s => ({ id: s.id, name: s.name || '', score: 1, byVat: true }))
     : supplierId ? [] : sups.map(s => ({ id: s.id, name: s.name || '', score: aiInvSim(fields.supplierName, s.name) })).filter(x => x.score >= 0.34)
@@ -11953,7 +11953,7 @@ function aiInvCheck(read, ctx) {
   const td = String(c.today || '').slice(0, 10);
   if (date && td && date > td) w('future_date', 'تاريخ الفاتورة ' + date + ' بعد اليوم');
   if (date && periodLocked({ periodLocks: { lockedThrough: String(c.lockedThrough || '') } }, date)) w('locked_period', 'تاريخ الفاتورة في فترة مقفلة (حتى ' + c.lockedThrough + ') — لن يُقبل الحفظ');
-  if (supplierId && fields.invoiceNo) { const k0 = purKey({ supplierId, invoiceNo: fields.invoiceNo }); const o = k0 && (Array.isArray(c.invoices) ? c.invoices : []).find(i => i && purKey(i) === k0);
+  if (supplierId && fields.invoiceNo) { const k0 = purKey({ supplierId, invoiceNo: fields.invoiceNo }); const o = k0 && (Array.isArray(c.invoices) ? c.invoices : []).find(i => i && (!c.excludeId || i.id !== c.excludeId) && purKey(i) === k0);   // الفاتورة قيد التعديل مستثناة كما في فحص الحفظ
     if (o) w('dup_invoice', 'رقم الفاتورة ' + fields.invoiceNo + ' مسجّل لهذا المورد' + (o.date ? ' بتاريخ ' + String(o.date).slice(0, 10) : '')); }
   if (cur && cur !== 'SAR') w('currency', 'عملة الفاتورة ' + cur + ' ليست الريال السعودي');
   const low = Object.keys(conf).filter(k => conf[k] < 0.6); if (low.length) w('low_conf', 'ثقة منخفضة في: ' + low.map(k => AI_INV_FIELD_AR[k] || k).join('، '));

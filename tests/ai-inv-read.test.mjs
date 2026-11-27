@@ -7,7 +7,7 @@ import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { buildEngine } from './build-engine.mjs';
-import { AI_INV_ROLES as SRV_ROLES, AI_INV_MAX_BYTES, aiInvInput, aiInvClean, mountAiInvoice, AI_INV_SYSTEM } from '../server-aiinv.js';
+import { AI_INV_ROLES as SRV_ROLES, AI_INV_MAX_BYTES, aiInvInput, aiInvClean, mountAiInvoice, AI_INV_SYSTEM, magicOk } from '../server-aiinv.js';
 
 let E;
 before(async () => { E = await buildEngine(); });
@@ -29,6 +29,9 @@ test('فاتورة سليمة: المورد يُطابَق برقمه الضري
 test('المطابقة بالرقم الضريبي وحده: المسافات والأرقام العربية تُطبَّع، وحقل tax في بطاقة المورد معتبر', () => {
   assert.equal(E.aiInvCheck(read({ supplierVatNo: '٣٠٠ ٠٠٠ ٠٠٠ ٠٠٠ ٠٠٣' }), ctx()).supplierId, 's1');
   assert.equal(E.aiInvCheck(read({ supplierName: 'أي اسم', supplierVatNo: VAT_B }), ctx()).supplierId, 's2');
+  // بطاقة المورد بأرقام عربية-هندية أو فارسية ⇒ تُطبَّع قبل المقارنة
+  assert.equal(E.aiInvCheck(read(), ctx({ suppliers: [{ id: 'sa', name: 'أ', vatNo: '٣٠٠٠٠٠٠٠٠٠٠٠٠٠٣' }] })).supplierId, 'sa');
+  assert.equal(E.aiInvCheck(read({ supplierVatNo: '۳۰۰۰۰۰۰۰۰۰۰۰۰۰۳' }), ctx({ suppliers: [{ id: 'sp', name: 'ب', tax: '۳۰۰ ۰۰۰ ۰۰۰ ۰۰۰ ۰۰۳' }] })).supplierId, 'sp');
   // الاسم مطابق تمامًا لكن الرقم مختلف ⇒ لا اختيار آلي، مرشّحون فقط
   const r = E.aiInvCheck(read({ supplierName: 'مخبز النخبة', supplierVatNo: '322222222222223' }), ctx());
   assert.equal(r.supplierId, null); assert.equal(r.supplierCandidates[0].id, 's3'); assert.equal(r.supplierCandidates[0].score, 1);
@@ -96,6 +99,9 @@ test('تحذير: رقم فاتورة مكرر للمورد المطابَق (ب
   assert.ok(!codes(E.aiInvCheck(read(), ctx({ invoices: [{ ...inv[0], supplierId: 's2' }] }))).includes('dup_invoice'), 'مورد آخر');
   assert.ok(!codes(E.aiInvCheck(read(), ctx({ invoices: [{ ...inv[0], creditNote: true }] }))).includes('dup_invoice'), 'إشعار دائن ليس فاتورة');
   assert.equal(E.purKey({ supplierId: 's1', invoiceNo: 'F-100' }), E.purKey(inv[0]));
+  // الفاتورة قيد التعديل مستثناة (كما في فحص الحفظ)، وغيرها بالرقم نفسه يبقى مكررًا
+  assert.ok(!codes(E.aiInvCheck(read(), ctx({ invoices: inv, excludeId: 'v1' }))).includes('dup_invoice'));
+  assert.ok(codes(E.aiInvCheck(read(), ctx({ invoices: [...inv, { ...inv[0], id: 'v2' }], excludeId: 'v1' }))).includes('dup_invoice'));
 });
 
 test('تحذير: عملة غير الريال (والصيغ العربية للريال تُعدّ ريالًا)', () => {
@@ -147,15 +153,26 @@ test('انجراف الأدوار: قائمة الخادم = قائمة المح
 /* ===== الخادم: التنقية والتحقق من المدخلات ===== */
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 const IMG = 'data:image/png;base64,' + PNG;
+const JPG = Buffer.concat([Buffer.from([0xFF, 0xD8, 0xFF, 0xE0]), Buffer.alloc(20, 1)]).toString('base64');
+const WEBP = Buffer.concat([Buffer.from('RIFF'), Buffer.from([1, 0, 0, 0]), Buffer.from('WEBPVP8 '), Buffer.alloc(12, 2)]).toString('base64');
 
 test('aiInvInput: الصيغ المقبولة فقط، والحقول غير المتوقعة مرفوضة، والحجم 413', () => {
   assert.equal(aiInvInput({ image: IMG }).v.mediaType, 'image/png');
-  assert.equal(aiInvInput({ image: 'data:image/jpeg;base64,' + PNG }).v.mediaType, 'image/jpeg');
-  assert.equal(aiInvInput({ image: 'data:image/webp;base64,' + PNG }).v.mediaType, 'image/webp');
+  assert.equal(aiInvInput({ image: 'data:image/jpeg;base64,' + JPG }).v.mediaType, 'image/jpeg');
+  assert.equal(aiInvInput({ image: 'data:image/webp;base64,' + WEBP }).v.mediaType, 'image/webp');
   for (const b of [null, [], {}, { image: 5 }, { image: IMG, x: 1 }, { image: 'data:image/gif;base64,' + PNG }, { image: 'data:text/html;base64,' + PNG }, { image: 'data:image/png;base64,<script>' }, { image: 'data:image/png;base64,abc' }, { image: PNG }])
     assert.equal(aiInvInput(b).status, 400, JSON.stringify(b).slice(0, 60));
   const big = 'data:image/png;base64,' + 'A'.repeat(Math.ceil(AI_INV_MAX_BYTES * 4 / 3) + 8);
   assert.equal(aiInvInput({ image: big }).status, 413);
+});
+
+test('البصمة بعد فك الترميز تطابق النوع المعلن، وإلا 400', () => {
+  assert.equal(aiInvInput({ image: 'data:image/jpeg;base64,' + PNG }).status, 400, 'PNG بلافتة JPEG');
+  assert.equal(aiInvInput({ image: 'data:image/webp;base64,' + JPG }).status, 400, 'JPEG بلافتة WebP');
+  assert.equal(aiInvInput({ image: 'data:image/png;base64,' + WEBP }).status, 400, 'WebP بلافتة PNG');
+  const html = Buffer.from('<html><script>alert(1)</script></html>').toString('base64');
+  for (const k of ['jpeg', 'png', 'webp']) assert.equal(aiInvInput({ image: 'data:image/' + k + ';base64,' + html }).status, 400, k);
+  assert.equal(magicOk('png', Buffer.from(PNG, 'base64')), true); assert.equal(magicOk('gif', Buffer.from(PNG, 'base64')), false); assert.equal(magicOk('png', Buffer.alloc(3)), false);
 });
 
 test('aiInvClean: نصوص مقصوصة، أرقام منتهية بخانتين، 100 بند، والمفاتيح غير المعروفة تُسقط', () => {
@@ -174,19 +191,49 @@ test('موجّه النظام: الصورة بيانات فقط، ولا تخم�
 });
 
 /* ===== الخادم: حراسات المسار (بلا Anthropic) ===== */
-function harness({ role = 'finance_department', active = true, admin = false, org = { purchaseCfg: { aiRead: true } }, orgErr = false, sa = true, plan = true, ai = null } = {}) {
-  const routes = {}; const app = { post: (p, ...h) => (routes[p] = h) }; const calls = []; const logs = [];
+// حد معدل بسيط كالذي في server.js (مفتاح ⇒ عداد)
+const realLimit = () => { const B = new Map(); return ({ max, keyFn }) => (req, res, next) => { const k = keyFn(req) || 'anon'; const n = (B.get(k) || 0) + 1; B.set(k, n); if (n > max) return res.status(429).json({ error: 'طلبات كثيرة' }); next(); }; };
+function harness({ role = 'finance_department', active = true, admin = false, org = { purchaseCfg: { aiRead: true } }, orgErr = false, sa = true, plan = true, ai = null, rateLimit = () => (q, r, n) => n(), env = {} } = {}) {
+  const routes = {}; const app = { post: (p, ...h) => (routes[p] = h) }; const calls = []; const logs = []; let parsed = 0;
   const tenant = { id: 'default', ...(sa ? { sa: { client_email: 'x' } } : {}) };
   const requireMember = (req, res, next) => { if (!req.who) return res.status(401).json({ error: 'يلزم تسجيل الدخول' }); req.user = { email: req.who, tenant: 'default' }; next(); };
   const requireFeature = () => (req, res, next) => plan ? next() : res.status(402).json({ error: 'غير مشمولة' });
-  mountAiInvoice(app, { express: { json: () => (q, r, n) => n() }, requireMember, requireFeature, rateLimit: () => (q, r, n) => n(), T: { byId: () => tenant, def: tenant },
+  mountAiInvoice(app, { express: { json: () => (q, r, n) => { parsed++; n(); } }, requireMember, requireFeature, rateLimit, env, T: { byId: () => tenant, def: tenant },
     ai: ai || (async (o) => { calls.push(o); return { supplierName: ' مورد ', total: '1150', extra: 'x' }; }), log: { log() {}, error: (...a) => logs.push(a) },
     memberLoader: async () => ({ m: { active, role }, admin }), orgLoader: async () => { if (orgErr) throw new Error('boom'); return org; } });
   const call = async (who, body) => { const req = { who, body }; const out = { status: 200 };
     const res = { status(c) { out.status = c; return this; }, json(j) { out.json = j; return this; } };
     for (const h of routes['/api/ai/invoice-read']) { let go = false; await h(req, res, () => { go = true; }); if (!go) break; } return out; };
-  return { call, calls, logs };
+  return { call, calls, logs, parsed: () => parsed };
 }
+
+test('المسار: الهوية قبل قراءة الجسم — طلب بلا هوية بجسم كبير ⇒ 401 دون تشغيل محلّل JSON', async () => {
+  const H = harness(); const r = await H.call(null, { image: 'data:image/png;base64,' + 'A'.repeat(3600000) });
+  assert.equal(r.status, 401); assert.equal(H.parsed(), 0);
+  await H.call('u@test.sa', { image: IMG }); assert.equal(H.parsed(), 1, 'المصادَق يُقرأ جسمه');
+});
+
+test('المسار: حد المنشأة مجتمعة — الطلب N+1 من مستخدم ثانٍ في المنشأة نفسها ⇒ 429، والحد لكل مستخدم مستقل', async () => {
+  const H = harness({ rateLimit: realLimit(), env: { AI_INVREAD_TENANT_PER_HOUR: '3', AI_INVREAD_RATE_PER_HOUR: '2' } });
+  assert.equal((await H.call('a@test.sa', { image: IMG })).status, 200);
+  assert.equal((await H.call('a@test.sa', { image: IMG })).status, 200);
+  assert.equal((await H.call('a@test.sa', { image: IMG })).status, 429, 'حد المستخدم 2');
+  assert.equal((await H.call('b@test.sa', { image: IMG })).status, 200, 'الثالث للمنشأة');
+  assert.equal((await H.call('b@test.sa', { image: IMG })).status, 429, 'الرابع للمنشأة يتجاوز 3');
+  assert.equal(H.calls.length, 3);
+});
+
+test('المسار: قراءة واحدة جارية لكل مستخدم — الثانية المتزامنة 429، وبعد الانتهاء تُقبل', async () => {
+  let release; const gate = new Promise(r => { release = r; }); let n = 0;
+  const H = harness({ ai: async () => { n++; await gate; return {}; } });
+  const p1 = H.call('u@test.sa', { image: IMG }); await new Promise(r => setTimeout(r, 5));
+  const r2 = await H.call('u@test.sa', { image: IMG }); assert.equal(r2.status, 429);
+  const p3 = H.call('v@test.sa', { image: IMG });   // مستخدم آخر لا يُحجب بقفل غيره
+  release(); assert.equal((await p1).status, 200); assert.equal((await p3).status, 200);
+  assert.equal((await H.call('u@test.sa', { image: IMG })).status, 200, 'بعد الانتهاء'); assert.equal(n, 3);
+  const Hx = harness({ ai: async () => { throw Object.assign(new Error('x'), { status: 502 }); } });
+  assert.equal((await Hx.call('u@test.sa', { image: IMG })).status, 502); assert.equal((await Hx.call('u@test.sa', { image: IMG })).status, 502, 'الخطأ يحرر القفل');
+});
 
 test('المسار: 401 بلا هوية، 402 خارج الخطة، 403 للدور غير المخوّل وللعضوية الموقوفة، 200 للمخوّل ومدير المنصة', async () => {
   assert.equal((await harness().call(null, { image: IMG })).status, 401);

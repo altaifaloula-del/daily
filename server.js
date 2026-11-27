@@ -26,8 +26,8 @@ import { mountUserAdmin } from './server-users.js';
 import { mountLedger } from './server-ledger.js';
 import { mountComms } from './server-comms.js';   // v56.50 إرسال الرسائل للعملاء (المحوّل التجريبي وحده)
 import { mountPosCredit } from './server-poscredit.js';   // v56.46 تفويض البيع الآجل من نقطة البيع   // v56.15 D5 الترحيل إلى الدفتر المخزّن من الخادم
-import { mountPosDevices } from './server-posdev.js';
-import { mountAiInvoice } from './server-aiinv.js';   // v56.55 قراءة فاتورة المورد بالذكاء الاصطناعي كمقترح   // v56.54 سجل أجهزة نقطة البيع بأرقام فريدة
+import { mountPosDevices } from './server-posdev.js';   // v56.54 سجل أجهزة نقطة البيع بأرقام فريدة
+import { mountAiInvoice } from './server-aiinv.js';   // v56.55 قراءة فاتورة المورد بالذكاء الاصطناعي كمقترح
 import { mountMcp } from './server-mcp.js';
 import { mountRefs } from './server-refs.js';   // v54.4 مكتبة المراجع
 import { mountAiLog } from './server-ailog.js';   // v54.6 سجل الذكاء الاصطناعي

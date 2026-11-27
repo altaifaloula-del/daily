@@ -11,5 +11,9 @@ export default {
 "لا مورد مطابق ولا مرشّح — اختر المورد من القائمة يدويًا (لا يُنشأ مورد تلقائيًا)": "No matching or candidate supplier — choose the supplier manually (no supplier is created automatically)",
 "قراءة صورة فاتورة المورد بالذكاء الاصطناعي (مقترح فقط)": "Read supplier invoice images with AI (proposal only)",
 "قراءة فواتير الموردين بالذكاء الاصطناعي": "Read supplier invoices with AI",
-"عند الضغط على «قراءة الفاتورة» تُرسل صورة الفاتورة المرفقة إلى مزوّد الذكاء الاصطناعي لقراءتها، ولا تخزّنها المنصة لديه ولا في سجلاتها. النتيجة مقترح يراجعه المستخدم ويطبّقه على النموذج — لا يُحفظ ولا يُرحَّل شيء تلقائيًا.": "When you press “Read invoice”, the attached invoice image is sent to the AI provider for reading; the platform does not store it there or in its logs. The result is a proposal the user reviews and applies to the form — nothing is saved or posted automatically.",
+"عند التفعيل تُرسَل صورة الفاتورة إلى مزوّد الذكاء الاصطناعي (خارج المملكة) لقراءتها فقط؛ المنصة لا تحفظ الصورة ولا نتيجة القراءة، وقد يحتفظ المزوّد بالمدخلات مؤقتًا وفق سياسته. النتائج مقترحات تراجعها قبل الحفظ.": "When enabled, the invoice image is sent to the AI provider (outside the Kingdom) for reading only; the platform does not keep the image or the reading result, and the provider may retain inputs temporarily under its own policy. Results are proposals you review before saving.",
+"نص مقروء من المستند — غير موثوق:": "Text read from the document — untrusted:",
+"تحقق أن الفاتورة صادرة فعلًا من هذا المورد": "Check that the invoice was really issued by this supplier",
+"أؤكد أن هذا الرقم الضريبي يخص هذا المورد": "I confirm this VAT number belongs to this supplier",
+"تأكيد الرقم الضريبي المقروء": "Confirm the read VAT number",
 };

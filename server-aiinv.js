@@ -15,6 +15,15 @@ export const AI_INV_MAX_BYTES = 2.5 * 1024 * 1024;
 const IMG_RE = /^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$/;
 const FETCH_MS = 10000;
 
+/** بصمة الملف: JPEG ‎FF D8 FF، PNG ‎89 50 4E 47، WebP ‎«RIFF» ثم 4 بايت ثم «WEBP» */
+export function magicOk(kind, b) {
+  if (!b || b.length < 12) return false;
+  if (kind === 'jpeg') return b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF;
+  if (kind === 'png') return b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47;
+  if (kind === 'webp') return b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WEBP';
+  return false;
+}
+
 /** تحقق نقي من جسم الطلب: { v: { mediaType, data } } أو { err, status } */
 export function aiInvInput(b) {
   const x = b;
@@ -27,6 +36,8 @@ export function aiInvInput(b) {
   if (Math.floor(b64len * 3 / 4) > AI_INV_MAX_BYTES) return { err: 'صورة الفاتورة كبيرة جدًا (الحد 2.5 ميغابايت)', status: 413 };
   const m = IMG_RE.exec(x.image);
   if (!m || m[2].length % 4 !== 0 || m[2].length < 16) return { err: 'صيغة الصورة غير مدعومة (JPEG أو PNG أو WebP)', status: 400 };
+  // البصمة بعد فك الترميز يجب أن تطابق النوع المعلن (لا يُرسل للمزوّد ملف آخر بلافتة صورة)
+  if (!magicOk(m[1], Buffer.from(m[2].slice(0, 24), 'base64'))) return { err: 'محتوى الملف لا يطابق صيغة الصورة المعلنة', status: 400 };
   return { v: { mediaType: 'image/' + m[1], data: m[2] } };
 }
 
@@ -79,7 +90,11 @@ const fieldsOf = (d) => { const o = {}; Object.entries((d && d.fields) || {}).fo
  */
 export function mountAiInvoice(app, { express, requireMember, requireFeature, rateLimit, T, ai, fetchImpl = fetch, log = console, orgLoader = null, memberLoader = null, timeoutMs = FETCH_MS, env = process.env }) {
   const json = express.json({ limit: '3600kb' });   // 2.5MB بعد فك base64 ≈ 3.4MB نصًا
-  const lim = rateLimit({ windowMs: 3600000, max: Number(env.AI_INVREAD_RATE_PER_HOUR) || 60, keyFn: (r) => r.user && ('air:' + String(r.user.tenant || 'default') + ':' + String(r.user.email || '').toLowerCase()) });
+  const uKey = (r) => String((r.user && r.user.tenant) || 'default') + ':' + String((r.user && r.user.email) || '').toLowerCase();
+  // حدّان: لكل مستخدم في المنشأة، ولكل منشأة مجتمعة (يحدّ استهلاك منشأة واحدة لرصيد المزوّد مهما تعدد مستخدموها)
+  const lim = rateLimit({ windowMs: 3600000, max: Number(env.AI_INVREAD_RATE_PER_HOUR) || 60, keyFn: (r) => r.user && ('air:' + uKey(r)) });
+  const limT = rateLimit({ windowMs: 3600000, max: Number(env.AI_INVREAD_TENANT_PER_HOUR) || 200, keyFn: (r) => r.user && ('air:' + String(r.user.tenant || 'default')) });
+  const inflight = new Set();   // قراءة واحدة جارية لكل مستخدم
   const tokens = new Map();
   const tenantOf = (req) => T.byId((req.user && req.user.tenant) || 'default') || T.def;
   const tok = (t) => { if (!tokens.has(t.id)) tokens.set(t.id, saTokenSource(t.sa, { fetchImpl })); return tokens.get(t.id)(); };
@@ -102,7 +117,14 @@ export function mountAiInvoice(app, { express, requireMember, requireFeature, ra
   const member = memberLoader || (async (t, email) => { const [md, ad] = await Promise.all([getDoc(t, 'members/' + encodeURIComponent(email)), getDoc(t, 'platform/admins')]);
     const m = fieldsOf(md); return { m, admin: (fieldsOf(ad).emails || []).some(e => String(e || '').toLowerCase() === email) && (!md || m.active === true) }; });
 
-  app.post('/api/ai/invoice-read', json, requireMember, requireFeature('ai'), lim, async (req, res) => {
+  // الهوية أولًا (الرمز في الترويسة) ثم قراءة الجسم الكبير — طلب بلا هوية لا يُقرأ جسمه
+  app.post('/api/ai/invoice-read', requireMember, requireFeature('ai'), lim, limT, json, async (req, res) => {
+    const k = uKey(req);
+    if (inflight.has(k)) return res.status(429).json({ error: 'قراءة سابقة ما زالت جارية — انتظر انتهاءها' });
+    inflight.add(k);
+    try { await handle(req, res); } finally { inflight.delete(k); }
+  });
+  async function handle(req, res) {
     const email = String((req.user && req.user.email) || '').toLowerCase();
     const inp = aiInvInput(req.body); if (inp.err) return res.status(inp.status).json({ error: inp.err });
     const t = tenantOf(req);
@@ -125,5 +147,5 @@ export function mountAiInvoice(app, { express, requireMember, requireFeature, ra
       log.error('ai/invoice-read', t.id, (e && e.status) || 500);
       res.status((e && e.status) || 500).json({ error: e && e.status ? e.message : 'تعذّرت قراءة الفاتورة', ...(e && e.code ? { code: e.code } : {}) });
     }
-  });
+  }
 }
