@@ -60,6 +60,11 @@ test('الولاء: الموافقون فقط بمرشّح الرصيد، وال
   assert.deepEqual(L({ minPts: 60 }).list.map(x => x.phone), ['501111111']);
   assert.deepEqual(L({ expDays: 30 }).list.map(x => x.phone), ['501111111'], '100 نقطة من 2025-02-01 تنتهي قبل 2026-04-09 بصلاحية 12 شهرًا');
   assert.deepEqual(L({ bday: true }).list.map(x => x.phone), ['507777777']);
+  // قرار المجلس: الحد الشهري للحملات والولاء معًا — حملة فعلية + إشعار ولاء فعلي لسارة هذا الشهر = 2 ⇒ بلغت الحد (2)
+  const k = E.commsKey('501111111'); const capped = ops({ commsJobs: [sentJob('c1', '2026-03-02T10:00:00Z', [k], false), { ...sentJob('l1', '2026-03-03T10:00:00Z', [k], false), kind: 'loy' }, { ...sentJob('l0', '2026-03-04T10:00:00Z', [k, k], true), kind: 'loy' }] });
+  const LC = E.commsAudience(org(), capped, loy, job({ kind: 'loy' }), NOW); assert.deepEqual(LC.list.map(x => x.phone), ['507777777']); assert.equal(LC.skipped.cap, 1);
+  assert.equal(E.commsAudience(org(), capped, loy, job(), NOW).list.some(x => x.phone === '501111111'), false, 'إشعار الولاء يُحتسب في حد الحملة أيضًا');
+  const z0 = org(); z0.mkt.comms.maxPerMonth = 0; assert.equal(E.commsAudience(z0, ops(), loy, job({ kind: 'loy' }), NOW).n, 0, 'الحد 0 = لا رسائل تسويقية');
   const noExp = org(); noExp.mkt.loy = {}; assert.equal(E.commsAudience(noExp, ops(), loy, job({ kind: 'loy', filter: { expDays: 30 } }), NOW).n, 0, 'بلا صلاحية للنقاط لا انتهاء');
 });
 
@@ -69,6 +74,8 @@ test('الآجل: المستحق خلال ن يومًا أو المتأخر بر
   assert.equal(A.skipped.optOut, 1, 'شركة هـ طلبت الإيقاف'); assert.equal(A.skipped.noPhone, 1, 'شركة ج بلا جوال'); assert.equal(A.skipped.noConsent, 0, 'لا تُشترط موافقة تسويقية');
   assert.deepEqual(E.commsAudience(org(), ops(), loy, job({ kind: 'ar', tplId: 't2', filter: { overdueOnly: true } }), NOW).list.map(x => x.phone), ['552222222']);
   assert.equal(E.commsAudience(org(), ops(), loy, job({ kind: 'ar', tplId: 't2', filter: { dueDays: 30 } }), NOW).n, 4, 'شركة و مستحقة 2026-03-30');
+  // التذكير خدمي: لا يخضع للحد الشهري (ولا للحد 0)، ولا يُحسب عليه
+  const z = org(); z.mkt.comms.maxPerMonth = 0; assert.equal(E.commsAudience(z, ops(), loy, job({ kind: 'ar', tplId: 't2' }), NOW).n, 3);
   // سُدّدت ⇒ لا تذكير
   const paid = ops(); paid.salesInvoices = paid.salesInvoices.map(x => x.id === '2' ? { ...x, receipts: [{ date: '2026-02-05', amount: 500 }] } : x);
   assert.ok(!E.commsAudience(org(), paid, loy, job({ kind: 'ar', tplId: 't2' }), NOW).list.some(x => x.phone === '552222222'));
