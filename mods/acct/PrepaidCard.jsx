@@ -11,7 +11,7 @@ export function PrepaidCard({ org, ops, A, me, commit, say, canPost }) {
   const left = (x) => Math.round(ppSchedule(x).filter(s => s.date > td).reduce((t, s) => t + s.amount, 0) * 100) / 100;
   const save = async () => {
     const x = { id: uid('pp'), desc: f.desc.trim(), date: f.date, start: f.start, months: Number(f.months), amount: Math.round((Number(String(f.amount).replace(/[^\d.]/g, '')) || 0) * 100) / 100,
-      assetAcc: f.assetAcc, expAcc: f.expAcc, ...(f.branchId === '__central' ? { central: true } : f.branchId ? { branchId: f.branchId } : {}), status: 'pending', by: me.name, byId: me.id || '', at: nowISO() };
+      assetAcc: f.assetAcc, expAcc: f.expAcc, ...(f.branchId ? { branchId: f.branchId } : {}), status: 'pending', by: me.name, byId: me.id || '', at: nowISO() };
     const e = ppCheck(org, ops, x, A); if (e) return say(e, 'no');
     const ok = await commit(d => { const n = (d.prepaids || []).reduce((m, y) => Math.max(m, Number(String(y.no || '').replace(/\D/g, '')) || 0), 0) + 1; return { ...d, prepaids: [...(d.prepaids || []), { ...x, no: 'PP-' + String(n).padStart(4, '0') }] }; },
       { actionType: 'create', targetType: 'journal_entry', targetId: x.id, need: 'post', title: 'مصروف مدفوع مقدمًا — ' + x.desc, details: money(x.amount) + ' على ' + x.months + ' شهرًا' });
@@ -27,7 +27,7 @@ export function PrepaidCard({ org, ops, A, me, commit, say, canPost }) {
     <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
       مثل الإيجار المدفوع لعدة أشهر: سجّل الدفعة كالمعتاد على حساب المصروف، ثم أنشئ هنا مستندًا يعيدها أصلًا (مدفوعًا مقدمًا) ويُطفئها بآخر كل شهر. كل مستند يعتمده غير منشئه. اختر الفرع نفسه الذي سُجّلت عليه الدفعة، والمبلغ المحمَّل على المصروف (بلا الضريبة). يُطفأ شهر البدء كاملًا، والإطفاء يُقيَّد حين يحل شهره.</div>
     {L.map(x => <div key={x.id} className="me-row" data-pp-doc={x.id}><span className="me-a"><b>{x.no || ''} · {x.desc} · <span className="num">{money(x.amount)}</span></b>
-      <small>{x.months} شهرًا من {x.start} · {x.assetAcc} ← {x.expAcc}{x.status === 'approved' ? ' · المتبقي غير المُطفأ ' + money(left(x)) : ''}{x.rejWhy ? ' · رُفض: ' + x.rejWhy : ''}</small></span>
+      <small>{x.months} شهرًا من {x.start} · {x.branchId ? ((brs.find(b => b.id === x.branchId) || {}).name || x.branchId) : 'المركز الرئيسي'} · {x.assetAcc} ← {x.expAcc}{x.status === 'approved' ? ' · المتبقي غير المُطفأ ' + money(left(x)) : ''}{x.rejWhy ? ' · رُفض: ' + x.rejWhy : ''}</small></span>
       {x.status === 'pending' ? (canApproveJe(me, x) ? <span className="row" style={{ gap: 4 }}><button className="btn sm pri" onClick={() => decide(x, true)} data-pp-ok><Check size={13} />اعتماد</button><button className="btn sm gh" onClick={() => decide(x, false)} data-pp-no><X size={13} />رفض</button></span>
         : <span className="badge b-amber" data-pp-wait>بانتظار الاعتماد</span>) : <span className={'badge ' + (x.status === 'approved' ? 'b-mint' : 'b-dim')}>{x.status === 'approved' ? 'معتمد' : 'مرفوض'}</span>}</div>)}
     {!L.length && <div className="empty">لا مصروفات مدفوعة مقدمًا</div>}
@@ -42,7 +42,7 @@ export function PrepaidCard({ org, ops, A, me, commit, say, canPost }) {
       </div>
       <Field label="حساب المصروف الذي سُجّلت عليه الدفعة"><select className="sel" aria-label="حساب المصروف" value={f.expAcc} onChange={e => setF({ ...f, expAcc: e.target.value })}><option value="">—</option>{exps.map(a => <option key={a.code} value={a.code}>{a.code} · {a.name}</option>)}</select></Field>
       <Field label="حساب المصروف المدفوع مقدمًا (أصل)"><select className="sel" aria-label="حساب المدفوع مقدمًا" value={f.assetAcc} onChange={e => setF({ ...f, assetAcc: e.target.value })}><option value="">—</option>{assets.map(a => <option key={a.code} value={a.code}>{a.code} · {a.name}</option>)}</select></Field>
-      {brs.length > 1 && <Field label="الفرع — إيجار كل فرع مستند مستقل، ونفس فرع الدفعة الأصلية"><select className="sel" aria-label="فرع المدفوع مقدمًا" value={f.branchId} onChange={e => setF({ ...f, branchId: e.target.value })}><option value="">— اختر الفرع —</option>{brs.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}<option value="__central">الإدارة العامة (ليس لفرع)</option></select></Field>}
+      {brs.length > 0 && <Field label="مركز التكلفة (اختياري) — إيجار كل فرع مستند مستقل"><select className="sel" aria-label="فرع المدفوع مقدمًا" value={f.branchId} onChange={e => setF({ ...f, branchId: e.target.value })}><option value="">المركز الرئيسي</option>{brs.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></Field>}
       <div className="note" style={{ marginTop: 8 }}>بعد الاعتماد: مدين المدفوع مقدمًا / دائن المصروف بتاريخ الدفعة، ثم كل شهر: مدين المصروف / دائن المدفوع مقدمًا ({f.months && Number(f.amount) ? money(Math.floor(Number(f.amount) / Number(f.months) * 100) / 100) : '—'} شهريًا تقريبًا).</div>
     </Modal>}
   </div>);
