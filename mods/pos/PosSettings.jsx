@@ -1,10 +1,12 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState } from 'react';
 import { Settings, Trash2, Plus, Check } from 'lucide-react';
-import { Field, POS_DEV_KEY, posPaperDev, setPosPaperDev, uid, areasErr } from '../../App.jsx';
+import { Field, POS_DEV_KEY, posPaperDev, setPosPaperDev, uid, areasErr, ROLES } from '../../App.jsx';
 
-export function PosSettings({ org, commitOrg, say, dev }) {
+export function PosSettings({ org, commitOrg, say, dev, me }) {
   const c = org.posCfg || {};
+  const canCredit = !!(me && (ROLES[me.role] || {}).admin);   // v56.46: مفتاح البيع الآجل لمسؤول النظام وحده
+  const [credit, setCredit] = useState(!!c.credit);
   const [f, setF] = useState({ branches: c.branches || [], footer: c.footer || '', autoPrint: c.autoPrint !== false, returns: !!c.returns, devName: dev ? dev.name : '', maxDiscPct: c.maxDiscPct != null ? String(c.maxDiscPct) : '', payMethods: (c.payMethods || []).map(x => ({ ...x })), tables: { ...(c.tables || {}) }, areas: JSON.parse(JSON.stringify(c.areas || {})), drivers: (c.drivers || []).map(x => ({ ...x })), kds: !!c.kds, noImg: !!c.noImg, paper: String(c.paper || '') === '58' ? '58' : '80', devPaper: posPaperDev() });   // v42.9
   const KIND_AR = { card: 'شبكة', cash: 'نقدي', transfer: 'تحويل' };
   const setPm = (i, patch) => setF(x => ({ ...x, payMethods: x.payMethods.map((y, k) => k === i ? { ...y, ...patch } : y) }));
@@ -19,7 +21,7 @@ export function PosSettings({ org, commitOrg, say, dev }) {
       if (!list.length || !tables[b]) continue; const e = areasErr(list, tables[b]); if (e) return say(((org.branches || []).find(x => x.id === b) || {}).name + ': ' + e, 'no');
       areas[b] = list.map(a => ({ id: a.id || uid('ar'), name: String(a.name).trim().slice(0, 40), from: Math.floor(Number(a.from)), to: Math.floor(Number(a.to)) })); }
     setPosPaperDev(f.devPaper);   // v44.7: تخصيص هذا الجهاز (على الجهاز فقط)
-    const ok = await commitOrg(d => ({ ...d, posCfg: { ...(d.posCfg || {}), areas, drivers, paper: f.paper === '58' ? '58' : '80', noImg: !!f.noImg, tables, kds: !!f.kds, returns: !!f.returns, branches: f.branches, footer: f.footer.trim(), autoPrint: !!f.autoPrint, maxDiscPct: Number(f.maxDiscPct) || 0, payMethods: f.payMethods.filter(x => (x.n || '').trim()).map(x => ({ id: x.id, n: x.n.trim(), kind: x.kind || 'card', active: x.active !== false })) } }), { actionType: 'update', targetType: 'settings', targetId: 'posCfg', need: 'edit', title: 'إعدادات نقطة البيع', details: 'الفروع: ' + f.branches.map(id => ((org.branches || []).find(b => b.id === id) || {}).name).join('، ') });
+    const ok = await commitOrg(d => ({ ...d, posCfg: { ...(d.posCfg || {}), areas, drivers, paper: f.paper === '58' ? '58' : '80', noImg: !!f.noImg, tables, kds: !!f.kds, returns: !!f.returns, ...(canCredit ? { credit } : {}), branches: f.branches, footer: f.footer.trim(), autoPrint: !!f.autoPrint, maxDiscPct: Number(f.maxDiscPct) || 0, payMethods: f.payMethods.filter(x => (x.n || '').trim()).map(x => ({ id: x.id, n: x.n.trim(), kind: x.kind || 'card', active: x.active !== false })) } }), { actionType: 'update', targetType: 'settings', targetId: 'posCfg', need: 'edit', title: 'إعدادات نقطة البيع', details: 'الفروع: ' + f.branches.map(id => ((org.branches || []).find(b => b.id === id) || {}).name).join('، ') });
     if (ok) say('حُفظت إعدادات نقطة البيع ✓');
   };
   return (
@@ -65,6 +67,7 @@ export function PosSettings({ org, commitOrg, say, dev }) {
       <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', margin: '4px 0 10px' }}><input type="checkbox" checked={!!f.kds} onChange={e => setF(x => ({ ...x, kds: e.target.checked }))} />تشغيل شاشة المطبخ — كل طلب يصلها لحظة إرساله أو دفعه</label>
       <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', margin: '4px 0 10px' }}><input type="checkbox" aria-label="إظهار صور المنتجات" checked={!f.noImg} onChange={e => setF(x => ({ ...x, noImg: !e.target.checked }))} />إظهار صور المنتجات على أزرار نقطة البيع (لمن أُضيفت له صورة)</label>
       <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', margin: '4px 0 10px' }}><input type="checkbox" aria-label="تفعيل المرتجع" checked={!!f.returns} onChange={e => setF(x => ({ ...x, returns: e.target.checked }))} />تفعيل المرتجع (جزئي أو كلي) — لمدير الفرع فقط؛ الطبق المرتجع يُسجَّل هدرًا، ويُرد المبلغ بطريقة الدفع الأصلية أو نقدًا</label>
+      {canCredit && <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', margin: '4px 0 10px', alignItems: 'flex-start' }}><input type="checkbox" aria-label="تفعيل البيع الآجل" checked={credit} onChange={e => setCredit(e.target.checked)} /><span>تفعيل البيع الآجل على حساب العميل (معطّل افتراضيًا) — للعملاء الموسومين «مؤهل للآجل من الكاشير» في جهات الاتصال بحد ائتمان، ومن غير المسجّلين ضريبيًا. يتطلب اتصالًا بالخادم عند كل بيع آجل (يتحقق من الحد)، ويُقيَّد على ذمم العملاء عند ترحيل إغلاق اليوم.</span></label>}
       <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', margin: '4px 0 10px' }}><input type="checkbox" checked={f.autoPrint} onChange={e => setF(x => ({ ...x, autoPrint: e.target.checked }))} />طباعة الفاتورة تلقائيًا بعد الدفع</label>
       <div className="lbl">طرق دفع إضافية (تمارا، تابي، STC Pay، قسائم…)</div>
       <div className="note" style={{ marginBottom: 6 }}>تظهر في شاشة الدفع وفي أزرار السلة. اختر كيف تُحتسب في الإغلاق اليومي والقيود: «شبكة» للمحافظ والتقسيط والبطاقات، «تحويل» للتحويل البنكي، «نقدي» لما يدخل الدرج.</div>

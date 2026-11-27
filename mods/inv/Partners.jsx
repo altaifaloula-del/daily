@@ -13,6 +13,8 @@ export function Partners({ org, ops, me, commit, commitOrg, say }) {
   const [addP, setAddP] = useState(null);
   const [tx, setTx] = useState(null);
   const canEdit = ROLES[me.role]?.scope !== 'own';
+  const canPosCredit = !!(ROLES[me.role]?.admin || me.role === 'finance_department');   // v56.46: وسم «مؤهل للآجل من الكاشير» لمسؤول النظام والإدارة المالية
+  const pcFlag = (c, prev) => canPosCredit ? (c.type || 'customer') === 'customer' && !!c.posCredit && !String(c.tax || '').trim() : !!(prev && prev.posCredit);
   // كتابة سجل الرئيسي (مع المصادقة السحابية) للمدراء فقط
   const canWriteOrgP = !(typeof window !== 'undefined' && window.__forceOrgReadonly) && (!authApi.enabled || !!ROLES[me.role]?.admin);
   const pendReqs = ops.partnerRequests || [];
@@ -145,7 +147,7 @@ export function Partners({ org, ops, me, commit, commitOrg, say }) {
       const supNew = c.isSup ? ibanNorm(c.iban) : '';
       const supReq = c.isSup && supNew && supNew !== supOld; if (supReq) patch.iban = supOld;
       if (c.isSup) await commitOrg(d => ({ ...d, suppliers: (d.suppliers || []).map(s => s.id === c.id ? { ...s, ...patch, category: c.cat || '', vatNo: c.tax || '' } : s) }), { actionType: 'update', targetType: 'user_account', targetId: c.id, title: 'حدّث بيانات كرت مورد', details: c.name });
-      else await commitOrg(d => ({ ...d, partners: (d.partners || []).map(p => p.id === c.id ? { ...p, ...patch, tax: c.tax || '', vatNo: c.tax || '' } : p) }), { actionType: 'update', targetType: 'user_account', targetId: c.id, title: 'حدّث بيانات كرت عميل', details: c.name });
+      else await commitOrg(d => ({ ...d, partners: (d.partners || []).map(p => { if (p.id !== c.id) return p; const { posCredit: _pc, ...p0 } = p; return { ...p0, ...patch, tax: c.tax || '', vatNo: c.tax || '', ...(pcFlag(c, p) ? { posCredit: true } : {}) }; }) }), { actionType: 'update', targetType: 'user_account', targetId: c.id, title: 'حدّث بيانات كرت عميل', details: c.name });
       if (supReq) { const r = await requestIban(me, commitOrg, { ent: 'sup:' + c.id, name: c.name.trim(), iban: supOld }, supNew); say(r.ok ? 'حُدّثت بيانات الكرت ✓ — وتغيير الآيبان أُرسل للاعتماد (يعتمده شخص آخر من المالية/الإدارة)' : (r.msg || 'تعذّر طلب الآيبان'), r.ok ? undefined : 'no'); setAddP(null); return; }
       say('حُدّثت بيانات الكرت ✓'); setAddP(null); return;
     }
@@ -171,7 +173,7 @@ export function Partners({ org, ops, me, commit, commitOrg, say }) {
     const code = nextPartnerCode(partners, c.type || 'customer');
     const rec = isSupNew
       ? { id, code, name: c.name.trim(), category: c.cat || '', phone: c.phone || '', vatNo: c.tax || '', address: c.address || '', taxable: !!c.taxable, terms: Number(c.terms) || 0, ...contactFields(c), iban: '' }   // v40.9: الآيبان بطلب اعتماد
-      : { id, key, code, name: c.name.trim(), type: c.type || 'customer', cat: c.cat || '', phone: c.phone || '', tax: c.tax || '', vatNo: c.tax || '', address: c.address || '', taxable: !!c.taxable, terms: Number(c.terms) || 0, ...contactFields(c) };
+      : { id, key, code, name: c.name.trim(), type: c.type || 'customer', cat: c.cat || '', phone: c.phone || '', tax: c.tax || '', vatNo: c.tax || '', address: c.address || '', taxable: !!c.taxable, terms: Number(c.terms) || 0, ...contactFields(c), ...(pcFlag(c, null) ? { posCredit: true } : {}) };
     await commitOrg(d => (isSupNew ? { ...d, suppliers: [...(d.suppliers || []), rec] } : { ...d, partners: [...(d.partners || []), rec] }),
       { actionType: 'create', targetType: 'user_account', targetId: id, title: 'أضاف جهة اتصال', details: rec.name + ' — ' + (PT_TYPE[c.type || 'customer']?.ar || '') });
     if (isSupNew && ibanNorm(c.iban)) { const r = await requestIban(me, commitOrg, { ent: 'sup:' + id, name: rec.name, iban: '' }, c.iban); if (!r.ok) say(r.msg || 'تعذّر طلب الآيبان', 'no'); }
@@ -254,6 +256,7 @@ export function Partners({ org, ops, me, commit, commitOrg, say }) {
               {cur.crNo && <span className="badge b-dim">س.ت <span className="num">{cur.crNo}</span></span>}
               {cur.iban && <span className="badge b-dim">{cur.bankName ? cur.bankName + ' · ' : ''}<span className="num">{cur.iban}</span></span>}
               {cur.creditLimit ? <span className="badge b-dim">حد ائتمان <span className="num">{money(cur.creditLimit)}</span></span> : null}
+              {cur.posCredit ? <span className="badge b-mint">مؤهل للآجل من الكاشير</span> : null}
             </div>
             {cur.phone && <div className="row" style={{ gap: 6, marginTop: 8 }}>
               <a className="btn sm" href={'tel:' + cur.phone}>📞 اتصال</a>
@@ -282,7 +285,7 @@ export function Partners({ org, ops, me, commit, commitOrg, say }) {
           {canEdit && <button className="btn pri" onClick={() => setTx({ side: 'debit', date: today(), amount: '', desc: '' })}><Plus size={14} />إضافة حركة يدوية</button>}
           <button className="btn" onClick={() => printPartnerStatement(cur, org)}><Printer size={14} />طباعة كشف الحساب</button>
           {canEdit && cur.type === 'employee' && (org.employees || []).some(e => e.id === cur.id) && <button className="btn" onClick={() => { const e0 = (org.employees || []).find(e => e.id === cur.id) || {}; setAddP({ edit: true, id: cur.id, type: 'employee', name: e0.name || cur.name, cat: e0.jobTitle || '', phone: e0.phone || '', email: e0.email || '', notes: e0.notes || '', branchId: e0.branchId || '' }); }}><Settings size={14} />تعديل بيانات الموظف</button>}
-          {canEdit && (cur.type === 'customer' || cur.type === 'supplier') && <button className="btn" onClick={() => setAddP({ edit: true, id: cur.id, isSup: (org.suppliers || []).some(x => x.id === cur.id), type: cur.type, name: cur.name, cat: (cur.cat === 'مورد' || cur.cat === 'عميل') ? '' : (cur.cat || ''), phone: cur.phone || '', tax: cur.tax || '', address: cur.address || '', taxable: !!cur.taxable, terms: cur.terms || '', ...contactOf(cur), creditLimit: cur.creditLimit || '' })}><Settings size={14} />تعديل بيانات الكرت</button>}
+          {canEdit && (cur.type === 'customer' || cur.type === 'supplier') && <button className="btn" onClick={() => setAddP({ edit: true, id: cur.id, isSup: (org.suppliers || []).some(x => x.id === cur.id), type: cur.type, name: cur.name, cat: (cur.cat === 'مورد' || cur.cat === 'عميل') ? '' : (cur.cat || ''), phone: cur.phone || '', tax: cur.tax || '', address: cur.address || '', taxable: !!cur.taxable, terms: cur.terms || '', ...contactOf(cur), creditLimit: cur.creditLimit || '', posCredit: !!cur.posCredit })}><Settings size={14} />تعديل بيانات الكرت</button>}
           {cur.type === 'employee' && <span className="badge b-dim" style={{ alignSelf: 'center' }}>بيانات الموظف تُعدَّل من «شؤون الموظفين ← البيانات الرئيسية»</span>}
           {canWriteOrgP && cur.source === 'branch' && <button className="btn pri" onClick={() => promotePartner(cur)}><ArrowUp size={14} />ترقية للسجل المركزي</button>}
         </div>
@@ -447,6 +450,10 @@ export function Partners({ org, ops, me, commit, commitOrg, say }) {
             <input type="checkbox" checked={!!addP.taxable} onChange={e => setAddP({ ...addP, taxable: e.target.checked })} />
             خاضع لضريبة القيمة المضافة (مسجّل ضريبيًا)
           </label>
+          {canPosCredit && (addP.type || 'customer') === 'customer' && !addP.isSup && <label className="row" style={{ gap: 6, fontSize: 12.5, cursor: String(addP.tax || '').trim() ? 'not-allowed' : 'pointer', marginTop: 4, alignItems: 'flex-start' }}>
+            <input type="checkbox" aria-label="مؤهل للبيع الآجل من الكاشير" disabled={!!String(addP.tax || '').trim()} checked={!!addP.posCredit && !String(addP.tax || '').trim()} onChange={e => setAddP({ ...addP, posCredit: e.target.checked })} />
+            <span>مؤهل للبيع الآجل من الكاشير (نقطة البيع) — يلزم حد ائتمان أكبر من صفر.{String(addP.tax || '').trim() ? ' العميل المسجّل ضريبيًا لا يُباع له آجلًا من الكاشير — يُصدر له من «فواتير المبيعات».' : ' الفرع يرى اسم العميل فقط (لا الحد ولا الرصيد).'}</span>
+          </label>}
           {!addP.edit && (
           <div className="card" style={{ background: 'var(--ink)', padding: 12, marginTop: 6 }}>
             <div className="lbl">رصيد افتتاحي (اختياري)</div>

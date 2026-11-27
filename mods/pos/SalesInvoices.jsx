@@ -3,12 +3,14 @@ import React, { useMemo, useState } from 'react';
 import { FileText, Wallet, AlertTriangle, ShieldCheck, Plus, Printer, Check, X, Banknote } from 'lucide-react';
 import { DocLink, RowGrip, moveIdx, projList, Field, Kpi, LOCK_MSG, Modal, Num, ROLES, branchBanks, buildPartners, entityList, isoD, money, naMissing, nowISO, periodLocked, printSalesInvoice, rolePost, siCredited, siRem, siSorted, siStamp, siVerify, sum, today, uid } from '../../App.jsx';
 import { eclWoOf } from '../../App.jsx';   // v56.40
+import { arDocs } from '../../App.jsx';   // v56.46 ذمم الكاشير (للاطلاع)
 
 export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
   const all = ops.salesInvoices || [];
   const central = ROLES[me.role]?.scope === 'all';
   const brIds = (myBranches || []).map(b => b.id);
   const list = all.filter(x => central || brIds.includes(x.branchId));
+  const posAr = useMemo(() => arDocs(ops, org).filter(x => x.kind === 'posar' && (central || brIds.includes(x.branchId))).sort((a, b) => String(b.date).localeCompare(String(a.date))), [ops, org, central, brIds.join(',')]);   // eslint-disable-line react-hooks/exhaustive-deps
   const canIssue = rolePost(me.role);
   const tax = org.taxCfg || {}; const vatRate = tax.enabled ? (Number(tax.rate) || 15) : 0;
   const customers = useMemo(() => buildPartners(org, ops).filter(p => p.type === 'customer'), [org, ops]);
@@ -126,6 +128,12 @@ export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
         <Kpi label="متأخرة السداد" value={money(kOver)} sub="تجاوزت تاريخ الاستحقاق" icon={AlertTriangle} color="#D9544D" />
         <Kpi label="سلامة السجل" value={chain.ok ? 'سليم ✓' : 'خلل!'} sub={chain.ok ? (chain.n || 0) + ' مستند بسلسلة بصمات متصلة' : chain.why} icon={ShieldCheck} color={chain.ok ? '#4FB286' : '#D9544D'} />
       </div>
+      {posAr.length > 0 && <div className="card" data-posar>
+        <div className="card-t" style={{ marginBottom: 6 }}><Wallet size={15} color="var(--brass)" />ذمم الكاشير (بيع آجل من نقطة البيع) — للاطلاع</div>
+        <div className="hint" style={{ marginBottom: 6 }}>فواتير الكاشير ذات الجزء الآجل بعد ترحيل إغلاق يومها. ليست فواتير مبيعات جديدة ولا تُطبع هنا — التحصيل بسند قبض مخصّص لها، والكشف من «جهات الاتصال».</div>
+        <div className="tw"><table className="tb"><thead><tr><th>فاتورة الكاشير</th><th>العميل</th><th>التاريخ</th><th>الاستحقاق</th><th>الآجل</th><th>المتبقي</th></tr></thead><tbody>
+          {posAr.slice(0, 200).map(x => <tr key={x.id}><td className="num">{x.no}</td><td>{(x.buyer || {}).name || x.customerKey}</td><td className="num">{x.date}</td><td className="num">{x.dueDate}</td><td className="num">{money(x.total)}</td><td className="num">{money(siRem(ops, x))}</td></tr>)}
+        </tbody></table></div></div>}
       <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         {[['all', 'الكل'], ['open', 'مفتوحة'], ['credit', 'آجلة'], ['cash', 'نقدية'], ['cn', 'إشعارات دائنة'], ['dn', 'إشعارات مدينة']].map(([k, t]) => (
           <button key={k} className={'btn sm' + (flt === k ? ' pri' : ' gh')} onClick={() => setFlt(k)}>{t}</button>))}
@@ -188,6 +196,7 @@ export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
           </div>}
           {f.terms === 'cash' && <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', margin: '4px 0 8px' }}>
             <input type="checkbox" checked={!!f.inClosing} onChange={e => setF(x => ({ ...x, inClosing: e.target.checked }))} />هذا البيع مسجّل في إغلاق الوردية (تُصدر الفاتورة وتُرقَّم فقط دون قيد ثانٍ)</label>}
+          {f.terms === 'cash' && f.inClosing && <div className="note" data-inclosing-warn style={{ margin: '0 0 8px', borderColor: 'var(--amber)' }}>تنبيه: إن كان هذا البيع صدرت له فاتورة من نقطة البيع (الكاشير) فهذا الخيار يُصدر <b>رقم فاتورة ثانيًا</b> لنفس التوريد. فاتورة الكاشير هي الفاتورة — والبيع الآجل من الكاشير يُتابَع من «ذمم الكاشير» أدناه وسندات القبض، لا من هنا.</div>}
           <div className="lbl" style={{ margin: '4px 0 6px' }}>البنود — السعر قبل الضريبة</div>
           {f.copyOf && <div className="hint" data-copyhint style={{ marginBottom: 6 }}>نسخة من فاتورة سابقة — راجع البنود والتاريخ قبل الإصدار</div>}
           {(f.lines || []).map((l, i) => { const k = lineCalc(l); return (

@@ -15,9 +15,10 @@ export function IncomeStatement({ org, ops, myBranches, scoped, say }) {
     cash: sum(cls, c => c.cashSales),
     card: sum(cls, c => c.cardSales),
     bank: sum(cls, c => c.bankTransferSales || 0),
-    del: sum(cls, c => c.totalDeliverySales)
+    del: sum(cls, c => c.totalDeliverySales),
+    credit: sum(cls, c => Number(c.creditSales) || 0)   // v56.46 الآجل من نقطة البيع (صفر للسابق)
   };
-  const grossRevenue = R.cash + R.card + R.bank + R.del;
+  const grossRevenue = R.cash + R.card + R.bank + R.del + R.credit;
   const commissions = sum(cls, c => sum(c.deliverySales || [], d => d.commissionAmount || 0));
   const netRevenue = grossRevenue - commissions;
 
@@ -63,7 +64,7 @@ export function IncomeStatement({ org, ops, myBranches, scoped, say }) {
     const rows = [
       ['قائمة الدخل', month, bid === 'all' ? 'كل الفروع' : branches[0]?.name],
       ['مبيعات نقدية', R.cash], ['مبيعات الشبكة', R.card], ['تحويل بنكي', R.bank],
-      ['تطبيقات التوصيل', R.del], ['إجمالي الإيراد', grossRevenue],
+      ['تطبيقات التوصيل', R.del], ...(R.credit ? [['مبيعات آجلة من نقطة البيع', R.credit]] : []), ['إجمالي الإيراد', grossRevenue],
       ['عمولات التطبيقات', -commissions], ['صافي الإيراد', netRevenue],
       ...byCat.map(x => ['مصروف: ' + x.n, -x.v]),
       ['الالتزامات الثابتة', -fixedTotal],
@@ -85,7 +86,7 @@ export function IncomeStatement({ org, ops, myBranches, scoped, say }) {
     const N = (n) => Math.round((n || 0) * 100) / 100;
     const xrows = [
       ['مبيعات نقدية', N(R.cash)], ['مبيعات الشبكة', N(R.card)], ['تحويل بنكي', N(R.bank)],
-      ['تطبيقات التوصيل', N(R.del)], ['إجمالي الإيراد', N(grossRevenue)],
+      ['تطبيقات التوصيل', N(R.del)], ...(R.credit ? [['مبيعات آجلة من نقطة البيع', N(R.credit)]] : []), ['إجمالي الإيراد', N(grossRevenue)],
       ['عمولات التطبيقات', -N(commissions)], ['صافي الإيراد', N(netRevenue)],
       ...byCat.map(x => ['مصروف: ' + x.n, -N(x.v)]),
       ['الالتزامات الثابتة', -N(fixedTotal)], ['الرواتب غير المصروفة بالفروع', -N(payrollRemaining)],
@@ -139,6 +140,7 @@ export function IncomeStatement({ org, ops, myBranches, scoped, say }) {
         <L k="مبيعات الشبكة (مدى/فيزا)" v={R.card} ind />
         <L k="تحويل بنكي مباشر" v={R.bank} ind />
         <L k="تطبيقات التوصيل" v={R.del} ind />
+        {!!R.credit && <L k="مبيعات آجلة من نقطة البيع" v={R.credit} ind />}
         <L k="إجمالي الإيراد" v={grossRevenue} bold c="var(--brass)" />
         <L k="ناقص عمولات التطبيقات" v={-commissions} ind c="var(--rose)" />
         <L k="صافي الإيراد" v={netRevenue} bold c="var(--brass)" />
