@@ -4181,6 +4181,7 @@ test('v56.41 الدفعة 6 (T4): المصروف المدفوع مقدمًا —
   await p.getByLabel('حساب المدفوع مقدمًا').selectOption('1450');
   const exp = await p.evaluate(() => [...document.querySelectorAll('select[aria-label="حساب المصروف"] option')].map(o => o.value).find(v => /^5/.test(v)));
   await p.getByLabel('حساب المصروف').selectOption(exp);
+  if (await p.locator('select[aria-label="فرع المدفوع مقدمًا"]').count()) await p.getByLabel('فرع المدفوع مقدمًا').selectOption('b1');   // إيجار كل فرع منفصل
   await p.click('[data-pp-save]'); await p.waitForFunction(() => (window.cur.prepaids || []).length === 1);
   assert.equal(await p.locator('[data-pp-wait]').count(), 1);
   await p.evaluate(() => window.as('admin')); await p.waitForSelector('[data-pp-ok]'); await p.click('[data-pp-ok]');
