@@ -2,7 +2,8 @@
 import React, { useState, useMemo } from 'react';
 import { Landmark, FileBarChart, ChevronDown, Printer, ArrowLeftRight, TrendingUp, TrendingDown, Banknote, FileText, Plus, Lock, Check, X, Receipt } from 'lucide-react';
 import { CashVouchers } from './CashVouchers.jsx';
-import { dsLive, dsCashOut, dsPostDate, canApproveJe, jeOwner } from '../../App.jsx';   // v56.29 اعتماد أوامر الصرف
+import { dsLive, dsCashOut, dsPostDate, canApproveJe, jeOwner } from '../../App.jsx';
+import { dsHanded, dsPreOpen, dsPreOpenItem, dsCashMoves, dsHandCheck } from '../../App.jsx';   // v56.45 T1 النقد المسلَّم قبل الاعتماد   // v56.29 اعتماد أوامر الصرف
 import { Badge, DisbursementForm, Kpi, LOCK_MSG, ROLES, arDate, money, nowISO, periodLocked, printA4, sum, today } from '../../App.jsx';
 
 export function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
@@ -18,8 +19,8 @@ export function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
   const received = list.filter(t => t.status === 'received');
   const disb = isCentral ? [...(ops.disbursements || [])].sort((a, b) => b.date.localeCompare(a.date)) : [];
   const inflow = sum((ops.transfers || []).filter(t => t.status === 'received'), t => t.amount);
-  const outflow = sum((ops.disbursements || []).filter(d => dsLive(d) && dsCashOut(org, d)), d => d.amount);   // v56.29: المعلّق والمرفوض لا يُخصمان · v56.31: المصروف من البنك لا يمس نقد الخزينة
-  const pendCash = sum((ops.disbursements || []).filter(d => d.status === 'pending' && dsCashOut(org, d)), d => d.amount);   // v56.31 T2: المعلّق يحجز الرصيد للعرض والفحص
+  const outflow = -sum((ops.disbursements || []).flatMap(d => dsCashMoves(org, d)), m => m.amt);   // v56.45: المسلَّم قبل الاعتماد يخرج بتاريخ تسليمه، والمسترد يعود   // v56.29: المعلّق والمرفوض لا يُخصمان · v56.31: المصروف من البنك لا يمس نقد الخزينة
+  const pendCash = sum((ops.disbursements || []).filter(d => d.status === 'pending' && dsCashOut(org, d) && !dsHanded(org, d)), d => d.amount);   // v56.45: المسلَّم خرج فعلًا فلا يُحجز مرتين   // v56.31 T2: المعلّق يحجز الرصيد للعرض والفحص
   const balance = inflow - outflow;
 
   const receive = async (t, ok) => {
@@ -42,24 +43,48 @@ export function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
   const decideDs = async (x, ok, withdraw) => {
     const mine = x.byId ? x.byId === me.id : x.by === me.name;
     if (withdraw ? !mine : !canApproveJe(me, x)) return say(withdraw ? 'يسحب الأمرَ منشئه فقط' : 'لا يعتمد أمر الصرف من أنشأه — يعتمده المحاسب أو الإدارة المالية أو المالك', 'no');
-    const td0 = today();   // v56.31 T1: القيد بتاريخ الاعتماد
+    const hd = dsHanded(org, x);   // v56.45: سُلِّم نقده قبل الاعتماد ⇒ المصروف بتاريخ التسليم إن كان شهره مفتوحًا، والرصيد لا يُفحص (خرج فعلًا)
+    const td0 = hd && !periodLocked(org, x.cashAt) ? x.cashAt : today();   // v56.31 T1: القيد بتاريخ الاعتماد
     if (ok && periodLocked(org, td0)) return say(LOCK_MSG(td0), 'no');
-    if (ok && dsCashOut(org, x) && x.amount > balance - (pendCash - x.amount) + 0.004) return say('المبلغ يتجاوز رصيد الخزينة المتاح (بعد حجز الأوامر المعلّقة)', 'no');
+    if (withdraw && hd) return say('سُلِّم نقد هذا الأمر — لا يُسحب؛ يعتمده غير منشئه أو يرفضه ثم يُسجَّل الاسترداد', 'no');
+    if (ok && !hd && dsCashOut(org, x) && x.amount > balance - (pendCash - x.amount) + 0.004) return say('المبلغ يتجاوز رصيد الخزينة المتاح (بعد حجز الأوامر المعلّقة)', 'no');
     const r = ok || withdraw ? null : window.prompt('سبب الرفض:', ''); if (!ok && !withdraw && r === null) return;
     const st = ok ? 'posted' : withdraw ? 'withdrawn' : 'rejected'; let hit = false;
     // v56.29 (التحقق المستقل): الانتقال من «معلّق» فقط وعلى أحدث نسخة — فلا يُعاد اعتماد مرفوض ولا يُرفض مرحّل
-    const done = await commit(d => ({ ...d, disbursements: (d.disbursements || []).map(y => (y.id === x.id && y.status === 'pending') ? (hit = true, { ...y, status: st, [(ok ? 'approved' : st) + 'By']: me.name, [(ok ? 'approved' : st) + 'At']: nowISO(), ...(ok ? { postDate: td0 } : {}), ...(r ? { rejectReason: r } : {}) }) : y) }), {
+    const done = await commit(d => ({ ...d, disbursements: (d.disbursements || []).map(y => (y.id === x.id && y.status === 'pending') ? (hit = true, { ...y, status: st, [(ok ? 'approved' : st) + 'By']: me.name, [(ok ? 'approved' : st) + 'At']: nowISO(), ...(ok ? { postDate: td0, ...(hd ? { lateAppr: true } : {}) } : {}), ...(r ? { rejectReason: r } : {}) }) : y) }), {
       actionType: 'cash_transfer', targetType: 'cash_transfer', targetId: x.id, title: ok ? 'اعتمد أمر صرف من الخزينة' : withdraw ? 'سحب أمر صرف معلّقًا' : 'رفض أمر صرف', details: `${x.category} · ${x.beneficiary} · ${money(x.amount)} ر.س · المنشئ ${x.by}` });
     if (!hit) return say('تغيّرت حالة الأمر قبل الحفظ — حدّث الشاشة', 'no');
     if (done !== false) say(ok ? 'اعتُمد أمر الصرف وخُصم من الخزينة ✓' : withdraw ? 'سُحب الأمر' : 'رُفض أمر الصرف');
   };
 
+  // v56.45 T1: تسجيل تسليم النقد على أمر معلّق (الواقع قبل الاعتماد)، واسترداد نقد أمر رُفض بعد تسليمه
+  const handDs = async (x) => {
+    const d = window.prompt('تاريخ تسليم النقد فعلًا (YYYY-MM-DD):', today()); if (d === null) return;
+    const why = dsHandCheck(org, x, d.trim(), today()); if (why) return say(why, 'no');
+    if (dsCashOut(org, x) && x.amount > balance - (pendCash - x.amount) + 0.004) return say('المبلغ يتجاوز رصيد الخزينة', 'no');
+    if (!window.confirm('تسجيل أن نقد هذا الأمر (' + money(x.amount) + ') سُلِّم في ' + d.trim() + ' قبل اعتماده؟\nيُقيَّد على 1402 «مبالغ صُرفت بانتظار الاعتماد» حتى يُعتمد الأمر أو يُسترد المبلغ — ولا يُلغى التسجيل بعده.')) return;
+    let hit = false;
+    const done = await commit(dd => ({ ...dd, disbursements: (dd.disbursements || []).map(y => (y.id === x.id && y.status === 'pending' && !y.cashAt) ? (hit = true, { ...y, cashAt: d.trim(), cashBy: me.name, cashById: me.id || '', cashRecAt: nowISO() }) : y) }), {
+      actionType: 'cash_transfer', targetType: 'cash_transfer', targetId: x.id, title: 'سجّل تسليم نقد أمر صرف قبل اعتماده', details: `${x.category} · ${x.beneficiary} · ${money(x.amount)} ر.س · ${d.trim()}` });
+    if (!hit) return say('تغيّرت حالة الأمر قبل الحفظ — حدّث الشاشة', 'no');
+    if (done !== false) say('سُجّل التسليم ✓ — بانتظار الاعتماد اللاحق');
+  };
+  const recDs = async (x) => {
+    const d = (window.prompt('تاريخ استرداد النقد إلى الخزينة (YYYY-MM-DD):', today()) || '').trim(); if (!d) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || d > today() || d < x.cashAt) return say('تاريخ الاسترداد بين تاريخ التسليم واليوم', 'no');
+    if (periodLocked(org, d)) return say(LOCK_MSG(d), 'no');
+    let hit = false;
+    const done = await commit(dd => ({ ...dd, disbursements: (dd.disbursements || []).map(y => (y.id === x.id && y.cashAt && !y.recAt && (y.status === 'rejected' || y.status === 'withdrawn')) ? (hit = true, { ...y, recAt: d, recBy: me.name, recById: me.id || '' }) : y) }), {
+      actionType: 'cash_transfer', targetType: 'cash_transfer', targetId: x.id, title: 'سجّل استرداد نقد أمر صرف مرفوض', details: `${x.category} · ${x.beneficiary} · ${money(x.amount)} ر.س · ${d}` });
+    if (!hit) return say('تغيّرت حالة الأمر قبل الحفظ — حدّث الشاشة', 'no');
+    if (done !== false) say('سُجّل الاسترداد ✓');
+  };
   const ledger = useMemo(() => {
     const items = [
       ...(ops.transfers || []).filter(t => t.status === 'received')
         .map(t => ({ id: t.id, date: t.date, kind: 'in', label: 'توريد من ' + t.branchName, ref: t.referenceNo, amount: t.amount })),
-      ...(ops.disbursements || []).filter(d => dsLive(d) && dsCashOut(org, d))
-        .map(x => ({ id: x.id, date: dsPostDate(org, x), kind: 'out', label: x.category + ' — ' + x.beneficiary, ref: x.reference, amount: x.amount }))
+      ...(ops.disbursements || []).flatMap(x => dsCashMoves(org, x).map((m, i) => ({ id: x.id + (i ? '-r' : ''), date: m.date, kind: m.amt < 0 ? 'out' : 'in',
+        label: (m.k === 'rec' ? 'استرداد نقد أمر لم يُعتمد — ' : '') + x.category + ' — ' + x.beneficiary + (m.k === 'out' && dsHanded(org, x) && x.status !== 'posted' ? ' (سُلِّم قبل الاعتماد)' : ''), ref: x.reference, amount: Math.abs(m.amt) })))
     ].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
     let run = 0;
     return items.map(i => { run += i.kind === 'in' ? i.amount : -i.amount; return { ...i, run }; }).reverse();
@@ -177,6 +202,8 @@ export function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
                     <td className="num" style={{ color: 'var(--rose)', fontWeight: 600 }}>{money(x.amount)}</td>
                     <td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{x.by}
                       {x.status === 'pending' && <div className="row" style={{ gap: 4, marginTop: 4 }} data-ds-pending><span className="badge b-amber">بانتظار الاعتماد</span>
+                        {x.cashAt && <span className="badge b-rose" data-ds-handed title={'سجّله ' + (x.cashBy || '')}>سُلِّم النقد {x.cashAt}</span>}
+                        {!x.cashAt && dsPreOpen(org) && canReceive && <button className="btn sm gh" data-ds-hand onClick={() => handDs(x)}>سُلِّم النقد</button>}
                         {canApproveJe(me, x) && <><button className="btn sm" data-ds-ok onClick={() => decideDs(x, true)}><Check size={12} />اعتماد</button><button className="btn sm gh" data-ds-no onClick={() => decideDs(x, false)}><X size={12} />رفض</button></>}
                         {(x.byId ? x.byId === me.id : x.by === me.name) && <button className="btn sm gh" data-ds-wd onClick={() => decideDs(x, false, true)}>سحب</button>}</div>}
                       {x.status === 'withdrawn' && <div><span className="badge b-dim">مسحوب</span></div>}
@@ -184,6 +211,9 @@ export function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
                       {x.postDate && x.postDate !== x.date && <div style={{ fontSize: 10.5 }}>قُيِّد بتاريخ الاعتماد {x.postDate}</div>}
                       {x.fundAcc && <div style={{ fontSize: 10.5 }}>من البنك {x.fundAcc}</div>}
                       {x.status === 'rejected' && <div><span className="badge b-rose" title={x.rejectReason || ''}>مرفوض</span></div>}
+                      {x.lateAppr && <div><span className="badge b-amber" data-ds-late>اعتماد لاحق — سُلِّم النقد {x.cashAt}</span></div>}
+                      {dsPreOpenItem(org, x) && x.status !== 'pending' && <div className="row" style={{ gap: 4, marginTop: 4 }} data-ds-unrec><span className="badge b-rose">سُلِّم نقده ولم يُسترد</span>{canReceive && <button className="btn sm" data-ds-rec onClick={() => recDs(x)}>تسجيل الاسترداد</button>}</div>}
+                      {x.recAt && <div style={{ fontSize: 10.5 }}>استُرد {x.recAt}</div>}
                       {x.dsRoute === 'blocked' && <div><span className="badge b-amber">يحتاج مراجعة</span></div>}</td>
                   </tr>
                 ))}
