@@ -1,7 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState } from 'react';
 import { ClipboardCheck, Printer, Lock } from 'lucide-react';
-import { posDocView, Field, Modal, Num, _xe, businessDay, money, nowISO, posOrdersStats, posPrint, posR2, posShiftHtml, posZHtml, printA4, dtLocal } from '../../App.jsx';
+import { posDocView, Field, Modal, Num, _xe, businessDay, money, nowISO, posOrdersStats, posPrint, posR2, posShiftHtml, posZHtml, printA4, dtLocal, posOffOn, posChainGaps } from '../../App.jsx';
 
 export function PosShifts({ org, ops, me, brs, commit, say }) {
   const [bid, setBid] = useState('all'); const [d, setD] = useState(businessDay()); const [rc, setRc] = useState(null);
@@ -33,8 +33,13 @@ export function PosShifts({ org, ops, me, brs, commit, say }) {
       ${promoRows || st.mdisc || st.loyAmt ? `<h3 style="font-size:13px">الخصومات حسب العرض</h3><table><tr><th>العرض</th><th>الخصم الممنوح</th></tr>${promoRows}${st.mdisc ? `<tr><td>خصم يدوي</td><td class="n">${m(st.mdisc)}</td></tr>` : ''}${st.loyAmt ? `<tr><td>استبدال نقاط ولاء (${st.loyPts} نقطة)</td><td class="n">${m(st.loyAmt)}</td></tr>` : ''}</table>` : ''}
       <div class="sign"><div>أمين الصندوق</div><div>مدير الفرع</div><div>المحاسب</div></div>`);
   };
+  // v56.53 (المراجعة الأمنية): فحص كاشف لفجوات سلسلة الفوترة لكل جهاز (icv متتالٍ وpih = بصمة السابقة) — تنبيه لا منع، مع تفعيل العمل دون اتصال
+  const KIND = { gap: 'فجوة في الترقيم', dup: 'رقم تسلسل مكرر', pih: 'بصمة سابقة لا تطابق' };
+  const gaps = posOffOn(org) ? posChainGaps(ops.posOrders, null).filter(g => ids.includes(g.branchId) && (bid === 'all' || g.branchId === bid)) : [];
   return (
     <div className="grid" style={{ gap: 12 }}>
+      {gaps.length > 0 && <div className="note" role="alert" data-chaingaps style={{ borderColor: 'var(--rose)' }}><b>تنبيه: {gaps.length} خلل في سلسلة فواتير نقطة البيع</b> — قد يدل على فاتورة لم تصل أو مسح لبيانات جهاز. راجعه قبل اعتماد الإغلاق.
+        {gaps.slice(0, 20).map((g, i) => <div key={i} style={{ fontSize: 12, marginTop: 4 }} data-chaingap={g.kind}>{bOf(g.branchId).name} · جهاز {g.dev} · {KIND[g.kind]}: <span className="num">{g.prevNo} (#{g.prevIcv}) ← {g.no} (#{g.icv})</span></div>)}</div>}
       <div className="card">
         <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'end', marginBottom: 8 }}>
           <div className="card-t" style={{ marginInlineEnd: 'auto' }}><ClipboardCheck size={15} color="var(--brass)" />الورديات والتقارير</div>

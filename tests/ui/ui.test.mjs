@@ -4676,3 +4676,25 @@ test('v56.53 إعدادات العمل دون اتصال: المفتاح لمس�
   assert.deepEqual(await p.evaluate(() => [window.curOrg.posCfg.offline, window.curOrg.posCfg.offRetLimit]), [true, { b1: 150.5 }]);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.53 بعد المراجعة الأمنية: بلا تخزين دائم تحذير ظاهر ومنع البيع، وتنبيه فجوات سلسلة الفوترة في الورديات', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/PosApp/bm');
+  await p.evaluate(() => { const o = Storage.prototype.setItem; Storage.prototype.setItem = function (k, v) { if (String(k).startsWith('mizan:posOb:')) throw new Error('QuotaExceededError'); return o.call(this, k, v); };
+    Object.defineProperty(window, 'indexedDB', { value: { open() { throw new Error('SecurityError'); } }, configurable: true }); });
+  await p.evaluate(() => { window.setOrg(g => ({ ...g, posCfg: { branches: ['b1'], autoPrint: false }, products: [{ id: 'k', name: 'كبسة', sellPrice: 58, cat: 'رئيسي' }] }));
+    window.setOps(o => ({ ...o, posOrders: [], closings: o.closings.filter(c => c.branchId !== 'b1') })); }); await p.waitForTimeout(300);
+  const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); }
+  assert.equal(await p.locator('[data-obfatal]').count(), 0, 'بلا تفعيل لا تحذير');
+  await p.evaluate(() => window.setOrg(g => ({ ...g, posCfg: { ...g.posCfg, offline: true } }))); await p.waitForTimeout(600);
+  assert.match(await p.locator('[data-obfatal]').innerText(), /لا تخزين دائم على هذا الجهاز/);
+  await p.locator('.pos-tile:has-text("كبسة")').click(); await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200);
+  await p.click('.modal button:has-text("تأكيد")'); await p.waitForTimeout(400);
+  assert.match(await say(p), /لا تخزين دائم/); assert.equal(await p.evaluate(() => window.cur.posOrders.length), 0, 'لا فاتورة');
+  await p.keyboard.press('Escape');
+  // فجوات السلسلة: icv 1 ← 3 (فاتورة مفقودة) — تنبيه في الورديات والتقارير
+  await p.evaluate(() => { const d = new Date().toISOString().slice(0, 10); const o = (no, icv, pih, hash) => ({ id: 'g' + icv, no, branchId: 'b1', dev: 'AB12', date: d, at: d + 'T10:0' + icv + ':00Z', kind: 'sale', status: 'paid', total: 10, vat: 1.3, lines: [], payments: [{ m: 'cash', amount: 10 }], icv, pih, hash });
+    window.setOps(x => ({ ...x, posOrders: [o('ف1-A', 1, '0', 'h1'), o('ف1-C', 3, 'h2', 'h3')] })); }); await p.waitForTimeout(300);
+  await p.selectOption('select[aria-label="المزيد"]', 'shifts'); await p.waitForSelector('[data-chaingaps]');
+  assert.match(await p.locator('[data-chaingaps]').innerText(), /1 خلل[\s\S]*جهاز AB12 · فجوة في الترقيم: ف1-A \(#1\) ← ف1-C \(#3\)/);
+  assert.deepEqual(errs, []); await ctx.close();
+});

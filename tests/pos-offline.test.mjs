@@ -217,3 +217,73 @@ test('التوافق الرجعي (فحص المصدر): بلا تفعيل يب�
   assert.ok(!/serviceWorker\.register\(/.test(pos), 'البند 4 (عامل خدمة لنقطة البيع) مؤجَّل إلى 5ب');
   assert.ok(/'posOffRevs'/.test(/const BR_COLS = \[([\s\S]*?)\];/.exec(app)[1]), 'المراجعات في مستند الفرع');
 });
+
+/* ---------- v56.53 — معالجة المراجعة الأمنية (قرارات المجلس) ---------- */
+/** مخزن ذاكرة بتأخير عشوائي لكل عملية — يتشابك فيه العمل المتزامن كما بين تبويبين */
+function slowStore(seed = 7) { const s = E.posStoreMem(); let x = seed; const rnd = () => { x = (x * 1103515245 + 12345) % 2147483648; return x % 4; };
+  const d = (f) => async (...a) => { await new Promise(r => setTimeout(r, rnd())); return f(...a); };
+  return { mode: 'mem', get: d(s.get), put: d(s.put), del: d(s.del), list: d(s.list) }; }
+/** قفل navigator.locks وهمي: سلسلة وعود حسب الاسم */
+function fakeLocks() { const q = {}; let busy = 0, max = 0;
+  return { stat: () => max, request: (name, fn) => { const p = (q[name] || Promise.resolve()).then(async () => { busy++; max = Math.max(max, busy); try { return await fn(); } finally { busy--; } }); q[name] = p.catch(() => {}); return p; } }; }
+
+test('المراجعة (1): سباق متشابك بين تبويبين (ترحيل + مزامنة + استرجاع + إضافة) تحت القفل — لا يضيع أي معرّف ولا يتكرر', async () => {
+  const ls = fakeLs(), L = legacyOf(ls), store = slowStore(), locks = fakeLocks(); const cloud = new Map(); const ids = [];
+  const send = async (kind, list) => { await new Promise(r => setTimeout(r, 1)); list.forEach(o => { if (!cloud.has(kind + ':' + o.id)) cloud.set(kind + ':' + o.id, o); }); return Math.random() > 0.3; };
+  const env = { locks };
+  const legacyAdd = (id) => { const a = L.read().order; L.write('order', [...a, ord(id, '2026-11-20T10:' + String(ids.length % 60).padStart(2, '0') + ':00Z')]); ids.push(id); };
+  const tabA = (async () => { for (let i = 0; i < 25; i++) { legacyAdd('a' + i); await E.posLockRun(() => E.posObMigrate(store, L), env); if (i % 3 === 0) await E.posLockRun(() => E.posSyncRun(store, send), env); } })();
+  const tabB = (async () => { for (let i = 0; i < 25; i++) { const o = ord('b' + i, '2026-11-20T11:' + String(i).padStart(2, '0') + ':00Z'); ids.push(o.id); await store.put('outbox', E.posObItem('order', o));
+    if (i % 4 === 0) await E.posLockRun(() => E.posObRestore(store, L), env); if (i % 5 === 0) await E.posLockRun(() => E.posSyncRun(store, send), env); } })();
+  await Promise.all([tabA, tabB]);
+  assert.equal(locks.stat(), 1, 'لا تشغيلان متداخلان تحت القفل');
+  for (let k = 0; k < 20 && ((await store.list('outbox')).length || L.read().order.length); k++) { await E.posLockRun(() => E.posObMigrate(store, L), env); await E.posLockRun(() => E.posSyncRun(store, async (kind, list) => { list.forEach(o => cloud.set(kind + ':' + o.id, o)); return true; }), env); }
+  const seen = new Set([...cloud.keys()].map(k => k.slice(6)));
+  assert.deepEqual(ids.filter(id => !seen.has(id)), [], 'كل معرّف وصل السحابة');
+  assert.equal(cloud.size, ids.length, 'بلا تكرار (المفتاح معرّف)');
+  assert.deepEqual([(await store.list('outbox')).length, L.read().order.length], [0, 0]);
+});
+
+test('المراجعة (1): القفل البديل بعلامة في localStorage — يسلسل التشغيل، وينتهي بالمهلة، ولا تشغيل بلا قفل', async () => {
+  const ls = fakeLs(); let t = 0; const env = { ls, now: () => t, sleep: async (ms) => { t += ms; await new Promise(r => setTimeout(r, 0)); }, settle: 5, step: 10, ttl: 1000, wait: 5000 };
+  let busy = 0, max = 0; const job = (v) => E.posLockRun(async () => { busy++; max = Math.max(max, busy); await env.sleep(50); busy--; return v; }, env);
+  assert.deepEqual(await Promise.all([job(1), job(2), job(3)]), [1, 2, 3]); assert.equal(max, 1); assert.equal(ls.getItem('mizan:posObLock'), null, 'يُحرَّر');
+  ls.setItem('mizan:posObLock', JSON.stringify({ id: 'dead-tab', until: t + 200 }));   // تبويب أُغلق وهو يحمله
+  assert.equal(await job(4), 4, 'تنتهي العلامة بالمهلة');
+  ls.setItem('mizan:posObLock', JSON.stringify({ id: 'busy-tab', until: t + 1e9 }));
+  assert.equal(await E.posLockRun(async () => 'ran', { ...env, wait: 100 }), null, 'تعذّر القفل ⇒ لا تشغيل');
+  assert.equal(await E.posLockRun(async () => 'x', {}), null, 'بلا قفل ولا تخزين ⇒ لا تشغيل');
+  assert.equal(await E.posLockRun(async () => 'L', { locks: fakeLocks() }), 'L');
+  // منع الاسترجاع ما دام التفعيل قائمًا في تبويب آخر
+  E.posOnMark(ls, () => 1000, 'tabB'); assert.equal(E.posOnFresh(ls, () => 50000, 90000, 'tabA'), true, 'تبويب آخر مفعّل حديثًا ⇒ لا استرجاع');
+  assert.equal(E.posOnFresh(ls, () => 200000, 90000, 'tabA'), false, 'إعلان قديم'); assert.equal(E.posOnFresh(ls, () => 50000, 90000, 'tabB'), false, 'إعلانه هو لا يمنعه');
+  E.posOnClear(ls, 'tabA'); assert.ok(ls.getItem('mizan:posObOnAt'), 'لا يزيل إعلان غيره'); E.posOnClear(ls, 'tabB'); assert.equal(ls.getItem('mizan:posObOnAt'), null);
+});
+
+test('المراجعة (2): إخفاق الإرسال لا يعيد كتابة عنصر حُذف أثناءه (أكّده تبويب آخر)', async () => {
+  const s = E.posStoreMem(); await s.put('outbox', E.posObItem('order', ord('a', '2026-11-20T10:00:00Z'))); await s.put('outbox', E.posObItem('order', ord('b', '2026-11-20T10:01:00Z')));
+  const r = await E.posSyncRun(s, async () => { await s.del('outbox', 'order:a'); return false; });
+  assert.equal(r.failed, 2); assert.deepEqual((await s.list('outbox')).map(x => [x.id, x.tries]), [['b', 1]]);
+});
+
+test('المراجعة (3): بصمة المرتجع كما كانت حرفيًا، ومع offline وbyId للمرتجع دون اتصال فقط؛ وقيد التدقيق والفحص الآلي للإقفال', () => {
+  const r = { id: 'r1', no: 'م1-261120-AB12-0001', at: '2026-11-20T10:00:00.000Z', retLines: [{ i: 0, name: 'كبسة', qty: 1, amount: 58 }], total: -58, vat: -7.57, payments: [{ m: 'cash', amount: -58 }], icv: 4, pih: 'h3', refId: 'po1', refNo: 'ف1-1', by: 'خالد', branchId: 'b1', date: '2026-11-20', kind: 'return' };
+  assert.deepEqual(E.posRetHashSrc(r), [r.no, r.at, r.retLines, r.total, r.vat, r.payments, r.icv, r.pih, r.refId], 'غير المرتجع دون اتصال: كما v56.52');
+  assert.deepEqual(E.posRetHashSrc({ ...r, offline: true, byId: 'u3' }).slice(-1), [{ offline: true, byId: 'u3' }]);
+  const a = E.posOffRetAudit({ ...r, offline: true }, 'فرع 1');
+  assert.equal(a.actionType, 'create'); assert.equal(a.targetId, 'r1'); assert.match(a.title, /مزامنة مرتجع دون اتصال م1-261120-AB12-0001 عن الفاتورة ف1-1/); assert.match(a.details, /كبسة ×1 · 58\.00 · سجّله خالد/);
+  const A = { entries: [] }; const ops = { posOrders: [{ ...r, offline: true }, { ...r, id: 'r2', offline: true, total: -20, date: '2026-12-02' }, { ...r, id: 'r3' }], posOffRevs: [] };
+  const ck = (o, m) => E.closeAutoChecks(A, o, m).find(c => c.k === 'posoffret');
+  assert.deepEqual([ck(ops, '2026-11').n, ck(ops, '2026-11').amt, ck(ops, '2026-11').ok], [1, 58, false]);
+  assert.equal(ck({ ...ops, posOffRevs: [{ retId: 'r1' }] }, '2026-11'), undefined, 'بعد المراجعة لا بند');
+  assert.equal(ck({ posOrders: [{ ...r }] }, '2026-11'), undefined, 'بلا مرتجعات دون اتصال لا بند جديد');
+});
+
+test('المراجعة (4): فحص فجوات سلسلة الفوترة لكل فرع وجهاز (icv متتالٍ وpih = البصمة السابقة) — يشمل إشعار الإلغاء', () => {
+  const o = (no, icv, pih, hash, x = {}) => ({ id: no, no, branchId: 'b1', dev: 'AB12', icv, pih, hash, ...x });
+  const ok = [o('ف1', 5, 'h4', 'h5'), o('ف2', 6, 'h5', 'h6', { status: 'void', voidNote: { no: 'م1', dev: 'AB12', icv: 7, pih: 'h6', hash: 'h7' } }), o('ف3', 8, 'h7', 'h8'), o('X', 1, '0', 'x1', { dev: 'ZZ99' }), { id: 'old', no: 'قديم', branchId: 'b1', dev: 'AB12' }];
+  assert.deepEqual(E.posChainGaps(ok, 'b1'), [], 'أول حلقة (5) لا تُفحص لما قبلها، والقديم بلا icv خارج الفحص');
+  const bad = [...ok, o('ف5', 10, 'h9', 'h10'), o('ف6', 11, 'zz', 'h11'), o('ف6ب', 11, 'h10', 'h11b'), o('ب2', 3, 'h2', 'h3', { branchId: 'b2' })];
+  assert.deepEqual(E.posChainGaps(bad, 'b1').map(g => [g.kind, g.prevNo, g.no, g.dev]), [['gap', 'ف3', 'ف5', 'AB12'], ['pih', 'ف5', 'ف6', 'AB12'], ['dup', 'ف6', 'ف6ب', 'AB12']]);
+  assert.equal(E.posChainGaps(bad, 'b2').length, 0);
+});

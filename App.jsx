@@ -3809,6 +3809,7 @@ function closeAutoChecks(A, ops, month, org) {
   const arChk = org && posCreditOn(org) ? (() => { const gl = r2((A.entries || []).filter(e => String(e.date || '') <= end).reduce((t, e) => t + (e.lines || []).filter(l => l.code === '1380').reduce((a, l) => a + l.debit - l.credit, 0), 0));
     const sub = r2(-buildPartners(org, ops).filter(p => p.type === 'customer').reduce((a, p) => a + (p.txns || []).filter(t => !t.date || String(t.date) <= end).reduce((x, t) => x + (t.credit || 0) - (t.debit || 0), 0), 0));
     return { gl, sub, d: r2(gl - sub) }; })() : null;
+  const offUnrev = posOffRetPending(ops.posOrders, ops.posOffRevs).filter(o => String(o.date || '') <= end);   // v56.53 (المراجعة): مرتجعات دون اتصال لم يعتمد المدير مراجعتها
   const impYear = org && impOn(org) && month.slice(5, 7) === '12' ? !(ops.impairTests || []).some(t => String(t.year) === month.slice(0, 4)) : false;   // 27.7: اختبار المؤشرات في كل إقفال سنوي   // v56.40 (E6.3): مراجعة المخصص بند في الإقفال
   return [
     { k: 'drafts', ar: 'لا إغلاقات مسودة أو مرفوضة حتى نهاية الشهر', n: cls.filter(c => c.status === 'draft' || c.status === 'rejected').length },
@@ -3820,6 +3821,7 @@ function closeAutoChecks(A, ops, month, org) {
     ...(pecl.length || (org && eclOn(org)) ? [{ k: 'ecl', ar: 'مخصص الخسائر الائتمانية: رُوجعت ذمم العملاء المتأخرة ولا مستند مخصص أو شطب بانتظار الاعتماد', n: pecl.length }] : []),
     ...(ppp.length || (org && ppOn(org)) ? [{ k: 'ppd', ar: 'المصروفات المدفوعة مقدمًا: لا مستند بانتظار الاعتماد (الإطفاء الشهري آلي بعد الاعتماد)', n: ppp.length }] : []),
     ...(pimp.length || impYear ? [{ k: 'impair', ar: 'هبوط قيمة الأصول: سُجّل اختبار مؤشرات السنة ولا مستند هبوط بانتظار الاعتماد', n: pimp.length + (impYear ? 1 : 0) }] : []),
+    ...(offUnrev.length ? [{ k: 'posoffret', ar: 'كل مرتجعات نقطة البيع دون اتصال حتى نهاية الشهر رُوجعت واعتُمدت من المدير (نقطة البيع ← مرتجعات دون اتصال للمراجعة)', n: offUnrev.length, amt: posR2(offUnrev.reduce((a, o) => a + Math.abs(Number(o.total) || 0), 0)) }] : []),
     ...(pdp.length ? [{ k: 'deptpick', ar: 'كل مصروفات الوردية التي يحدد المحاسب قسمها (الصيانة والكهرباء) محدَّدة القسم', n: pdp.length }] : []),
     ...(arChk ? [{ k: 'arsub', ar: 'ذمم العملاء 1380 في الأستاذ (' + arChk.gl + ') = مجموع أرصدة العملاء في السجل الفرعي (' + arChk.sub + ')', n: Math.abs(arChk.d) > 0.004 ? 1 : 0, amt: arChk.d }] : []),
     ...(org && whtDueDay(org) ? (() => { const pm = t4PrevYm(month), u = whtUnpaidAt(A, pm + '-31', end);   // v56.51 (2-أ): بموعد يُدخله المالك ويؤكّده المختص فقط
@@ -9779,10 +9781,57 @@ async function posSyncRun(store, send, opt) {
       try { ok = (await send(kind, chunk.map(x => x.data))) === true; if (!ok) err = 'not-confirmed'; } catch (e) { err = e || 'error'; }
       const at = new Date(now()).toISOString();
       if (ok) { for (const x of chunk) { await store.del('outbox', x.key); sent++; done.push(x.key); } await posSyncLog(store, chunk.map(x => ({ at, kind, ref: x.id, ok: true })), opt && opt.max); continue; }
-      const msg = posSyncErr(err); for (const x of chunk) await store.put('outbox', { ...x, tries: (x.tries || 0) + 1, lastErr: msg, lastAt: at });
+      const msg = posSyncErr(err);
+      for (const x of chunk) { const cur = await store.get('outbox', x.key); if (!cur) continue;   // v56.53 (المراجعة): حُذف أثناء الإرسال (تبويب آخر أكّده) ⇒ لا يُعاد
+        await store.put('outbox', { ...cur, tries: (cur.tries || 0) + 1, lastErr: msg, lastAt: at }); }
       await posSyncLog(store, chunk.map(x => ({ at, kind, ref: x.id, ok: false, err: msg })), opt && opt.max);
       return { sent, failed: chunk.length, left: items.length - sent, err: msg, done }; } }
   return { sent, failed: 0, left: items.length - sent, err: '', done };
+}
+/* v56.53 (المراجعة الأمنية، قرار المجلس): قفل بين التبويبات حول الترحيل والاسترجاع والمزامنة — navigator.locks إن توفّر،
+   وإلا علامة في localStorage بمهلة (تنتهي تلقائيًا إن أُغلق التبويب وهو يحملها). تعذّر الحصول على القفل ⇒ لا تشغيل (يُعاد لاحقًا) لا تشغيل بلا قفل. */
+const POS_LOCK = 'muktasab-pos', POS_LOCK_LS = 'mizan:posObLock', POS_ON_LS = 'mizan:posObOnAt';
+async function posLockRun(fn, env) {
+  const e = env || (typeof navigator !== 'undefined' || typeof window !== 'undefined' ? { locks: typeof navigator !== 'undefined' ? navigator.locks : null, ls: typeof window !== 'undefined' ? window.localStorage : null } : {});
+  if (e.locks && typeof e.locks.request === 'function') return e.locks.request(POS_LOCK, () => fn());
+  const ls = e.ls; if (!ls) return null;
+  const now = e.now || Date.now, sleep = e.sleep || ((ms) => new Promise(r => setTimeout(r, ms))), ttl = e.ttl || 60000, wait = e.wait == null ? 15000 : e.wait;
+  const me = 'L' + Math.random().toString(36).slice(2, 10); const t0 = now();
+  const rd = () => { try { return JSON.parse(ls.getItem(POS_LOCK_LS) || 'null'); } catch { return null; } };
+  for (;;) {
+    const cur = rd();
+    if (!cur || !(Number(cur.until) > now())) { try { ls.setItem(POS_LOCK_LS, JSON.stringify({ id: me, until: now() + ttl })); } catch { return null; }
+      await sleep(e.settle == null ? 30 : e.settle); const chk = rd(); if (chk && chk.id === me) break; }   // تأكيد بعد مهلة قصيرة: من كتب أخيرًا يملكه
+    if (now() - t0 > wait) return null;
+    await sleep(e.step || 100);
+  }
+  try { return await fn(); } finally { const cur = rd(); if (cur && cur.id === me) { try { ls.removeItem(POS_LOCK_LS); } catch { } } }
+}
+/** تبويب مفعّل يعلن نفسه (كل فتح ومزامنة)؛ الاسترجاع يُمنع إن أعلن تبويبٌ **آخر** التفعيلَ خلال المهلة، ويزيل التبويب إعلانه عند الإيقاف */
+const POS_TAB = 'T' + Math.random().toString(36).slice(2, 10);
+const posOnMark = (ls, now, tab) => { try { ls.setItem(POS_ON_LS, JSON.stringify({ t: (now || Date.now)(), tab: tab || POS_TAB })); } catch { } };
+const posOnRead = (ls) => { try { const v = JSON.parse(ls.getItem(POS_ON_LS) || 'null'); return v && typeof v === 'object' ? v : null; } catch { return null; } };
+const posOnFresh = (ls, now, ms, tab) => { const v = posOnRead(ls); return !!v && v.tab !== (tab || POS_TAB) && (now || Date.now)() - (Number(v.t) || 0) < (ms || 90000); };
+const posOnClear = (ls, tab) => { const v = posOnRead(ls); if (v && v.tab === (tab || POS_TAB)) { try { ls.removeItem(POS_ON_LS); } catch { } } };
+/** بصمة المرتجع: كما كانت حرفيًا، ويُضاف offline وbyId للمرتجعات الجديدة دون اتصال فقط */
+const posRetHashSrc = (r) => [r.no, r.at, r.retLines, r.total, r.vat, r.payments, r.icv, r.pih, r.refId, ...(r.offline === true ? [{ offline: true, byId: r.byId || '' }] : [])];
+/** قيد سجل التدقيق لمرتجع دون اتصال عند مزامنته */
+const posOffRetAudit = (r, branchName) => ({ actionType: 'create', targetType: 'pos_order', targetId: r.id, branchName: branchName || '', title: 'مزامنة مرتجع دون اتصال ' + (r.no || '') + ' عن الفاتورة ' + (r.refNo || ''),
+  details: (r.retLines || []).map(l => l.name + ' ×' + l.qty).join('، ') + ' · ' + posR2(Math.abs(Number(r.total) || 0)).toFixed(2) + ' · سجّله ' + (r.by || '') + ' في ' + String(r.at || '').slice(0, 16).replace('T', ' ') + ' · للمراجعة' });
+/** فحص كاشف لسلسلة الفوترة لكل فرع/جهاز: icv متتالٍ وpih = بصمة الحلقة السابقة (الفواتير والمرتجعات وإشعارات الإلغاء). تنبيه لا منع.
+    أول حلقة معروفة لا تُفحص (ما قبلها قد يكون مؤرشفًا)، والسجلات القديمة بلا icv خارج الفحص. [{ branchId, dev, kind:'gap'|'dup'|'pih', no, icv, prevIcv, prevNo }] */
+function posChainGaps(orders, branchId) {
+  const G = {};
+  (orders || []).forEach(o => { if (!o || (branchId && o.branchId !== branchId)) return;
+    [o.dev ? { dev: o.dev, x: o } : null, o.voidNote ? { dev: o.voidNote.dev || o.dev, x: o.voidNote } : null].forEach(e => { if (!e || !e.x.hash || !(Number(e.x.icv) > 0)) return;
+      const k = o.branchId + '|' + e.dev; (G[k] = G[k] || []).push({ branchId: o.branchId, dev: e.dev, no: e.x.no || '', icv: Number(e.x.icv), pih: String(e.x.pih || ''), hash: e.x.hash }); }); });
+  const out = [];
+  Object.values(G).forEach(L => { L.sort((a, b) => a.icv - b.icv || String(a.no).localeCompare(String(b.no)));
+    for (let i = 1; i < L.length; i++) { const a = L[i - 1], b = L[i]; const base = { branchId: b.branchId, dev: b.dev, no: b.no, icv: b.icv, prevIcv: a.icv, prevNo: a.no };
+      if (b.icv === a.icv) { out.push({ ...base, kind: 'dup' }); continue; }
+      if (b.icv !== a.icv + 1) { out.push({ ...base, kind: 'gap' }); continue; }
+      if (b.pih !== a.hash) out.push({ ...base, kind: 'pih' }); } });
+  return out;
 }
 /* المرتجع دون اتصال (قرار المالك): مسموح حتى حد يحدده المدير لكل فرع (org.posCfg.offRetLimit[فرع])، والافتراضي صفر = ممنوع.
    الحد على مجموع مرتجعات الفرع دون اتصال التي لم تُراجَع بعد (لا لكل مرتجع وحده) — يُوسم offline:true ويظهر للمدير «للمراجعة بعد الاتصال». */
@@ -9804,6 +9853,7 @@ function posOffRetReview(ops, ret, me) {
   if (ret.byId ? ret.byId === me.id : ret.by === me.name) return { err: 'لا يعتمد المرتجع من سجّله — يعتمده مدير آخر' };
   return { rev: { id: uid('orv'), branchId: ret.branchId, retId: ret.id, retNo: ret.no || '', amount: posR2(Math.abs(Number(ret.total) || 0)), by: me.name, byId: me.id || '', at: nowISO() } };
 }
+export { posLockRun, posOnMark, posOnFresh, posOnClear, POS_ON_LS, posRetHashSrc, posOffRetAudit, posChainGaps };
 export { posOffOn, POS_IDB, POS_OB_KINDS, POS_OB_USED, posObKey, posObItem, posObSort, posSyncErr, posSyncDelay, posStoreIdb, posStoreLs, posStoreMem, posStoreOpen, posLegacyQ, posObMigrate, posObRestore, posSyncLog, posSyncLogList, posSyncRun, posOffRetLimit, posOffRetPending, posOffRetCheck, posOffRetReview };
 /* v56.0 (GAP-007): تعليق طلب سفري واستدعاؤه — مسودة على الجهاز لكل فرع (تعمل دون اتصال)، لا رقم فاتورة ولا عدّاد ولا بصمة
    قبل الدفع، فتبقى سلسلة الفوترة الإلكترونية بلا فجوات. الاستدعاء يعيد التسعير بسعر المنتج الحالي ويُسقط المنتج المحذوف. */

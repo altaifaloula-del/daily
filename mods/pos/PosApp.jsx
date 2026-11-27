@@ -14,27 +14,29 @@ import { posHolds, posHoldsSet, posHoldPut, posHoldRecall } from '../../App.jsx'
 import { posVoidBlock, posNextNo, posTabCuts, escH, POS_VOID_ROLES } from '../../App.jsx';   // v56.2 (POS دفعة 1) حراس الإلغاء والترقيم وحساب الطاولة
 import { posCreditList, posCreditAuthApi, posArRefundMax } from '../../App.jsx';   // v56.46 البيع الآجل
 import { restCfg, coversOf, posWaiters, salesByWaiter, tabRemain, tabSplitItems, tabSplitSet, tabPartPriced, tabSplitReset, tabPayPart, tabMerge, kdsStations, kdsSplit, kdsPrepReport, kdsPrepSheets } from '../../App.jsx';   // v56.52 المطعم (مُطفأة افتراضيًا)
-import { posOffOn, POS_OB_USED, posObItem, posObSort, posStoreOpen, posLegacyQ, posObMigrate, posObRestore, posSyncRun, posSyncLogList, posSyncDelay, posSyncErr, posOffRetCheck, posOffRetPending, posOffRetReview } from '../../App.jsx';   // v56.53 العمل دون اتصال (مُطفأ افتراضيًا)
+import { posOffOn, POS_OB_USED, posObItem, posObSort, posStoreOpen, posLegacyQ, posObMigrate, posObRestore, posSyncRun, posSyncLogList, posSyncDelay, posSyncErr, posOffRetCheck, posOffRetPending, posOffRetReview, posLockRun, posOnMark, posOnFresh, posOnClear, posRetHashSrc, posOffRetAudit, posChainGaps } from '../../App.jsx';   // v56.53 العمل دون اتصال (مُطفأ افتراضيًا)
 
 /* v56.53 — صندوق الصادر (IndexedDB «muktasab-pos») حين org.posCfg.offline — بلا تفعيل لا يُفتح شيء ويبقى الطابور القديم حرفيًا.
    مرآة في الذاكرة (items) للقراءات المتزامنة (الترقيم وقائمة الفواتير)، والكتابة تُنتظر حتى تكتمل المعاملة؛ إن أخفقت ⇒ الطابور القديم (لا فقد). */
 function usePosOutbox(on, onRestored) {
-  const ready = useRef(null); const items = useRef([]); const [ver, setVer] = useState(0);
-  const [info, setInfo] = useState({ mode: '', lastOk: '', lastAt: '', fails: 0, nextAt: 0, lastErr: '' });
+  const ready = useRef(null); const items = useRef([]); const [ver, setVer] = useState(0); const onRef = useRef(on); onRef.current = on;
+  const [info, setInfo] = useState({ mode: '', lastOk: '', lastAt: '', fails: 0, nextAt: 0, lastErr: '', fatal: '' });
   const bump = () => setVer(v => v + 1);
   useEffect(() => {
     let dead = false;
     if (!on) {   // أُوقف بعد استخدام ⇒ يعود ما بقي إلى الطابور القديم (لا يُفتح IndexedDB أبدًا لمن لم يفعّل)
-      let used = null; try { used = localStorage.getItem(POS_OB_USED); } catch { }
-      if (used) posStoreOpen().then(s => posObRestore(s, posLegacyQ())).then(r => { if (r.ok) { try { localStorage.removeItem(POS_OB_USED); } catch { } } if (!dead && onRestored) onRestored(); }).catch(() => { });
+      let used = null; try { used = localStorage.getItem(POS_OB_USED); } catch { } posOnClear(localStorage);
+      // v56.53 (المراجعة): تحت القفل، ولا استرجاع إن عاد التفعيل هنا أو أعلنه تبويب آخر حديثًا
+      if (used) posStoreOpen().then(s => posLockRun(async () => (onRef.current || posOnFresh(localStorage)) ? null : posObRestore(s, posLegacyQ())))
+        .then(r => { if (r && r.ok) { try { localStorage.removeItem(POS_OB_USED); } catch { } } if (!dead && onRestored) onRestored(); }).catch(() => { });
       ready.current = null; items.current = []; return () => { dead = true; };
     }
     ready.current = posStoreOpen().then(async s => {
-      try { localStorage.setItem(POS_OB_USED, '1'); } catch { }
-      await posObMigrate(s, posLegacyQ()).catch(() => null);   // ترحيل آمن: يُعاد كل فتح (لا يكرر)، والقديم لا يُمسح إلا بعد التحقق
+      try { localStorage.setItem(POS_OB_USED, '1'); } catch { } posOnMark(localStorage);
+      await posLockRun(() => posObMigrate(s, posLegacyQ())).catch(() => null);   // ترحيل آمن تحت القفل: يُعاد كل فتح (لا يكرر)، والقديم لا يُمسح إلا بعد التحقق
       const st = await s.list('outbox'); const ks = new Set(st.map(x => x.key));
       items.current = posObSort([...st, ...items.current.filter(x => !ks.has(x.key))]);
-      if (!dead) { setInfo(i => ({ ...i, mode: s.mode })); bump(); } return s; });
+      if (!dead) { setInfo(i => ({ ...i, mode: s.mode, ...(s.mode === 'mem' ? { fatal: 'لا تخزين دائم على هذا الجهاز (IndexedDB والتخزين المحلي غير متاحين) — الفواتير قد تُفقد بإغلاق الصفحة' } : {}) })); bump(); } return s; });
     return () => { dead = true; };
   }, [on]);   // eslint-disable-line react-hooks/exhaustive-deps
   const list = (kind) => items.current.filter(x => x.kind === kind).map(x => x.data);
@@ -43,17 +45,23 @@ function usePosOutbox(on, onRestored) {
     items.current = posObSort([...items.current.filter(x => !its.some(y => y.key === x.key)), ...its]); bump();
     try { const s = await ready.current; for (const it of its) await s.put('outbox', it); return true; }
     catch (e) {   // تعذّرت الكتابة في الصادر ⇒ الطابور القديم احتياطًا، ويُرحَّل في الفتح التالي
-      const L = posLegacyQ(); if (kind !== 'ticket') { const cur = (L.read() || {})[kind] || []; L.write(kind, [...cur.filter(d => !its.some(y => y.data.id === d.id)), ...its.map(y => y.data)]); }
-      logClientError(e, 'pos-outbox'); return false; }
+      logClientError(e, 'pos-outbox'); let saved = false;
+      if (kind !== 'ticket') { const L = posLegacyQ(); const cur = (L.read() || {})[kind] || []; L.write(kind, [...cur.filter(d => !its.some(y => y.data.id === d.id)), ...its.map(y => y.data)]);
+        const back = new Set(((L.read() || {})[kind] || []).map(d => d && d.id)); saved = its.every(y => back.has(y.data.id)); }
+      // v56.53 (المراجعة): فشل الصادر والطابور القديم معًا ⇒ تحذير ظاهر ومنع فاتورة جديدة حتى يُحل
+      if (!saved) setInfo(i => ({ ...i, fatal: 'تعذّر حفظ آخر عملية على الجهاز (الصادر والتخزين المحلي) — لا تُغلق الصفحة، وأرسل الآن عند الاتصال؛ البيع موقوف حتى يُحل' }));
+      return false; }
   };
   const run = async (send) => {
-    const s = await ready.current; if (!s) return null; let r;
-    await posObMigrate(s, posLegacyQ()).catch(() => null);   // ما سقط احتياطًا في الطابور القديم يُرحَّل قبل كل مزامنة
-    try { r = await posSyncRun(s, send); } catch (e) { r = { sent: 0, failed: 1, left: items.current.length, err: posSyncErr(e), done: [] }; }
+    const s = await ready.current; if (!s) return null; posOnMark(localStorage);
+    const r0 = await posLockRun(async () => {   // v56.53 (المراجعة): ترحيل ومزامنة تحت قفل بين التبويبات — لا إرسالان متداخلان من تبويبين
+      await posObMigrate(s, posLegacyQ()).catch(() => null);   // ما سقط احتياطًا في الطابور القديم يُرحَّل قبل كل مزامنة
+      try { return await posSyncRun(s, send); } catch (e) { return { sent: 0, failed: 1, left: items.current.length, err: posSyncErr(e), done: [] }; } }).catch(() => null);
+    const r = r0 || { sent: 0, failed: 0, left: items.current.length, err: '', done: [], skipped: true };
     const st = await s.list('outbox').catch(() => null); const done = new Set(r.done || []);
     if (st) { const ks = new Set(st.map(x => x.key)); items.current = posObSort([...st, ...items.current.filter(x => !ks.has(x.key) && !done.has(x.key))]); }
-    const at = new Date().toISOString();
-    setInfo(i => { const fails = r.err ? i.fails + 1 : 0; return { ...i, lastAt: at, ...(r.err ? {} : { lastOk: at }), fails, nextAt: fails ? Date.now() + posSyncDelay(fails) : 0, lastErr: r.err || '' }; });
+    if (!r.skipped) { const at = new Date().toISOString();
+      setInfo(i => { const fails = r.err ? i.fails + 1 : 0; return { ...i, lastAt: at, ...(r.err ? {} : { lastOk: at }), ...(!r.err && !items.current.length && i.mode !== 'mem' ? { fatal: '' } : {}) /* أُرسل كل شيء ⇒ زال الخطر */, fails, nextAt: fails ? Date.now() + posSyncDelay(fails) : 0, lastErr: r.err || '' }; }); }
     bump(); return r;
   };
   const logs = async () => { const s = await ready.current; return s ? posSyncLogList(s) : []; };
@@ -154,7 +162,14 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     if (offOn) {   // v56.53: محرك المزامنة بسجل — الفواتير ثم الورديات ثم الولاء، ولا حذف من الصادر إلا بعد تأكيد الحفظ
       if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
       await OB.run(async (kind, list) => {
-        if (kind === 'order') return (await commit(d => { const have = new Set((d.posOrders || []).map(o => o.id)); return { ...d, posOrders: [...list.filter(o => !have.has(o.id)), ...(d.posOrders || [])] }; })) === true;
+        if (kind === 'order') {   // v56.53 (المراجعة): كل مرتجع دون اتصال بحفظ مستقل وقيد في سجل التدقيق (لا قيد إن كان قد وصل سابقًا)
+          const offR = list.filter(o => o.kind === 'return' && o.offline === true), plain = list.filter(o => !offR.includes(o));
+          if (plain.length && (await commit(d => { const have = new Set((d.posOrders || []).map(o => o.id)); return { ...d, posOrders: [...plain.filter(o => !have.has(o.id)), ...(d.posOrders || [])] }; })) !== true) return false;
+          for (const r of offR) { let had = false;
+            const ok = await commit(d => { had = (d.posOrders || []).some(o => o.id === r.id); return had ? d : { ...d, posOrders: [r, ...(d.posOrders || [])] }; },
+              () => had ? null : posOffRetAudit(r, ((org.branches || []).find(b => b.id === r.branchId) || {}).name));
+            if (ok !== true) return false; }
+          return true; }
         if (kind === 'shift') return (await commit(d => { let sl = d.posShifts || []; list.forEach(pc => { sl = sl.some(x => x.id === pc.id) ? sl.map(x => x.id === pc.id ? pc : x) : [pc, ...sl]; }); return { ...d, posShifts: sl }; })) === true;
         if (kind === 'loy') { const r = await loyPost(list); if (r) setLoy(r); return !!r; }
         return false;   // التذاكر: لا مستقبِل في 5أ (KDS المحلي في 5ب) — تبقى
@@ -274,6 +289,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   // v56.2 (B2): قفل يمنع النقر المزدوج من إنشاء فاتورتين (الانتظار لحجز الكوبون كان يترك الزر نشطًا)
   const checkout = async (printNow) => { if (payBusy.current) return; payBusy.current = true; try { await checkoutRun(printNow); } finally { payBusy.current = false; } };
   const checkoutRun = async (printNow) => {
+    if (offOn && OB.info.fatal) return say(OB.info.fatal, 'no');   // v56.53 (المراجعة): لا فاتورة جديدة بلا تخزين دائم مؤكد
     const paid = posR2((pay.parts || []).reduce((a, x) => a + (Number(x.amount) || 0), 0));
     const cashGiven = posR2((pay.parts || []).filter(x => x.m === 'cash').reduce((a, x) => a + (Number(x.amount) || 0), 0));
     if (paid + 0.004 < T.total) return say('المدفوع أقل من الإجمالي', 'no');
@@ -401,6 +417,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const C = posReturnCalc(o, qs); const loyDed = posReturnLoyDed(opsR, o, C.total);
     // v56.53 (قرار المالك): المرتجع دون اتصال حتى حد المدير لكل فرع (الافتراضي صفر = ممنوع)، ويُوسم للمراجعة بعد الاتصال
     const offRet = offOn && typeof navigator !== 'undefined' && navigator.onLine === false;
+    if (offRet && OB.info.fatal) return say(OB.info.fatal, 'no');
     if (offRet) { if (opt.m === 'credit') return say('المرتجع إلى حساب العميل يتطلب اتصالًا', 'no');
       const ck = posOffRetCheck(org, allOrders, ops.posOffRevs, br.id, C.total); if (ck.err) return say(ck.err, 'no'); }
     // v56.46: «إلى حساب العميل» — لا يمس الدرج، ولا يتجاوز متبقي الذمة (أو الآجل ناقص المرتجعات السابقة إلى الحساب)
@@ -415,7 +432,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
       payments: [{ m: opt.m, amount: -C.total, ...(opt.appId ? { appId: opt.appId, appName: opt.appName } : {}), ...(opt.pm ? { pm: opt.pm, pmName: opt.pmName } : {}), ...(opt.m === 'credit' ? { custKey: opt.custKey, custName: opt.custName } : {}) }], change: 0, status: 'paid',
       ...(opt.m === 'credit' ? { ar: { key: opt.custKey, name: opt.custName || '' } } : {}),
       reason: ret.reason, ...(ret.note.trim() ? { note: ret.note.trim() } : {}), ...(offRet ? { offline: true, byId: me.id || '' } : {}), ...(o.waiterId ? { waiterId: o.waiterId, waiterName: o.waiterName || '' } : {}) /* v56.52: المرتجع يُخصم من نادل الفاتورة */, ...(RC.covers && o.table ? { retArea: o.areaId ? { id: o.areaId, name: o.areaName || o.areaId } : (tableArea(org, br.id, o.table) || { id: '', name: 'بلا صالة' }) } : {}) /* وصالته */, ...(loyDed ? { loyalty: { phone: o.loyalty.phone, ded: loyDed } } : {}), icv: (prev.icv || 0) + 1, pih: prev.hash || '0' };
-    r.hash = sha256Hex(JSON.stringify([r.no, r.at, r.retLines, r.total, r.vat, r.payments, r.icv, r.pih, r.refId]));
+    r.hash = sha256Hex(JSON.stringify(posRetHashSrc(r)));   // v56.53 (المراجعة): كما كانت حرفيًا، ومع offline وbyId للمرتجع دون اتصال فقط
     const ok = offRet ? (await OB.add('order', [r]), true) : await commit(d => ({ ...d, posOrders: [...(d.posOrders || []), r] }), { actionType: 'create', targetType: 'pos_order', targetId: r.id, branchName: br.name, title: 'مرتجع ' + r.no + ' عن الفاتورة ' + o.no, details: C.lines.map(l => l.name + ' ×' + l.qty).join('، ') + ' · ' + money(C.total) + ' · ' + WASTE_REASONS[ret.reason] });
     if (!ok) return say('تعذّر حفظ المرتجع', 'no');
     try { localStorage.setItem(sk, String(seq)); localStorage.setItem(hk, JSON.stringify({ icv: r.icv, hash: r.hash })); } catch { }
@@ -666,6 +683,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
         </div>
       </div>
 
+      {offOn && OB.info.fatal && <div className="note" role="alert" data-obfatal style={{ borderColor: 'var(--rose)', color: 'var(--rose)' }}>⚠ {OB.info.fatal}</div>}
       {canVoid && offRevs.length > 0 && <div className="note" data-offrevs style={{ borderColor: 'rgba(224,164,88,.6)' }}><b>مرتجعات دون اتصال للمراجعة بعد الاتصال ({offRevs.length})</b>
         {offRevs.map(r => <div key={r.id} className="row" style={{ gap: 8, alignItems: 'center', marginTop: 6, flexWrap: 'wrap' }} data-offrev={r.no}><span className="num">{r.no}</span><span>عن {r.refNo}</span><b className="num">{money(Math.abs(r.total))}</b><small>{r.by || ''} · {String(r.at || '').slice(0, 16).replace('T', ' ')}</small>
           <button className="btn sm" onClick={() => reviewOff(r)}><Check size={13} />اعتماد المراجعة</button></div>)}</div>}
