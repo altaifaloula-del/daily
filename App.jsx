@@ -8392,7 +8392,7 @@ function commsJobErr(org, job) {
 /** آخر حالة موافقة للرقم على قناة SMS (أو «كل القنوات») */
 const commsConsent = (ops, ph) => { const cs = mktConsentOf(ops, ph); return (cs.ch || {}).sms || cs.all; };
 /**
- * الجمهور (نقي): campaign = الموافقون صراحةً على SMS وحدهم، بلا من طلب الإيقاف، وبحد maxPerMonth لكل رقم (من الدفعات المرسلة فعلًا هذا الشهر، لا التجريبية)؛
+ * الجمهور (نقي): campaign = الموافقون صراحةً على SMS وحدهم، بلا من طلب الإيقاف، وبحد maxPerMonth لكل رقم (الحملات والولاء معًا، من الدفعات المرسلة فعلًا هذا الشهر، لا التجريبية)؛
  * loy = أعضاء الولاء الموافقون بمرشّح (رصيد ≥ س، نقاط تنتهي خلال ن يومًا، ميلاد اليوم)؛ ar = عملاء الآجل المستحق خلال ن يومًا أو المتأخر برصيد > 0 (رسالة خدمية: بلا موافقة تسويقية لكن تحترم الإيقاف).
  * يعيد { n, parts, skipped, quiet, list:[{ phone, name, text, parts }], sample:[{ m (مقنّع), name, parts }] } — list للخادم وللتصدير المسجّل فقط، والواجهة تعرض sample.
  */
@@ -8408,9 +8408,10 @@ function commsAudience(org, ops, loy, job, now) {
   const bal = {}; ((loy && loy.tx) || []).forEach(t => { if (!t || !t.phone) return; const p = A(t.phone); bal[p] = (bal[p] || 0) + (Number(t.pts) || 0); });
   const mem = (loy && loy.members) || {}; const nameOf = (ph) => ((mem[ph] || {}).name) || '';
   const r2 = (x) => Math.round(x * 100) / 100;
+  // الحد الشهري (قرار المجلس v56.50): للرسائل التسويقية — الحملات وإشعارات الولاء معًا، لا تذكير الآجل (خدمي). الحد 0 = لا رسائل تسويقية
+  const used = {}; const max = cfg.maxPerMonth;
+  if (kind === 'campaign' || kind === 'loy') ((ops.commsJobs) || []).forEach(j => { if (!j || j.status !== 'sent' || !(j.kind === 'campaign' || j.kind === 'loy') || !j.result || j.result.dry || commsRiy(Date.parse(j.sentAt || 0)).ym !== R.ym) return; (j.result.rcpt || []).forEach(k => { used[k] = (used[k] || 0) + 1; }); });
   if (kind === 'campaign') {
-    const used = {}; const max = cfg.maxPerMonth;
-    ((ops.commsJobs) || []).forEach(j => { if (!j || j.status !== 'sent' || j.kind !== 'campaign' || !j.result || j.result.dry || commsRiy(Date.parse(j.sentAt || 0)).ym !== R.ym) return; (j.result.rcpt || []).forEach(k => { used[k] = (used[k] || 0) + 1; }); });
     [...seenC].map(A).filter((p, i, a) => a.indexOf(p) === i).sort().forEach(ph => {
       if (outSet.has(ph)) { sk.optOut++; return; } if (commsConsent(ops, ph) !== 'in') { sk.noConsent++; return; }
       if ((used[commsKey(ph)] || 0) >= max) { sk.cap++; return; }
@@ -8422,6 +8423,7 @@ function commsAudience(org, ops, loy, job, now) {
       if (F.expDays != null) { if (!(Number(X.expireMonths) > 0)) return; const e = Math.min(b, loyExpiring(loy, ph, X.expireMonths, commsAddDays(R.ymd, F.expDays))); if (!(e > 0)) return; }
       if (F.bday && String((P[ph] || {}).bday || '') !== R.md) return;
       if (outSet.has(ph)) { sk.optOut++; return; } if (commsConsent(ops, ph) !== 'in') { sk.noConsent++; return; }
+      if ((used[commsKey(ph)] || 0) >= max) { sk.cap++; return; }
       add(ph, { name: nameOf(ph), points: b }); });
   } else if (kind === 'ar') {
     const lim = commsAddDays(R.ymd, F.dueDays); const C = {};
