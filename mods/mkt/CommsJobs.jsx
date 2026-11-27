@@ -37,6 +37,8 @@ export function CommsJobs({ org, ops, loy, me, commit, say, canApp }) {
     let at = nowISO(); const pre = commsJobMove(j, to, me, at); if (pre.err) return say(pre.err, 'no'); let err = ''; let srv = null;
     // الاعتماد في الخادم (المراجعة الأمنية): يرفض المنشئ ويبصم المحتوى المعتمد في سجل لا يكتبه غيره — ثم تُحدَّث الحالة هنا
     if (to === 'approved') { setBusy(j.id); try { srv = await commsApi(j.id, 'approve'); } catch (e) { setBusy(''); return say(e.message || 'تعذّر الاعتماد', 'no'); } setBusy(''); at = srv.approvedAt || at; }
+    // الإرسال للاعتماد يُسجَّل في الخادم (بريد المُرسِل وبصمة المحتوى) — منه يُعرف من لا يحق له الاعتماد؛ السجل الموجود سابقًا (dup) يكفي
+    if (to === 'pending') { setBusy(j.id); try { await commsApi(j.id, 'submit'); } catch (e) { if (e.code !== 'dup') { setBusy(''); return say(e.message || 'تعذّر الإرسال للاعتماد', 'no'); } } setBusy(''); }
     // يُعاد الفحص على أحدث نسخة (حالة تغيّرت من مستخدم آخر ⇒ لا تغيير)
     const ok = await commit(d => { const x = (d.commsJobs || []).find(y => y.id === j.id); const r = commsJobMove(x, to, me, at); if (r.err) { err = r.err; return d; }
       const nx = srv ? { ...r.next, approvedBy: srv.approvedBy || r.next.approvedBy, approvedById: srv.approvedById || r.next.approvedById } : r.next;
@@ -78,7 +80,7 @@ export function CommsJobs({ org, ops, loy, me, commit, say, canApp }) {
             <span style={{ fontSize: 12, color: 'var(--dim)' }}>القالب: {tplName(j.tplId)} · تقدير: <span className="num">{(j.est || {}).n || 0}</span> مستلم / <span className="num">{(j.est || {}).parts || 0}</span> جزء · أنشأها {j.by}{j.approvedBy ? ' · اعتمدها ' + j.approvedBy : ''}</span>
             <span style={{ marginInlineStart: 'auto' }} />
             <button className="btn sm gh" data-cmsprev onClick={() => setPrev(j)}>معاينة الجمهور</button>
-            {j.status === 'draft' && (mine || canApp) && <button className="btn sm pri" data-cmssubmit onClick={() => move(j, 'pending', 'أرسل دفعة رسائل للاعتماد')}>إرسال للاعتماد</button>}
+            {j.status === 'draft' && (mine || canApp) && <button className="btn sm pri" data-cmssubmit disabled={busy === j.id} onClick={() => move(j, 'pending', 'أرسل دفعة رسائل للاعتماد')}>إرسال للاعتماد</button>}
             {j.status === 'pending' && canA && <><button className="btn sm pri" data-cmsapprove disabled={busy === j.id} onClick={() => move(j, 'approved', 'اعتمد دفعة رسائل')}>اعتماد</button><button className="btn sm gh" data-cmsreject onClick={() => move(j, 'rejected', 'رفض دفعة رسائل')}>رفض</button></>}
             {j.status === 'pending' && !canA && <span style={{ fontSize: 11, color: 'var(--faint)' }} data-cmswait>{mine ? 'لا يعتمد المنشئ دفعته — ' : ''}بانتظار المالك أو المدير العام</span>}
             {j.status === 'approved' && commsCanApprove(me) && <button className="btn sm pri" data-cmssend disabled={busy === j.id} title={on ? '' : 'مسار الإرسال غير مفعّل'} onClick={() => send(j)}>{busy === j.id ? 'جارٍ…' : 'إرسال تجريبي (بلا إرسال فعلي)'}</button>}

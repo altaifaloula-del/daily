@@ -342,6 +342,17 @@ test('ث35 رموز الإشعارات: العضو يسجّل رمز جهازه 
   await assertSucceeds(deleteDoc(doc(as('fin'), 'pushTokens', tid('a'))), 'العضو يحذف رمزه');
 });
 
+test('v56.50 سجل الإرسال للاعتماد comms_sub للخادم وحده (المراجعة الأمنية): لا قراءة ولا إنشاء ولا تعديل ولا حذف لأي دور', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => { const d = ctx.firestore();
+    await setDoc(doc(d, 'comms_sub', 'x'), { jobId: 'x', email: 'mk@x.sa', hash: 'h' }); });
+  for (const k of ['cash', 'bm', 'fin', 'acct', 'owner']) {
+    await assertFails(getDoc(doc(as(k), 'comms_sub', 'x')), k + ' يقرأ comms_sub');
+    await assertFails(setDoc(doc(as(k), 'comms_sub', 'y_' + k), { jobId: 'y', email: 'other@x.sa', hash: 'h' }), k + ' يزوّر مُرسِلًا للاعتماد');
+    await assertFails(updateDoc(doc(as(k), 'comms_sub', 'x'), { email: 'other@x.sa' }), k + ' يغيّر المُرسِل');
+    await assertFails(deleteDoc(doc(as(k), 'comms_sub', 'x')), k + ' يحذف comms_sub');
+  }
+});
+
 test('v56.50 سجل اعتماد الرسائل comms_appr للخادم وحده (المراجعة الأمنية): لا قراءة ولا إنشاء ولا تعديل ولا حذف لأي دور', async () => {
   await env.withSecurityRulesDisabled(async (ctx) => { const d = ctx.firestore();
     await setDoc(doc(d, 'comms_appr', 'x'), { jobId: 'x', email: 'gm@x.sa', byId: 'u-gm', creatorId: 'u-mk', hash: 'h' }); });

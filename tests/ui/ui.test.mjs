@@ -4414,7 +4414,10 @@ test('v56.50 الرسائل: مفتاح مسار الإرسال لمسؤول ا�
   const aud = await p.locator('[data-cmsaud]').innerText(); assert.match(aud, /50•••••11/); assert.ok(!/501111111|502222222/.test(aud), 'لا رقم كامل في الواجهة'); assert.match(aud, /طلبوا الإيقاف 1/);
   await p.click('[data-cmssave]'); await p.waitForFunction(() => (window.cur.commsJobs || []).length === 1);
   let j = await p.evaluate(() => window.cur.commsJobs[0]); assert.deepEqual([j.status, j.kind, j.ch, j.est.n, j.byId], ['draft', 'campaign', 'sms', 1, 'u1']);
+  let sub = null;   // الإرسال للاعتماد يُسجَّل في الخادم (المراجعة الأمنية) — المتصفح يرسل معرّف الدفعة وحده
+  await p.route('http://zatca.test/api/comms/submit', r => { sub = JSON.parse(r.request().postData()); r.fulfill({ json: { ok: true, submittedAt: new Date().toISOString() } }); });
   await p.click('[data-cmssubmit]'); await p.waitForFunction(() => window.cur.commsJobs[0].status === 'pending');
+  assert.deepEqual(sub, { jobId: j.id });
   assert.equal(await p.locator('[data-cmsapprove]').count(), 0, 'المنشئ لا يرى الاعتماد'); assert.match(await p.locator('[data-cmswait]').innerText(), /لا يعتمد المنشئ/);
   // المدير العام يعتمد ثم يرسل تجريبيًا — الخادم يتلقى معرّف الدفعة وحده
   await p.evaluate(() => window.as('gm')); await p.waitForTimeout(300); await p.click('[data-mktv="msg"]'); await p.waitForSelector('[data-cmsapprove]');

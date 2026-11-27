@@ -5,9 +5,12 @@
  *
  * • الطالب عضو نشط بدور المالك (system_admin) أو المدير العام (general_management) أو مدير المنصة — من سجل العضوية بحساب الخدمة، والهوية من الرمز لا من جسم الطلب.
  * • المفتاح org.mkt.comms.sendOn يُفحص من مستند المنشأة قبل التحميل الثقيل (مطفأ ⇒ 409).
- * • (المراجعة الأمنية 1) الاعتماد في الخادم: /approve يرفض المنشئ (403 — معرّفه في الدفعة يطابق مستخدم المنشأة المقابل لبريد الرمز)، ويكتب comms_appr/<jobId>
- *   مرة واحدة: بريد المعتمد ومعرّفه والوقت وبصمة sha256 للمحتوى المعتمد (النوع، القالب، نص القالب، المرشّح — commsApprCanon).
- *   /send يشترط هذا السجل، وأن المعتمد ≠ المنشئ، وأن بصمة المحتوى الحالي = بصمة الاعتماد؛ وإلا 409. حالة «معتمدة» في المستند وحدها لا تكفي.
+ * • (المراجعة الأمنية) المنشئ يُسجَّل في الخادم: /submit (المركز ممن يحق له الإنشاء: المالك، المدير العام، المكتب الرئيسي) يكتب comms_sub/<jobId> مرة واحدة
+ *   ببريد الرمز والوقت وبصمة المحتوى. الهوية في الاعتماد من الرمز وهذا السجل وحدهما — لا من org.users ولا byId/byEmail في المستند.
+ * • /approve (المالك أو المدير العام) يشترط سجل submit، ويرفض إن كان بريد المعتمد = بريد المُرسِل للاعتماد (403 self)، وإن تغيّرت بصمة المحتوى عن بصمة
+ *   الإرسال للاعتماد (409 changed)؛ ويكتب comms_appr/<jobId> مرة واحدة (بريد المعتمد، بريد المنشئ من سجل submit، الوقت، البصمة).
+ *   البصمة sha256 لـ commsApprCanon: النوع، القناة، القالب ونصه، المرشّح، نص الإيقاف، اسم المرسل.
+ *   /send يشترط السجلين، وأن المعتمد ≠ المنشئ، وأن بصمة المحتوى الحالي = بصمة الاعتماد؛ وإلا 409. حالة «معتمدة» في المستند وحدها لا تكفي.
  * • الجمهور يُعاد حسابه هنا بالمحرك نفسه (commsAudience) — لا يُقبل قائمة من المتصفح. سقف 5000 مستلم للطلب الواحد (413).
  * • (المراجعة الأمنية 2) الحد الشهري من comms_log وحده (يكتبه الخادم): بصمات HMAC-SHA256 للمستلمين الناجحين بمفتاح COMMS_HMAC_KEY؛
  *   بلا المفتاح يُولَّد مفتاح عند الإقلاع مع تحذير (يكفي للتجريبي الذي لا يُحتسب أصلًا)، والإرسال الفعلي يُرفض بلا المفتاح.
@@ -26,6 +29,8 @@ import { loadPlatformData } from './server-mcp.js';
 const KEY = /^[A-Za-z0-9_-]{1,120}$/;
 const FETCH_MS = 10000;
 export const COMMS_SEND_ROLES = ['system_admin', 'general_management'];
+/** من يُرسل الدفعة للاعتماد (مطابق لمن ينشئها في الواجهة: الأدوار المركزية بصلاحية الاعتماد — mktCanApprove + scope all) */
+export const COMMS_SUBMIT_ROLES = ['system_admin', 'general_management', 'head_office'];
 export const COMMS_MAX_RCPT = 5000, COMMS_CHUNK = 100, COMMS_ADAPTER_MS = 20000;
 /** الأعمدة التي يحتاجها حساب الجمهور زيادةً على أعمدة المحاسبة */
 export const COMMS_KEEP = ['mktConsents', 'mktMerges', 'mktProfiles', 'commsJobs'];
@@ -53,10 +58,15 @@ export const commsApprHash = (canon) => crypto.createHash('sha256').update(Strin
 /** بصمة رقم للحد الشهري: HMAC-SHA256 بمفتاح الخادم (مقتطعة إلى 32 خانة) */
 export const commsRcptKey = (key, phone) => crypto.createHmac('sha256', String(key)).update('c:' + String(phone || '')).digest('hex').slice(0, 32);
 
-/** هوية الطالب في المنشأة: معرّفه في org.users بالبريد (كما يبني التطبيق «me») */
-export const commsAppUser = (org, email) => ((org && org.users) || []).find(u => u && String(u.email || '').toLowerCase() === String(email || '').toLowerCase()) || null;
-/** هل الطالب هو منشئ الدفعة؟ معرّف المستخدم أو بريده (المسجّلان على الدفعة) */
-export const commsIsCreator = (job, appUser, email) => !!job && ((!!appUser && !!job.byId && job.byId === appUser.id) || (!!job.byEmail && String(job.byEmail).toLowerCase() === String(email || '').toLowerCase()));
+/** اسم العرض فقط (لا هوية): من org.users بالبريد، وإلا البريد */
+const displayOf = (org, email) => { const u = ((org && org.users) || []).find(x => x && String(x.email || '').toLowerCase() === email); return { name: (u && u.name) || email, id: (u && u.id) || '' }; };
+/** قرار الاعتماد (نقي): sub = سجل الإرسال للاعتماد، email = بريد المعتمد من الرمز، hash = بصمة المحتوى الآن */
+export function commsSubCheck(sub, email, hash) {
+  if (!sub) return { code: 409, err: 'لم تُرسَل الدفعة للاعتماد عبر الخادم — أرسلها للاعتماد من «الرسائل»', why: 'nosub' };
+  if (String(sub.email || '').toLowerCase() === String(email || '').toLowerCase()) return { code: 403, err: 'لا يعتمد من أرسل الدفعة للاعتماد دفعته — يعتمدها المالك أو المدير العام الآخر', why: 'self' };
+  if (sub.hash !== hash) return { code: 409, err: 'تغيّر المحتوى (القالب أو المرشّح أو نص الإيقاف أو اسم المرسل) بعد الإرسال للاعتماد — أعد إنشاء الدفعة', why: 'changed' };
+  return null;
+}
 
 /** فحص الدفعة للإرسال على بيانات الخادم (الاعتماد نفسه من comms_appr — commsApprCheck) */
 export function commsJobCheck(job) {
@@ -65,13 +75,14 @@ export function commsJobCheck(job) {
   if (job.ch !== 'sms') return { code: 400, err: 'القناة الوحيدة الآن رسائل SMS' };
   return null;
 }
-/** فحص سجل الاعتماد الخادمي مقابل الدفعة والمحتوى الحالي */
-export function commsApprCheck(appr, job, hash) {
+/** فحص سجلي الخادم للإرسال: الاعتماد والإرسال للاعتماد مقابل المحتوى الحالي (الهوية من السجلين وحدهما) */
+export function commsApprCheck(appr, sub, hash) {
   if (!appr) return { code: 409, err: 'لا اعتماد محفوظ في الخادم لهذه الدفعة — اعتمدها من «الرسائل»', why: 'noappr' };
-  if ((appr.byId && job.byId && appr.byId === job.byId) || (appr.email && job.byEmail && appr.email === String(job.byEmail).toLowerCase()) || (appr.creatorId && appr.byId && appr.creatorId === appr.byId))
-    return { code: 409, err: 'المعتمد هو منشئ الدفعة', why: 'self' };
-  if (appr.creatorId !== undefined && String(appr.creatorId || '') !== String(job.byId || '')) return { code: 409, err: 'منشئ الدفعة تغيّر بعد الاعتماد', why: 'changed' };
-  if (appr.hash !== hash) return { code: 409, err: 'تغيّر القالب أو المرشّح بعد الاعتماد — أعد إنشاء الدفعة واعتمادها', why: 'changed' };
+  if (!sub) return { code: 409, err: 'لا سجل إرسال للاعتماد في الخادم لهذه الدفعة', why: 'nosub' };
+  const ae = String(appr.email || '').toLowerCase(), ce = String(appr.creatorEmail || '').toLowerCase(), se = String(sub.email || '').toLowerCase();
+  if (!ae || ae === ce || ae === se) return { code: 409, err: 'المعتمد هو من أرسل الدفعة للاعتماد', why: 'self' };
+  if (ce !== se) return { code: 409, err: 'سجل الاعتماد لا يطابق سجل الإرسال للاعتماد', why: 'changed' };
+  if (appr.hash !== hash || sub.hash !== hash) return { code: 409, err: 'تغيّر المحتوى (القالب أو المرشّح أو نص الإيقاف أو اسم المرسل) بعد الاعتماد — أعد إنشاء الدفعة واعتمادها', why: 'changed' };
   return null;
 }
 
@@ -116,6 +127,9 @@ export function mountComms(app, { express, requireMember, rateLimit, T, fetchImp
   });
   const member = async (t, email) => { const [md, ad] = await Promise.all([getDoc(t, 'members/' + encodeURIComponent(email)), getDoc(t, 'platform/admins')]);
     const m = fieldsOf(md); return { m, admin: (fieldsOf(ad).emails || []).some(e => String(e || '').toLowerCase() === email) && (!md || m.active === true) }; };
+  const readDoc = async (t, path) => { const d = await getDoc(t, path); return d ? fieldsOf(d) : null; };
+  const once = async (t, path, fields) => call(t, '/documents:commit', { writes: [{ update: { name: root(t) + '/documents/' + path, fields }, currentDocument: { exists: false }, updateTransforms: [{ fieldPath: 'at', setToServerValue: 'REQUEST_TIME' }] }] });
+  const isDup = (e) => e.code === 'ALREADY_EXISTS' || e.code === 'FAILED_PRECONDITION' || e.status === 409;
   const sendOn = (org) => !!(org && org.mkt && org.mkt.comms && org.mkt.comms.sendOn);
   /** عدّاد الشهر (بتوقيت الرياض) من comms_log: الإرسال الفعلي للحملات والولاء فقط — بصمة ⇒ عدد */
   const monthUsed = async (t, ym) => {
@@ -132,7 +146,8 @@ export function mountComms(app, { express, requireMember, rateLimit, T, fetchImp
     const t = tenantOf(req);
     if (!t || !t.sa) { res.status(409).json({ error: 'لم يُضبط حساب الخدمة على الخادم (FIREBASE_SERVICE_ACCOUNT)' }); return null; }
     let M; try { M = await member(t, email); } catch (e) { log.error('comms/' + tag + ' member', t.id, e.message); res.status(502).json({ error: 'تعذّر التحقق من العضوية' }); return null; }
-    if (!(M.admin || (M.m.active === true && COMMS_SEND_ROLES.includes(M.m.role)))) { res.status(403).json({ error: (tag === 'approve' ? 'اعتماد' : 'إرسال') + ' الرسائل للمالك أو المدير العام فقط' }); return null; }
+    const R = tag === 'submit' ? COMMS_SUBMIT_ROLES : COMMS_SEND_ROLES;
+    if (!(M.admin || (M.m.active === true && R.includes(M.m.role)))) { res.status(403).json({ error: tag === 'submit' ? 'إرسال الدفعة للاعتماد للمركز (المالك أو المدير العام أو المكتب الرئيسي)' : (tag === 'approve' ? 'اعتماد' : 'إرسال') + ' الرسائل للمالك أو المدير العام فقط' }); return null; }
     try { if (!sendOn(await loadOrg(t))) { res.status(409).json({ error: 'مسار إرسال الرسائل غير مفعّل للمنشأة', code: 'off' }); return null; } }
     catch (e) { log.error('comms/' + tag + ' org', t.id, e.message); res.status(502).json({ error: 'تعذّرت قراءة إعداد المنشأة' }); return null; }
     let data, En;
@@ -140,26 +155,40 @@ export function mountComms(app, { express, requireMember, rateLimit, T, fetchImp
     catch (e) { log.error('comms/' + tag + ' data', t.id, e.message); res.status(502).json({ error: 'تعذّرت قراءة بيانات المنشأة' }); return null; }
     if (!sendOn(data.org)) { res.status(409).json({ error: 'مسار إرسال الرسائل غير مفعّل للمنشأة', code: 'off' }); return null; }
     const job = (((data.ops || {}).commsJobs) || []).find(j => j && j.id === inp.v.jobId);
-    return { email, t, data, En, job, jobId: inp.v.jobId, appUser: commsAppUser(data.org, email) };
+    return { email, t, data, En, job, jobId: inp.v.jobId };
   };
 
-  /** الاعتماد في الخادم — لا يعتمد المنشئ، وتُبصم المحتوى المعتمد */
+  /** الإرسال للاعتماد — يسجّل المُرسِل (بريد الرمز) وبصمة المحتوى في سجل لا يكتبه غير الخادم */
+  app.post('/api/comms/submit', json, requireMember, limA, async (req, res) => {
+    const P = await prelude(req, res, 'submit'); if (!P) return; const { email, t, data, En, job, jobId } = P;
+    if (!job) return res.status(404).json({ error: 'الدفعة غير موجودة' });
+    if (!['draft', 'pending'].includes(job.status)) return res.status(409).json({ error: 'الدفعة ليست مسودة (حالتها: ' + (job.status || '—') + ')' });
+    if (job.ch !== 'sms') return res.status(400).json({ error: 'القناة الوحيدة الآن رسائل SMS' });
+    if (!En.commsCfgOf(data.org).templates.some(x => x.id === job.tplId)) return res.status(409).json({ error: 'قالب الدفعة غير موجود' });
+    const hash = commsApprHash(En.commsApprCanon(data.org, job)); const at = new Date(now()).toISOString();
+    try { await once(t, 'comms_sub/' + jobId, { jobId: S(jobId), email: S(email), kind: S(job.kind), tplId: S(job.tplId), hash: S(hash), atIso: S(at) }); }
+    catch (e) { if (isDup(e)) return res.status(409).json({ error: 'أُرسلت هذه الدفعة للاعتماد سابقًا', code: 'dup' });
+      log.error('comms/submit log', t.id, e.message); return res.status(502).json({ error: 'تعذّر حفظ الإرسال للاعتماد' }); }
+    log.log('comms/submit', t.id, job.kind);
+    return res.json({ ok: true, submittedAt: at });
+  });
+
+  /** الاعتماد في الخادم — لا يعتمد من أرسلها للاعتماد (من سجل submit لا من المستند)، وتُبصم المحتوى المعتمد */
   app.post('/api/comms/approve', json, requireMember, limA, async (req, res) => {
-    const P = await prelude(req, res, 'approve'); if (!P) return; const { email, t, data, En, job, jobId, appUser } = P;
+    const P = await prelude(req, res, 'approve'); if (!P) return; const { email, t, data, En, job, jobId } = P;
     if (!job) return res.status(404).json({ error: 'الدفعة غير موجودة' });
     if (job.status !== 'pending') return res.status(409).json({ error: 'الدفعة ليست بانتظار الاعتماد (حالتها: ' + (job.status || '—') + ')' });
     if (job.ch !== 'sms') return res.status(400).json({ error: 'القناة الوحيدة الآن رسائل SMS' });
-    if (!appUser) return res.status(403).json({ error: 'حسابك غير مسجّل في مستخدمي المنشأة — لا يمكن التحقق من فصل المهام' });
-    if (commsIsCreator(job, appUser, email)) return res.status(403).json({ error: 'لا يعتمد المنشئ دفعته — يعتمدها المالك أو المدير العام الآخر' });
     if (!En.commsCfgOf(data.org).templates.some(x => x.id === job.tplId)) return res.status(409).json({ error: 'قالب الدفعة غير موجود' });
-    const hash = commsApprHash(En.commsApprCanon(data.org, job)); const at = new Date(now()).toISOString();
-    try { await call(t, '/documents:commit', { writes: [{ update: { name: root(t) + '/documents/comms_appr/' + jobId, fields: { jobId: S(jobId), email: S(email), byId: S(appUser.id || ''), byName: S(appUser.name || ''),
-      creatorId: S(job.byId || ''), creatorEmail: S(String(job.byEmail || '').toLowerCase()), kind: S(job.kind), tplId: S(job.tplId), hash: S(hash), atIso: S(at) } },
-      currentDocument: { exists: false }, updateTransforms: [{ fieldPath: 'at', setToServerValue: 'REQUEST_TIME' }] }] }); }
-    catch (e) { if (e.code === 'ALREADY_EXISTS' || e.code === 'FAILED_PRECONDITION' || e.status === 409) return res.status(409).json({ error: 'اعتُمدت هذه الدفعة سابقًا', code: 'dup' });
+    let sub; try { sub = await readDoc(t, 'comms_sub/' + jobId); } catch (e) { log.error('comms/approve sub', t.id, e.message); return res.status(502).json({ error: 'تعذّرت قراءة سجل الإرسال للاعتماد' }); }
+    const hash = commsApprHash(En.commsApprCanon(data.org, job));
+    const sb = commsSubCheck(sub, email, hash); if (sb) return res.status(sb.code).json({ error: sb.err, code: sb.why });
+    const at = new Date(now()).toISOString(); const who = displayOf(data.org, email);
+    try { await once(t, 'comms_appr/' + jobId, { jobId: S(jobId), email: S(email), creatorEmail: S(String(sub.email || '').toLowerCase()), kind: S(job.kind), tplId: S(job.tplId), hash: S(hash), atIso: S(at) }); }
+    catch (e) { if (isDup(e)) return res.status(409).json({ error: 'اعتُمدت هذه الدفعة سابقًا', code: 'dup' });
       log.error('comms/approve log', t.id, e.message); return res.status(502).json({ error: 'تعذّر حفظ الاعتماد' }); }
     log.log('comms/approve', t.id, job.kind);
-    return res.json({ ok: true, approvedBy: appUser.name || email, approvedById: appUser.id || '', approvedAt: at });
+    return res.json({ ok: true, approvedBy: who.name, approvedById: who.id, approvedAt: at });
   });
 
   app.post('/api/comms/send', json, requireMember, lim, async (req, res) => {
@@ -168,9 +197,9 @@ export function mountComms(app, { express, requireMember, rateLimit, T, fetchImp
     const dry = !!adapter.dry;
     if (!dry && !hmacEnv) return res.status(409).json({ error: 'الإرسال الفعلي يتطلب COMMS_HMAC_KEY في إعدادات الخادم', code: 'hmac' });
     const bad = commsJobCheck(job); if (bad) return res.status(bad.code).json({ error: bad.err });
-    let appr; try { const d = await getDoc(t, 'comms_appr/' + jobId); appr = d ? fieldsOf(d) : null; }
+    let appr, sub; try { [appr, sub] = await Promise.all([readDoc(t, 'comms_appr/' + jobId), readDoc(t, 'comms_sub/' + jobId)]); }
     catch (e) { log.error('comms/send appr', t.id, e.message); return res.status(502).json({ error: 'تعذّرت قراءة الاعتماد' }); }
-    const ab = commsApprCheck(appr, job, commsApprHash(En.commsApprCanon(data.org, job))); if (ab) return res.status(ab.code).json({ error: ab.err, code: ab.why });
+    const ab = commsApprCheck(appr, sub, commsApprHash(En.commsApprCanon(data.org, job))); if (ab) return res.status(ab.code).json({ error: ab.err, code: ab.why });
     const cfg = En.commsCfgOf(data.org); const at = now(); const ym = new Date(at + 3 * 3600e3).toISOString().slice(0, 7);
     if (En.commsQuietRiy(cfg, at)) return res.status(409).json({ error: 'ساعات الهدوء الآن (' + cfg.quietFrom + '–' + cfg.quietTo + ' بتوقيت الرياض) — أعد الإرسال بعد ' + cfg.quietTo, code: 'quiet', until: cfg.quietTo });
     const keyOf = (ph) => commsRcptKey(hmacKey, ph);
@@ -182,8 +211,10 @@ export function mountComms(app, { express, requireMember, rateLimit, T, fetchImp
     // (1) حجز السجل الدائم قبل أي إرسال — مرة واحدة لكل دفعة (مفتاح عدم التكرار = معرّف الدفعة): أعداد وعيّنة مقنّعة فقط
     const masked = A.list.slice(0, 2000).map(x => ({ m: En.commsMask(x.phone), parts: x.parts }));
     const name = root(t) + '/documents/comms_log/' + jobId;
-    try { await call(t, '/documents:commit', { writes: [{ update: { name, fields: { jobId: S(jobId), kind: S(job.kind), ym: S(ym), state: S('sending'), n: I(A.n), parts: I(A.parts), dry: { booleanValue: dry },
-      adapter: S(adapter.name), skipped: S(JSON.stringify(A.skipped)), items: S(JSON.stringify(masked)), by: S(email), approvedBy: S(appr.email || '') } },
+    // بصمات المستلمين المقصودين تُحفظ في الحجز نفسه (قبل الإرسال) — إن تعطّل الإكمال يبقى العدّاد كاملًا لا أقل؛ والإكمال يستبدلها بالناجحين
+    const rcpt0 = dry ? [] : A.list.map(x => keyOf(x.phone));
+    try { await call(t, '/documents:commit', { writes: [{ update: { name, fields: { jobId: S(jobId), kind: S(job.kind), ym: S(ym), state: S('sending'), n: I(A.n), parts: I(A.parts), dry: { booleanValue: dry }, rcpt: S(JSON.stringify(rcpt0)),
+      adapter: S(adapter.name), skipped: S(JSON.stringify(A.skipped)), items: S(JSON.stringify(masked)), by: S(email), approvedBy: S(appr.email || ''), submittedBy: S(sub.email || '') } },
       currentDocument: { exists: false }, updateTransforms: [{ fieldPath: 'at', setToServerValue: 'REQUEST_TIME' }] }] }); }
     catch (e) { if (e.code === 'ALREADY_EXISTS' || e.code === 'FAILED_PRECONDITION' || e.status === 409) return res.status(409).json({ error: 'أُرسلت هذه الدفعة سابقًا', code: 'dup' });
       log.error('comms/send log', t.id, e.message); return res.status(502).json({ error: 'تعذّر حفظ سجل الإرسال — لم يُرسل شيء' }); }

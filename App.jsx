@@ -8447,14 +8447,14 @@ function commsJobMove(job, to, me, at) {
   if (to === 'cancelled') { if (!['draft', 'pending', 'approved'].includes(x.status)) return { err: 'لا تُلغى دفعة بهذه الحالة' }; return { next: { ...x, status: 'cancelled', cancelledBy: who.name, cancelledAt: at } }; }
   return { err: 'انتقال غير مسموح' };
 }
-/** المحتوى المعتمد بصيغة ثابتة (يُبصم بـ sha256 في الخادم): النوع والقالب ونصه والمرشّح — تعديل أي منها بعد الاعتماد يُبطل الإرسال */
-const commsApprCanon = (org, job) => { const x = job || {}; const t = commsCfgOf(org).templates.find(y => y.id === x.tplId) || {};
-  return JSON.stringify([String(x.kind || ''), String(x.tplId || ''), String(t.body == null ? '' : t.body), commsFilterOf(x.kind, x.filter)]); };
+/** المحتوى المعتمد بصيغة ثابتة (يُبصم بـ sha256 في الخادم): النوع والقناة والقالب ونصه والمرشّح ونص الإيقاف واسم المرسل — تعديل أي منها بعد الإرسال للاعتماد أو بعد الاعتماد يُبطل ما بعده */
+const commsApprCanon = (org, job) => { const x = job || {}; const C = commsCfgOf(org); const t = C.templates.find(y => y.id === x.tplId) || {};
+  return JSON.stringify([String(x.kind || ''), String(x.ch || ''), String(x.tplId || ''), String(t.body == null ? '' : t.body), commsFilterOf(x.kind, x.filter), C.optOutText, C.senderName]); };
 const commsNextNo = (ops) => { const n = ((ops && ops.commsJobs) || []).reduce((m, c) => Math.max(m, parseInt(String(c.no || '').replace(/\D/g, ''), 10) || 0), 0) + 1; return 'MSG-' + String(n).padStart(4, '0'); };
-/** نداء الخادم: الاعتماد (approve) أو الإرسال (send — المحوّل الحالي تجريبي بلا إرسال فعلي) */
+/** نداء الخادم: الإرسال للاعتماد (submit) أو الاعتماد (approve) أو الإرسال (send — المحوّل الحالي تجريبي بلا إرسال فعلي) */
 async function commsApi(jobId, op) {
   const b = srvBase(); if (!b) throw new Error('الخادم غير مهيأ لهذه النسخة');
-  const r = await fetch(b + '/api/comms/' + (op === 'approve' ? 'approve' : 'send'), { method: 'POST', headers: await aiHeaders(), body: JSON.stringify({ jobId }) });
+  const r = await fetch(b + '/api/comms/' + (op === 'approve' || op === 'submit' ? op : 'send'), { method: 'POST', headers: await aiHeaders(), body: JSON.stringify({ jobId }) });
   const j = await r.json().catch(() => ({})); if (!r.ok) { const e = new Error(j.error || ('HTTP ' + r.status)); e.code = j.code || ''; e.status = r.status; e.result = j.result; throw e; } return j;
 }
 export { COMMS_KINDS, COMMS_JOB_ST, commsSendOn, commsCanApprove, commsRiy, commsQuietRiy, commsPhoneOk, commsMask, commsFilterOf, commsJobErr, commsAudience, commsJobMove, commsNextNo, commsApi, commsApprCanon };   // v56.50

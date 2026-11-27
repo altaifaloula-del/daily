@@ -6,7 +6,7 @@ import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { buildEngine } from './build-engine.mjs';
-import { mountComms, commsSendInput, commsJobCheck, commsApprCheck, commsAdapter, commsScrub, commsRcptKey, commsAppUser, commsIsCreator, COMMS_ADAPTERS, COMMS_KEEP, COMMS_MAX_RCPT } from '../server-comms.js';
+import { mountComms, commsSendInput, commsJobCheck, commsApprCheck, commsAdapter, commsScrub, commsRcptKey, commsSubCheck, COMMS_SUBMIT_ROLES, COMMS_ADAPTERS, COMMS_KEEP, COMMS_MAX_RCPT } from '../server-comms.js';
 import { loadTenants } from '../tenants.js';
 
 let E;
@@ -115,13 +115,19 @@ test('الاعتماد: المالك أو المدير العام، ولا يع�
   assert.equal(E.commsCanApprove(gm), true); assert.equal(E.commsCanApprove(ho), false);
   assert.equal(commsJobCheck(job()), null);
   // سجل الاعتماد الخادمي: غيابه، أو المعتمد هو المنشئ، أو تغيّر المحتوى ⇒ رفض
-  const h = 'H'; const ap = { byId: 'u-own', email: 'own@test.sa', creatorId: 'u-mk', hash: h };
-  assert.equal(commsApprCheck(ap, job(), h), null);
-  assert.equal(commsApprCheck(null, job(), h).why, 'noappr');
-  assert.equal(commsApprCheck({ ...ap, byId: 'u-mk', creatorId: 'u-mk' }, job(), h).why, 'self');
-  assert.equal(commsApprCheck({ ...ap, email: 'mk@test.sa' }, job(), h).why, 'self');
-  assert.equal(commsApprCheck(ap, job({ byId: 'u-x' }), h).why, 'changed', 'المنشئ في المستند غُيّر بعد الاعتماد');
-  assert.equal(commsApprCheck(ap, job(), 'H2').why, 'changed');
+  const h = 'H'; const sub = { email: 'mk@test.sa', hash: h }; const ap = { email: 'own@test.sa', creatorEmail: 'mk@test.sa', hash: h };
+  assert.equal(commsSubCheck(sub, 'gm@test.sa', h), null); assert.equal(commsSubCheck(null, 'gm@test.sa', h).why, 'nosub');
+  assert.equal(commsSubCheck(sub, 'MK@test.sa', h).code, 403); assert.equal(commsSubCheck(sub, 'gm@test.sa', 'H2').why, 'changed');
+  assert.equal(commsApprCheck(ap, sub, h), null);
+  assert.equal(commsApprCheck(null, sub, h).why, 'noappr'); assert.equal(commsApprCheck(ap, null, h).why, 'nosub');
+  assert.equal(commsApprCheck({ ...ap, email: 'mk@test.sa' }, sub, h).why, 'self');
+  assert.equal(commsApprCheck({ ...ap, creatorEmail: 'zz@test.sa' }, sub, h).why, 'changed');
+  assert.equal(commsApprCheck(ap, sub, 'H2').why, 'changed');
+  assert.deepEqual(COMMS_SUBMIT_ROLES, ['system_admin', 'general_management', 'head_office']);
+  // البصمة تشمل القناة ونص الإيقاف واسم المرسل
+  const o1 = org(), o2 = org(); o2.mkt.comms.optOutText = ''; const o3 = org(); o3.mkt.comms.senderName = 'BRAND';
+  assert.notEqual(E.commsApprCanon(o1, job()), E.commsApprCanon(o2, job())); assert.notEqual(E.commsApprCanon(o1, job()), E.commsApprCanon(o3, job()));
+  assert.notEqual(E.commsApprCanon(o1, job()), E.commsApprCanon(o1, job({ ch: 'whatsapp' })));
   assert.notEqual(E.commsApprCanon(org(), job()), E.commsApprCanon(org(), job({ filter: { x: 1 }, kind: 'loy' })));
   assert.equal(commsJobCheck(job({ status: 'pending' })).code, 409); assert.equal(commsJobCheck(undefined).code, 404); assert.equal(commsJobCheck(job({ ch: 'whatsapp' })).code, 400);
 });
@@ -162,57 +168,70 @@ function harness({ data = null, now = NOW, env = {}, tenv = ENV, adapterMs } = {
     for (const h of routes['/api/comms/' + route]) { let go = false; await h(req, res, () => { go = true; }); if (!go) break; } return out; };
   // بعد اعتماد الخادم يحدّث المتصفح الحالة في المستند (محاكاة)
   const markApproved = (id) => { D.ops.commsJobs = D.ops.commsJobs.map(j => j.id === id ? { ...j, status: 'approved', approvedById: 'u-gm', approvedBy: 'المدير' } : j); };
-  return { call, db, urls, D, markApproved, loads: () => loads };
+  // الدورة الكاملة في الخادم: mk يرسل للاعتماد ثم gm يعتمد ثم يحدّث المتصفح الحالة
+  const ready = async (id = 'j1', by = 'mk', appr = 'gm') => { const a = await call(by, { jobId: id }, 'submit'); const b = await call(appr, { jobId: id }, 'approve'); markApproved(id); return [a.status, b.status]; };
+  return { call, db, urls, D, markApproved, ready, loads: () => loads };
 }
 
 test('المساران: 401 بلا هوية، 400 لمدخل خاطئ أو قائمة من المتصفح، 403 لغير المالك والمدير العام، 409 مطفأ قبل التحميل، 404 للدفعة', async () => {
   const H = harness();
-  for (const r of ['approve', 'send']) {
+  assert.equal((await H.call('cash', { jobId: 'j1' }, 'submit')).status, 403, 'الكاشير لا يرسل للاعتماد');
+  assert.equal((await H.call('ho', { jobId: 'j1' }, 'submit')).status, 200, 'المكتب الرئيسي ينشئ ويرسل للاعتماد');
+  for (const r of ['submit', 'approve', 'send']) {
     assert.equal((await H.call('nobody', { jobId: 'j1' }, r)).status, 401);
     assert.equal((await H.call('own', { jobId: 'a/b' }, r)).status, 400);
     assert.equal((await H.call('own', { jobId: 'j1', list: ['501111111'] }, r)).status, 400, 'لا يُقبل جمهور من المتصفح');
-    assert.equal((await H.call('ho', { jobId: 'j1' }, r)).status, 403);
+    if (r !== 'submit') assert.equal((await H.call('ho', { jobId: 'j1' }, r)).status, 403);
     assert.equal((await H.call('cash', { jobId: 'j1' }, r)).status, 403);
     assert.equal((await H.call('own', { jobId: 'zz' }, r)).status, 404);
   }
   { const off = sorg(); off.mkt.comms.sendOn = false; const Ho = harness({ data: { org: off, ops: ops(), loy } });
-    for (const r of ['approve', 'send']) { const x = await Ho.call('own', { jobId: 'j1' }, r); assert.equal(x.status, 409); assert.equal(x.json.code, 'off'); } assert.equal(Ho.loads(), 0, 'الرفض قبل التحميل الثقيل'); }
+    for (const r of ['submit', 'approve', 'send']) { const x = await Ho.call('own', { jobId: 'j1' }, r); assert.equal(x.status, 409); assert.equal(x.json.code, 'off'); } assert.equal(Ho.loads(), 0, 'الرفض قبل التحميل الثقيل'); }
   { const o0 = sorg(); delete o0.mkt.comms.sendOn; assert.equal((await harness({ data: { org: o0, ops: ops(), loy } }).call('own', { jobId: 'j1' })).status, 409, 'بلا الحقل = مطفأ'); }
   assert.equal((await harness({ env: { COMMS_ADAPTER: 'unifonic' } }).call('own', { jobId: 'j1' })).status, 409, 'محوّل غير متاح');
   assert.equal((await harness({ tenv: { FIREBASE_API_KEY: ENV.FIREBASE_API_KEY, FIREBASE_PROJECT_ID: 'test-prod' } }).call('own', { jobId: 'j1' })).status, 409, 'بلا حساب خدمة');
   assert.deepEqual(commsSendInput({ jobId: 'j1' }).v, { jobId: 'j1' }); assert.ok(commsSendInput([]).err);
 });
 
-test('الاعتماد في الخادم: المنشئ ⇐ 403، والمعتمد يُسجَّل مرة واحدة ببصمة المحتوى؛ اعتماد مزوّر في المستند ⇐ 409؛ تعديل القالب أو المرشّح بعده ⇐ 409', async () => {
+test('الهوية من سجلي الخادم: من أرسل للاعتماد لا يعتمد (ولو زُوّر المنشئ في المستند) ⇐ 403؛ اعتماد مزوّر ⇐ 409؛ تعديل القالب أو المرشّح أو نص الإيقاف بعده ⇐ 409', async () => {
   const H = harness();
-  let r = await H.call('mk', { jobId: 'j1' }, 'approve'); assert.equal(r.status, 403, 'المنشئ (مدير عام) لا يعتمد دفعته'); assert.match(r.json.error, /المنشئ/);
-  r = await H.call('gm', { jobId: 'j3' }, 'approve'); assert.equal(r.status, 403, 'بالبريد والمعرّف');
+  let r = await H.call('gm', { jobId: 'j1' }, 'approve'); assert.equal(r.status, 409); assert.equal(r.json.code, 'nosub', 'لا اعتماد بلا إرسال للاعتماد عبر الخادم');
+  // الدفعة تحمل byId/byEmail لشخص آخر (mk) لكن gm هو من أرسلها للاعتماد ⇒ لا يعتمدها gm
+  assert.equal((await H.call('gm', { jobId: 'j1' }, 'submit')).status, 200);
+  const S0 = H.db['comms_sub/j1'].fields; assert.equal(S0.email.stringValue, 'gm@test.sa'); assert.equal(S0.at.timestampValue, 'NOW');
+  assert.equal(S0.hash.stringValue, crypto.createHash('sha256').update(E.commsApprCanon(sorg(), pend())).digest('hex'));
+  assert.equal((await H.call('mk', { jobId: 'j1' }, 'submit')).json.code, 'dup', 'سجل الإرسال للاعتماد مرة واحدة');
+  r = await H.call('gm', { jobId: 'j1' }, 'approve'); assert.equal(r.status, 403); assert.equal(r.json.code, 'self');
+  // المحتوى تغيّر بين الإرسال للاعتماد والاعتماد ⇐ 409
+  const t0 = H.D.org.mkt.comms.optOutText; H.D.org.mkt.comms.optOutText = '';
+  r = await H.call('own', { jobId: 'j1' }, 'approve'); assert.equal(r.status, 409); assert.equal(r.json.code, 'changed');
+  H.D.org.mkt.comms.optOutText = t0;
+  r = await H.call('own', { jobId: 'j1' }, 'approve'); assert.equal(r.status, 200); assert.equal(r.json.approvedBy, 'المالك', 'الاسم للعرض فقط');
+  const A = H.db['comms_appr/j1'].fields; assert.equal(A.email.stringValue, 'own@test.sa'); assert.equal(A.creatorEmail.stringValue, 'gm@test.sa'); assert.equal(A.hash.stringValue, S0.hash.stringValue);
+  assert.equal((await H.call('gm', { jobId: 'j1' }, 'approve')).status, 403, 'من أرسل للاعتماد لا يعتمد');
+  r = await H.call('mk', { jobId: 'j1' }, 'approve'); assert.equal(r.json.code, 'dup', 'الاعتماد مرة واحدة');
   r = await H.call('gm', { jobId: 'j2' }, 'approve'); assert.equal(r.status, 409, 'ليست بانتظار الاعتماد');
-  r = await H.call('gm', { jobId: 'j1' }, 'approve'); assert.equal(r.status, 200); assert.deepEqual([r.json.approvedBy, r.json.approvedById], ['المدير', 'u-gm']);
-  const A = H.db['comms_appr/j1'].fields; assert.equal(A.email.stringValue, 'gm@test.sa'); assert.equal(A.byId.stringValue, 'u-gm'); assert.equal(A.creatorId.stringValue, 'u-mk');
-  assert.equal(A.hash.stringValue, crypto.createHash('sha256').update(E.commsApprCanon(sorg(), pend())).digest('hex')); assert.equal(A.at.timestampValue, 'NOW');
-  assert.equal((await H.call('own', { jobId: 'j1' }, 'approve')).json.code, 'dup', 'مرة واحدة');
   // اعتماد مزوّر: الحالة «معتمدة» في المستند بلا سجل خادمي
   r = await H.call('own', { jobId: 'j2' }); assert.equal(r.status, 409); assert.equal(r.json.code, 'noappr');
-  // قبل تحديث الحالة في المستند لا إرسال
-  assert.equal((await H.call('gm', { jobId: 'j1' })).status, 409);
+  assert.equal((await H.call('own', { jobId: 'j1' })).status, 409, 'قبل تحديث الحالة في المستند لا إرسال');
   H.markApproved('j1');
-  // القالب عُدّل بعد الاعتماد ⇐ 409، ثم إعادته ⇐ يُقبل
+  // بعد الاعتماد: القالب، ثم النوع والمرشّح، ثم حذف نص الإيقاف ⇐ 409 changed؛ وإعادتها ⇐ يُقبل
   const body0 = H.D.org.mkt.comms.templates[0].body; H.D.org.mkt.comms.templates[0].body = body0 + ' عرض جديد';
-  r = await H.call('gm', { jobId: 'j1' }); assert.equal(r.status, 409); assert.equal(r.json.code, 'changed');
+  r = await H.call('own', { jobId: 'j1' }); assert.equal(r.status, 409); assert.equal(r.json.code, 'changed');
   H.D.org.mkt.comms.templates[0].body = body0;
   H.D.ops.commsJobs = H.D.ops.commsJobs.map(j => j.id === 'j1' ? { ...j, filter: { minPts: 1 }, kind: 'loy' } : j);
-  r = await H.call('gm', { jobId: 'j1' }); assert.equal(r.json.code, 'changed', 'تغيّر النوع والمرشّح');
+  r = await H.call('own', { jobId: 'j1' }); assert.equal(r.json.code, 'changed', 'تغيّر النوع والمرشّح');
   H.D.ops.commsJobs = H.D.ops.commsJobs.map(j => j.id === 'j1' ? { ...j, filter: {}, kind: 'campaign' } : j);
-  H.D.ops.commsJobs = H.D.ops.commsJobs.map(j => j.id === 'j1' ? { ...j, byId: 'u-gm' } : j);
-  r = await H.call('gm', { jobId: 'j1' }); assert.equal(r.status, 409, 'تغيير المنشئ في المستند ليطابق المعتمد لا يمرّ');
-  H.D.ops.commsJobs = H.D.ops.commsJobs.map(j => j.id === 'j1' ? { ...j, byId: 'u-mk' } : j);
-  assert.equal((await H.call('gm', { jobId: 'j1' })).status, 200);
-  assert.equal(commsAppUser(sorg(), 'GM@test.sa').id, 'u-gm'); assert.equal(commsIsCreator(pend(), { id: 'u-x' }, 'MK@test.sa'), true);
+  H.D.org.mkt.comms.optOutText = '';
+  r = await H.call('own', { jobId: 'j1' }); assert.equal(r.status, 409); assert.equal(r.json.code, 'changed', 'حذف نص الإيقاف بعد الاعتماد');
+  H.D.org.mkt.comms.optOutText = t0;
+  // تزوير المنشئ في المستند لا أثر له (الهوية من السجلين)
+  H.D.ops.commsJobs = H.D.ops.commsJobs.map(j => j.id === 'j1' ? { ...j, byId: 'u-own', byEmail: 'own@test.sa' } : j);
+  assert.equal((await H.call('own', { jobId: 'j1' })).status, 200);
 });
 
 test('الإرسال التجريبي لا يرسل شيئًا — الجمهور من بيانات الخادم، والسجل مرة واحدة بلا أرقام كاملة، وساعات الهدوء', async () => {
-  const H = harness(); assert.equal((await H.call('gm', { jobId: 'j1' }, 'approve')).status, 200); H.markApproved('j1');
+  const H = harness(); assert.deepEqual(await H.ready(), [200, 200]);
   const q = await H.call('gm', { jobId: 'j1' }); assert.equal(q.status, 200);
   assert.deepEqual([q.json.result.n, q.json.result.ok, q.json.result.fail, q.json.result.dry, q.json.result.adapter], [3, 3, 0, true, 'dryrun'], 'n من الخادم (3) لا من تقدير المتصفح (999)');
   assert.equal(q.json.result.rcpt, undefined, 'لا بصمات في الرد');
@@ -222,7 +241,7 @@ test('الإرسال التجريبي لا يرسل شيئًا — الجمهو�
   assert.equal(L.fields.ym.stringValue, '2026-03'); assert.equal(L.fields.rcpt.stringValue, '[]', 'التجريبي لا يُحتسب في الحد'); assert.equal(L.fields.by.stringValue, 'gm@test.sa');
   assert.ok(!/50[0-9]{7}/.test(JSON.stringify(L)), 'لا رقم كامل في السجل');
   const again = await H.call('gm', { jobId: 'j1' }); assert.equal(again.status, 409); assert.equal(again.json.code, 'dup');
-  const H2 = harness({ now: Date.parse('2026-03-10T20:00:00Z') }); await H2.call('gm', { jobId: 'j1' }, 'approve'); H2.markApproved('j1');
+  const H2 = harness({ now: Date.parse('2026-03-10T20:00:00Z') }); await H2.ready();
   const qq = await H2.call('gm', { jobId: 'j1' }); assert.equal(qq.status, 409); assert.equal(qq.json.code, 'quiet'); assert.equal(H2.db['comms_log/j1'], undefined, 'لا سجل في ساعات الهدوء');
   assert.deepEqual(await COMMS_ADAPTERS.dryrun.send([{ to: '966501111111', text: 'x' }]), [{ ok: true, dry: true }]);
   assert.equal(commsAdapter({}).name, 'dryrun'); assert.equal(commsAdapter({ COMMS_ADAPTER: 'x' }), null);
@@ -235,7 +254,7 @@ test('الحد الشهري من comms_log (يكتبه الخادم وحده) ب
   const lg = (ym, dry, kind, rcpt) => ({ fields: { ym: { stringValue: ym }, dry: { booleanValue: dry }, kind: { stringValue: kind }, rcpt: { stringValue: JSON.stringify(rcpt) } } });
   H.db['comms_log/a'] = lg('2026-03', false, 'campaign', [k]); H.db['comms_log/b'] = lg('2026-03', false, 'loy', [k]);
   H.db['comms_log/c'] = lg('2026-03', true, 'campaign', [k, k]); H.db['comms_log/d'] = lg('2026-02', false, 'campaign', [k, k]); H.db['comms_log/e'] = lg('2026-03', false, 'ar', [k, k]);
-  await H.call('gm', { jobId: 'j1' }, 'approve'); H.markApproved('j1');
+  assert.deepEqual(await H.ready(), [200, 200]);
   const r = await H.call('gm', { jobId: 'j1' }); assert.equal(r.status, 200);
   assert.equal(r.json.result.n, 2, '504444444 بلغ الحد (حملة + ولاء فعليان هذا الشهر = 2)');
 });
@@ -247,19 +266,29 @@ test('تهيئة المزوّد: الفعلي يتطلب COMMS_HMAC_KEY، دفع
   try {
     assert.equal((await harness({ env: { COMMS_ADAPTER: 'fakeT' } }).call('gm', { jobId: 'j1' })).json.code, 'hmac');
     const D = { org: sorg(), ops: ops({ mktConsents: many, commsJobs: [pend()] }), loy: { members: {}, tx: [] } };
-    const H = harness({ data: D, env: { COMMS_ADAPTER: 'fakeT', COMMS_HMAC_KEY: 'kk' } }); await H.call('gm', { jobId: 'j1' }, 'approve'); H.markApproved('j1');
+    const H = harness({ data: D, env: { COMMS_ADAPTER: 'fakeT', COMMS_HMAC_KEY: 'kk' } }); assert.deepEqual(await H.ready(), [200, 200]);
     const r = await H.call('gm', { jobId: 'j1' }); assert.equal(r.status, 200);
     assert.deepEqual(parts, [100, 50]); assert.deepEqual([r.json.result.n, r.json.result.ok, r.json.result.fail, r.json.result.dry], [150, 50, 100, false]);
     assert.ok(!/\d{7,}/.test(r.json.result.err) && !/50 111/.test(r.json.result.err), r.json.result.err); assert.match(r.json.result.err, /\*{7}/);
     const L = H.db['comms_log/j1'].fields; assert.equal(JSON.parse(L.rcpt.stringValue).length, 50, 'بصمات الناجحين فقط'); assert.ok(!/\d{7,}/.test(L.err.stringValue));
     const Hs = harness({ data: { org: sorg(), ops: ops({ commsJobs: [pend()] }), loy }, env: { COMMS_ADAPTER: 'slowT', COMMS_HMAC_KEY: 'kk' }, adapterMs: 30 });
-    await Hs.call('gm', { jobId: 'j1' }, 'approve'); Hs.markApproved('j1');
+    await Hs.ready();
     const s = await Hs.call('gm', { jobId: 'j1' }); assert.equal(s.status, 502); assert.match(s.json.result.err, /مهلة/); assert.equal(Hs.db['comms_log/j1'].fields.state.stringValue, 'failed');
     const big = Array.from({ length: COMMS_MAX_RCPT + 1 }, (_, i) => cs('52' + String(i).padStart(7, '0'), 'in', 'all', '2026-01-01T10:00:00Z'));
-    const Hb = harness({ data: { org: sorg(), ops: ops({ mktConsents: big, commsJobs: [pend()] }), loy: { members: {}, tx: [] } } }); await Hb.call('gm', { jobId: 'j1' }, 'approve'); Hb.markApproved('j1');
+    const Hb = harness({ data: { org: sorg(), ops: ops({ mktConsents: big, commsJobs: [pend()] }), loy: { members: {}, tx: [] } } }); await Hb.ready();
     const b = await Hb.call('gm', { jobId: 'j1' }); assert.equal(b.status, 413); assert.equal(Hb.db['comms_log/j1'], undefined, 'لا حجز ولا إرسال');
   } finally { delete COMMS_ADAPTERS.fakeT; delete COMMS_ADAPTERS.slowT; }
   assert.equal(commsScrub('err 0501234567 and 966-50-123-4567 code 12345'), 'err ******* and ******* code 12345');
+});
+
+test('بصمات المستلمين المقصودين في حجز comms_log قبل الإرسال (تعطل الإكمال لا يُنقص العدّاد)، ثم الإكمال بالناجحين', async () => {
+  let H = null, seen = null; COMMS_ADAPTERS.peekT = { name: 'peekT', dry: false, async send(b) { seen = JSON.parse(H.db['comms_log/j1'].fields.rcpt.stringValue).length; return b.map((x, i) => ({ ok: i > 0 })); } };
+  try {
+    H = harness({ env: { COMMS_ADAPTER: 'peekT', COMMS_HMAC_KEY: 'kk' } }); assert.deepEqual(await H.ready(), [200, 200]);
+    const r = await H.call('gm', { jobId: 'j1' }); assert.equal(r.status, 200);
+    assert.equal(seen, 3, 'أثناء الإرسال: كل المقصودين محجوزون'); assert.equal(JSON.parse(H.db['comms_log/j1'].fields.rcpt.stringValue).length, 2, 'بعد الإكمال: الناجحون');
+    assert.equal(H.db['comms_log/j1'].fields.submittedBy.stringValue, 'mk@test.sa');
+  } finally { delete COMMS_ADAPTERS.peekT; }
 });
 
 test('تحميل بيانات الإرسال: الأعمدة الإضافية ودفتر الولاء مع opts، والسلوك الافتراضي للموصل كما هو', async () => {
