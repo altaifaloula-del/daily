@@ -1,7 +1,8 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Plus, Search, X, Eye, Trash2 } from 'lucide-react';
 import { Badge, ClosingForm, ClosingView, Field, LOCK_MSG, ROLES, arDate, businessDay, money, periodLocked, today } from '../../App.jsx';
+import { posConflictLate, pcrLoad, pcfLoad } from '../../App.jsx';   // v56.56 (F) تعارض وصل بعد ترحيل الإغلاق
 
 export function Closing({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   const [open, setOpen] = useState(false);
@@ -16,6 +17,11 @@ export function Closing({ org, ops, me, myBranches, scoped, commit, commitOrg, s
   const [toD, setToD] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [limit, setLimit] = useState(15);
+  // v56.56 (قرار المجلس F): تعارض فواتير وصل بعد ترحيل إغلاق يومه يوسم ذلك الإغلاق للمدقق (الحسم من السجل المحمي)
+  const [pcr, setPcr] = useState(null); const [pcf, setPcf] = useState(null); const hasConf = !!((org.posCfg || {}).offline) || (ops.posTabs || []).some(t => (t.conflicts || []).length);
+  useEffect(() => { if (!hasConf) return; let on = true; const ids = (myBranches || []).map(b => b.id), cen = ids.length > 1 && !!ROLES[me.role]?.admin;
+    pcrLoad(ids, cen).then(L => { if (on) setPcr(L); }); pcfLoad(ids, cen).then(L => { if (on) setPcf(L); }); return () => { on = false; }; }, [hasConf]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const late = hasConf ? posConflictLate(org, ops, pcr, pcf || []) : [];
 
   const filtered = [...scoped.closings]
     // v15.26/v15.27: قيْد «اليوم فقط» (الكاشير) لا يحجب ما ينتظر عمله — المسودات غير المكتملة
@@ -144,7 +150,8 @@ export function Closing({ org, ops, me, myBranches, scoped, commit, commitOrg, s
                     {/* v42.2: علامات القراءة من السجلات المحمية */}
                     {c._clrDemoted ? <span className="badge b-rose" style={{ marginInlineStart: 4 }} title="«معتمد» في مستند الفرع بلا سجل محمي — يُعرض مرحّلًا حتى يُعتمد بتوقيع">اعتماد غير محمي</span>
                       : c._clrUnrec ? <span className="badge b-amber" style={{ marginInlineStart: 4 }} title="لا سجل محمي لهذا الإغلاق بعد — شغّل «ترحيل الإغلاقات الحالية» من صيانة النظام">بلا سجل محمي</span> : null}
-                    {c._clrDigestBad && <span className="badge b-rose" style={{ marginInlineStart: 4 }} title="أرقام السجل لا تطابق بصمة توقيع اعتماده">لا يطابق التوقيع</span>}</td>
+                    {c._clrDigestBad && <span className="badge b-rose" style={{ marginInlineStart: 4 }} title="أرقام السجل لا تطابق بصمة توقيع اعتماده">لا يطابق التوقيع</span>}
+                    {(() => { const L = late.find(x => x.closingId === c.id); return L ? <span className="badge b-rose" data-lateconf style={{ marginInlineStart: 4 }} title="تعارض فواتير نقطة البيع وصل بعد ترحيل هذا الإغلاق ولم يحسمه مدير الفرع — نقطة البيع ← الورديات والتقارير">تعارض نقطة بيع بعد الترحيل ({L.n})</span> : null; })()}</td>
                   <td className="acts">
                     <div className="row" style={{ gap: 5, flexWrap: 'nowrap' }}>
                       <button className="btn sm gh" onClick={() => setView(c)}><Eye size={13} /></button>
@@ -185,7 +192,7 @@ export function Closing({ org, ops, me, myBranches, scoped, commit, commitOrg, s
 
       {open && (
         <ClosingForm key={formKey} org={org} me={me} branches={myBranches} initial={edit} commit={commit} commitOrg={commitOrg} say={say}
-          existing={ops.closings || []} invoices={ops.invoices || []} branchPartners={ops.branchPartners || []} posOrders={ops.posOrders || []} posImports={ops.posImports || []}
+          existing={ops.closings || []} invoices={ops.invoices || []} branchPartners={ops.branchPartners || []} posOrders={ops.posOrders || []} posImports={ops.posImports || []} posTabs={ops.posTabs || []}
           onStartNew={() => { setEdit(null); setFormKey(k => k + 1); }}
           onClose={() => { setOpen(false); setEdit(null); }} />
       )}

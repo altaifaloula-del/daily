@@ -37,7 +37,9 @@
             var isPush = function (r) { var w = r.active || r.waiting || r.installing; return !!(w && /push-sw\.js$/.test(w.scriptURL)); };
             // v56.54: عامل نقطة البيع (pos-sw.js) وكاشه يُستثنيان فقط على جهاز موسوم محليًا (mizan:posSwOn) — بلا العلامة يُزالان كبقية العوامل
             var posOn = false; try { posOn = localStorage.getItem('mizan:posSwOn') === '1'; } catch (_) { }
-            var isPos = function (r) { var w = r.active || r.waiting || r.installing; return !!(posOn && w && /\/pos-sw\.js(\?|$)/.test(w.scriptURL)); };
+            // v56.56: مطابقة تامة — pos-sw.js بجانب هذه الصفحة من الأصل نفسه، والاستعلام ?v= وحده
+            var isPos = function (r) { var w = r.active || r.waiting || r.installing; if (!(posOn && w)) return false;
+              try { var u = new URL(w.scriptURL), want = new URL('pos-sw.js', location.href); return u.origin === want.origin && u.pathname === want.pathname && (!u.search || /^\?v=[^&]*$/.test(u.search)); } catch (_) { return false; } };
             regs = regs.filter(function (r) { return !isPush(r) && !isPos(r); });
             var had = regs.length > 0;
             regs.forEach(function (r) { r.unregister(); });

@@ -12,6 +12,7 @@ import { Megaphone, Sparkles, Building2, Bot, MessageSquare } from 'lucide-react
 import { Gift, Gift as Ticket, Send } from 'lucide-react';
 import { CommsJobs } from './CommsJobs.jsx';   // v56.50 دفعات الرسائل
 import { commsSendOn, jeOwner } from '../../App.jsx';
+import { posDiscOf } from '../../App.jsx';   // v56.56 خصومات الجزء المتساوي
 
 const CH = { all: 'كل القنوات', whatsapp: 'واتساب', sms: 'رسائل SMS', email: 'البريد', app: 'إشعارات التطبيق' };
 const anDay = (iso, k) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + k); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
@@ -377,8 +378,8 @@ function Cpn({ org, ops, loy, canApp, me, commitOrg, say, brName }) {
   const U = loy.cpn || {}; const list = (org.posPromos || []).filter(p => p.code);
   const [open, setOpen] = useState(null);
   const stat = (pr) => { const k = cpnKey(pr.code); const L = U[k] || []; const live = L.filter(u => !u.rel);
-    const os = (ops.posOrders || []).filter(o => o.coupon && cpnKey(o.coupon) === k && o.status !== 'void' && o.kind !== 'return');
-    const disc = os.reduce((a, o) => a + (o.lines || []).filter(l => l.promoId === pr.id).reduce((b, l) => b + (Number(l.disc) || 0), 0) + (o.orderPromo && o.orderPromo.id === pr.id ? Number(o.orderDisc) || 0 : 0), 0);
+    const os = (ops.posOrders || []).filter(o => { const cc = posDiscOf(o).coupon; return cc && cpnKey(cc) === k && o.status !== 'void' && o.kind !== 'return'; });   // v56.56: والأجزاء المتساوية
+    const disc = os.reduce((a, o) => { const X = posDiscOf(o); return a + X.lines.filter(l => l.promoId === pr.id).reduce((b, l) => b + (Number(l.disc) || 0), 0) + (X.orderPromo && X.orderPromo.id === pr.id ? X.od : 0); }, 0);
     return { L, live: live.length, n: os.length, sales: posR2(os.reduce((a, o) => a + (Number(o.total) || 0), 0)), disc: posR2(disc), rate: Number(pr.maxUses) > 0 ? Math.round(live.length / pr.maxUses * 100) : null }; };
   const approve = (pr) => commitOrg(d => ({ ...d, posPromos: (d.posPromos || []).map(x => x.id === pr.id ? { ...x, pending: false, apprBy: me.name, apprAt: nowISO() } : x) }), { actionType: 'approve', targetType: 'settings', targetId: pr.id, need: 'edit', title: 'اعتمد كوبونًا', details: pr.name }).then(ok => ok !== false && say('اعتُمد ✓'));
   return (<div className="card">

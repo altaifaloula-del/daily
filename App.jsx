@@ -2434,7 +2434,7 @@ function posGlDay(orders, branchId, date, ptValue, rateDef) {
     // كل فاتورة تُقرَّب بالهللة على حدة — فرصيد الالتزام = مجموع ما سُجّل لكل فاتورة
     const pv = pvOf(o);
     if (o.kind === 'return') { out.retN++; out.earn -= r2((Number((o.loyalty || {}).ded) || 0) * pv * k); return; }
-    out.n++; const L = o.loyalty || {}; const R = Number(L.redeemAmt) || 0; const D = Number(o.disc) || 0;
+    out.n++; const L = o.loyalty || {}; const R = Number(L.redeemAmt) || 0; const D = posDiscOf(o).disc;   // v56.56: الجزء المتساوي بخصمه كفاتورة كاملة
     out.redeem += r2(R * k); out.disc += r2(Math.max(0, D - R) * k); out.earn += r2((Number(L.earned) || 0) * pv * k);
   });
   ['total', 'vat', 'net', 'disc', 'redeem', 'earn'].forEach(x => { out[x] = r2(out[x]); });
@@ -3809,7 +3809,9 @@ function closeAutoChecks(A, ops, month, org) {
   const arChk = org && posCreditOn(org) ? (() => { const gl = r2((A.entries || []).filter(e => String(e.date || '') <= end).reduce((t, e) => t + (e.lines || []).filter(l => l.code === '1380').reduce((a, l) => a + l.debit - l.credit, 0), 0));
     const sub = r2(-buildPartners(org, ops).filter(p => p.type === 'customer').reduce((a, p) => a + (p.txns || []).filter(t => !t.date || String(t.date) <= end).reduce((x, t) => x + (t.credit || 0) - (t.debit || 0), 0), 0));
     return { gl, sub, d: r2(gl - sub) }; })() : null;
-  const offUnrev = posOffRetPending(ops.posOrders, ops.posOffRevs).filter(o => String(o.date || '') <= end);   // v56.53 (المراجعة): مرتجعات دون اتصال لم يعتمد المدير مراجعتها
+  const offUnrev = posOffRetPending(ops.posOrders, ops.posOffRevs).filter(o => String(o.date || '') <= end);
+  // v56.56 (F): تعارضات فواتير نقطة البيع المعتبرة لم يحسمها مدير الفرع حتى نهاية الشهر (الحسم من السجل المحمي — ops.posConflictRes أو آخر تحميل)
+  const pconf = org ? posConflicts(ops, null, null, ops.posConflictRes || pcrCached() || [], ops.posConflictRecs || pcfCached() || []).filter(c => posConflictOn(org, c) && !c.res && c.date && c.date <= end) : [];   // v56.53 (المراجعة): مرتجعات دون اتصال لم يعتمد المدير مراجعتها
   const impYear = org && impOn(org) && month.slice(5, 7) === '12' ? !(ops.impairTests || []).some(t => String(t.year) === month.slice(0, 4)) : false;   // 27.7: اختبار المؤشرات في كل إقفال سنوي   // v56.40 (E6.3): مراجعة المخصص بند في الإقفال
   return [
     { k: 'drafts', ar: 'لا إغلاقات مسودة أو مرفوضة حتى نهاية الشهر', n: cls.filter(c => c.status === 'draft' || c.status === 'rejected').length },
@@ -3822,6 +3824,7 @@ function closeAutoChecks(A, ops, month, org) {
     ...(ppp.length || (org && ppOn(org)) ? [{ k: 'ppd', ar: 'المصروفات المدفوعة مقدمًا: لا مستند بانتظار الاعتماد (الإطفاء الشهري آلي بعد الاعتماد)', n: ppp.length }] : []),
     ...(pimp.length || impYear ? [{ k: 'impair', ar: 'هبوط قيمة الأصول: سُجّل اختبار مؤشرات السنة ولا مستند هبوط بانتظار الاعتماد', n: pimp.length + (impYear ? 1 : 0) }] : []),
     ...(offUnrev.length ? [{ k: 'posoffret', ar: 'كل مرتجعات نقطة البيع دون اتصال حتى نهاية الشهر رُوجعت واعتُمدت من المدير (نقطة البيع ← مرتجعات دون اتصال للمراجعة)', n: offUnrev.length, amt: posR2(offUnrev.reduce((a, o) => a + Math.abs(Number(o.total) || 0), 0)) }] : []),
+    ...(pconf.length ? [{ k: 'posconf', ar: 'كل تعارضات فواتير نقطة البيع بعد عودة الاتصال حُسمت من مدير الفرع (نقطة البيع ← الورديات والتقارير)', n: pconf.length }] : []),
     ...(pdp.length ? [{ k: 'deptpick', ar: 'كل مصروفات الوردية التي يحدد المحاسب قسمها (الصيانة والكهرباء) محدَّدة القسم', n: pdp.length }] : []),
     ...(arChk ? [{ k: 'arsub', ar: 'ذمم العملاء 1380 في الأستاذ (' + arChk.gl + ') = مجموع أرصدة العملاء في السجل الفرعي (' + arChk.sub + ')', n: Math.abs(arChk.d) > 0.004 ? 1 : 0, amt: arChk.d }] : []),
     ...(org && whtDueDay(org) ? (() => { const pm = t4PrevYm(month), u = whtUnpaidAt(A, pm + '-31', end);   // v56.51 (2-أ): بموعد يُدخله المالك ويؤكّده المختص فقط
@@ -4062,7 +4065,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.55';
+const APP_VER = 'v56.56';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -4171,7 +4174,7 @@ function PlatformApp() {
   const [org, setOrg] = useState(null);
   const orgNow = useRef(null); orgNow.current = org; grrSetOn(org); lypSetOn(org);   // v56.17: مفتاح نسخ سجلات النمو لدفتر الولاء   // v29.5: للحارس المركزي للإقفال داخل writeOps
   // v56.54: جهاز موسوم لفتح نقطة البيع دون إنترنت والمفتاح أُطفئ ⇒ يُلغى عامل pos-sw ويُمسح كاشه (متصلًا وبإعدادات منشأة محمّلة فقط)
-  const shellOff = !!(org && org.posCfg && !posShellOn(org));
+  const shellOff = posShellOff(org);   // v56.56 (b): غياب posCfg في منشأة محمّلة = مطفأ
   useEffect(() => { if (!shellOff || (typeof navigator !== 'undefined' && navigator.onLine === false)) return; let f = null; try { f = localStorage.getItem(POS_SW_FLAG); } catch { } if (f) posSwSync(false).catch(() => { }); }, [shellOff]);
   const [opsRaw, setOps] = useState({ closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [] });
   // v42.2: القراءة من السجلات المستقلة — ops المعروضة = مستند الفرع مدموجًا بالسجلات (السجل يغلب) متى فُعّلت
@@ -7550,7 +7553,7 @@ function crmBuild(org, ops, loyDoc, opt) {
     c.n++; c.total += Number(o.total) || 0; const d = String(o.date || o.at || '').slice(0, 10); c.dates.push(d);
     if (!c.first || d < c.first) c.first = d; if (!c.last || d > c.last) c.last = d;
     c.br[o.branchId] = (c.br[o.branchId] || 0) + 1;
-    (o.lines || []).forEach(l => { if (!l.productId) return; const x = c.prod[l.productId] || (c.prod[l.productId] = { id: l.productId, name: l.name || prods[l.productId] || l.productId, qty: 0, amt: 0 }); x.qty += Number(l.qty) || 0; x.amt += (Number(l.qty) || 0) * (Number(l.price) || 0) - (Number(l.disc) || 0); });
+    posItemLines(o).forEach(l => { if (!l.productId) return; const x = c.prod[l.productId] || (c.prod[l.productId] = { id: l.productId, name: l.name || prods[l.productId] || l.productId, qty: 0, amt: 0 }); x.qty += Number(l.qty) || 0; x.amt += (Number(l.qty) || 0) * (Number(l.price) || 0) - (Number(l.disc) || 0); });
   });
   (ops.posOrders || []).forEach(o => { if (o.kind !== 'return' || !byOrd[o.refId]) return; const c = C[byOrd[o.refId]]; c.ret += Math.abs(Number(o.total) || 0); });
   const mem = (loyDoc && loyDoc.members) || {}; const bal = {};
@@ -7606,8 +7609,8 @@ function campStats(org, ops, list, c, A) {
   const brs = (c.branches || []).length ? new Set(c.branches) : null;
   const inP = (o) => { const d = String(o.date || '').slice(0, 10); return d >= (c.from || '0000') && d <= (c.to || '9999'); };
   const os = ((ops && ops.posOrders) || []).filter(o => o.kind !== 'return' && o.status !== 'void' && inP(o) && (!brs || brs.has(o.branchId)));
-  const used = os.filter(o => o.coupon && codes.has(cpnKey(o.coupon)));
-  const disc = used.reduce((a, o) => a + (o.lines || []).filter(l => pids.has(l.promoId)).reduce((b, l) => b + (Number(l.disc) || 0), 0) + (o.orderPromo && pids.has(o.orderPromo.id) ? Number(o.orderDisc) || 0 : 0), 0);
+  const used = os.filter(o => { const cc = posDiscOf(o).coupon; return cc && codes.has(cpnKey(cc)); });   // v56.56: والأجزاء المتساوية
+  const disc = used.reduce((a, o) => { const X = posDiscOf(o); return a + X.lines.filter(l => pids.has(l.promoId)).reduce((b, l) => b + (Number(l.disc) || 0), 0) + (X.orderPromo && pids.has(X.orderPromo.id) ? X.od : 0); }, 0);
   const target = (list || []).filter(x => !c.segment || c.segment === 'all' || (x.tags || []).includes(c.segment) || x.cls === c.segment);
   const tset = new Set(target.map(x => x.phone)); const AL = mktAlias(ops || {}); const cph = (o) => AL(normPhone(o.loyalty.phone));   // v56.12 (G3): الرقم المدموج يُحتسب لعميله
   const buyers = new Set(os.filter(o => o.loyalty && o.loyalty.phone && tset.has(cph(o))).map(cph));
@@ -7632,7 +7635,7 @@ function recIndex(orders, opt) {
   const n = {}, pair = {}, cust = {};
   (orders || []).forEach(o => {
     if (!recOk(o)) return; const d = String(o.date || '').slice(0, 10); if (d < from || d > to) return; if (opt.branchId && o.branchId !== opt.branchId) return;
-    const ps = [...new Set((o.lines || []).map(l => l.productId).filter(Boolean))];
+    const ps = [...new Set(posItemLines(o).map(l => l.productId).filter(Boolean))];
     ps.forEach(a => { n[a] = (n[a] || 0) + 1; });
     if (ps.length <= 25) ps.forEach(a => { const m = pair[a] = pair[a] || {}; ps.forEach(b => { if (b !== a) m[b] = (m[b] || 0) + 1; }); });
     const ph = o.loyalty && o.loyalty.phone ? normPhone(o.loyalty.phone) : '';
@@ -7689,7 +7692,7 @@ function brReport(org, ops, opt) {
     r.manualDisc += Number(o.manualDisc) || 0; r.loyDisc += (o.loyalty && Number(o.loyalty.redeemAmt)) || 0; r.promoDisc += Number(o.orderDisc) || 0; if (o.coupon) r.couponOrders++; if (o.loyalty && o.loyalty.phone) r.identified++;
     const ch = o.channel || 'takeaway'; r.ch[ch] = (r.ch[ch] || 0) + 1;
     const t = new Date(o.at || (o.date + 'T12:00:00')); if (!isNaN(t.getTime())) { const h = t.getHours(); r.hours[h] = (r.hours[h] || 0) + (Number(o.total) || 0); }
-    (o.lines || []).forEach(l => { const q = Number(l.qty) || 0, v = q * (Number(l.price) || 0) - (Number(l.disc) || 0); r.promoDisc += Number(l.disc) || 0; if (l.rec) r.recSales += v;
+    posItemLines(o).forEach(l => { const q = Number(l.qty) || 0, v = q * (Number(l.price) || 0) - (Number(l.disc) || 0); r.promoDisc += Number(l.disc) || 0; if (l.rec) r.recSales += v;
       const ln = v / (1 + rate / 100); r.lineNet += ln; const c = costOf(l.productId); if (c != null) { r.costNet += ln; r.cost += c * q; }
       const pp = r.prods[l.productId] = r.prods[l.productId] || { productId: l.productId, name: l.name || (P[l.productId] || {}).name || l.productId, qty: 0, sales: 0 }; pp.qty += q; pp.sales += v; });
   });
@@ -9534,27 +9537,43 @@ async function posDevRegApi(body, opt) {
    الإيقاف يزيل العلامة ويلغي تسجيله ويمسح كاشه — فيعود الشفاء العام كما كان. */
 const POS_SW_FLAG = 'mizan:posSwOn', POS_SW_CACHE = 'muktasab-pos-shell-';
 const posShellOn = (org) => posOffOn(org) && !!org.posCfg.offShell;
-const posSwIsPos = (reg) => { const w = reg && (reg.active || reg.waiting || reg.installing); return !!(w && /\/pos-sw\.js(\?|$)/.test(String(w.scriptURL || ''))); };
-/** قائمة التسخين: الصفحة الحالية + الأصول المجزّأة المحمّلة فعلًا من الأصل نفسه (لا بيانات) */
-const posSwWarmList = (page, entries, origin) => [page, ...(entries || []).map(x => String((x && x.name) || x || '')).filter(u => { try { const U = new URL(u); return U.origin === origin && /\/assets\/[^/]+-[A-Za-z0-9_-]{6,}\.(js|css|woff2?|png|svg|jpg|jpeg|webp)$/.test(U.pathname); } catch { return false; } })].filter(Boolean);
+/* v56.56 (ملاحظة أمنية c): مطابقة تامة لرابط العامل — الأصل والمسار = pos-sw.js بجانب الصفحة (base)، والاستعلام ?v= وحده أو لا شيء؛
+   بلا base (اختبار/بيئة بلا صفحة) ⇒ المسار /pos-sw.js تمامًا */
+const posSwUrlOk = (url, base) => { try { const U = new URL(String(url || '')); if (U.search && !/^\?v=[^&]*$/.test(U.search)) return false;
+  if (base) { const W = new URL('pos-sw.js', base); return U.origin === W.origin && U.pathname === W.pathname; } return U.pathname === '/pos-sw.js'; } catch { return false; } };
+const posSwIsPos = (reg, base) => { const w = reg && (reg.active || reg.waiting || reg.installing); return !!(w && posSwUrlOk(w.scriptURL, base)); };
+/** قائمة التسخين: الصفحة الحالية + الأصول المجزّأة المحمّلة فعلًا من الأصل نفسه (لا بيانات)
+    v56.56 (f): + قائمة الأصول التي يحتاجها هيكل نقطة البيع من البناء (pos-shell.json) وإن لم تُحمَّل بعد — بلا تكرار وبحد أعلى */
+const POS_SW_WARM_MAX = 60;
+const posSwWarmList = (page, entries, origin, extra) => { const seen = new Set();
+  return [page, ...[...(entries || []), ...(extra || [])].map(x => String((x && x.name) || x || '')).map(u => { try { return new URL(u, origin + '/').href; } catch { return ''; } }).filter(u => { try { const U = new URL(u); return U.origin === origin && /\/assets\/[^/]+-[A-Za-z0-9_-]{6,}\.(js|css|woff2?|png|svg|jpg|jpeg|webp)$/.test(U.pathname); } catch { return false; } })]
+    .filter(u => u && !seen.has(u) && (seen.add(u), true)).slice(0, POS_SW_WARM_MAX); };
+/** v56.56 (b): متى يُلغى عامل pos-sw على جهاز موسوم والمفتاح أُطفئ — منشأة محمّلة فعلًا (لها فروع) بلا تفعيل، ولو غاب posCfg كله؛
+    منشأة فارغة (تعذّر قراءة الدليل ⇒ emptyOrg بلا فروع) لا تُلغيه بخطأ عابر */
+const posShellOff = (org) => !!(org && typeof org === 'object' && (org.posCfg ? !posShellOn(org) : ((org.branches || []).length > 0)));
+/** يقرأ قائمة أصول هيكل نقطة البيع من البناء (pos-shell.json) — فشلها لا يمنع التسخين */
+async function posSwShellList(fetchFn, url) { try { const r = await fetchFn(url, { cache: 'no-store', credentials: 'same-origin' }); if (!r || !r.ok) return [];
+  const j = await r.json(); if (j && j.truncated) { try { console.warn('pos-shell.json مقصوص (' + (j.total || '?') + ' ملفًا) — قد لا تُخزَّن كل أصول نقطة البيع'); } catch { } }   // v56.56 (G): لا إسقاط صامت
+  return Array.isArray(j && j.files) ? j.files.filter(x => typeof x === 'string').slice(0, POS_SW_WARM_MAX) : []; } catch { return []; } }
 async function posSwSync(on, env) {
-  const e = env || (typeof window !== 'undefined' ? { sw: navigator.serviceWorker, caches: typeof caches !== 'undefined' ? caches : null, ls: window.localStorage, ver: APP_VER, url: 'pos-sw.js', scope: './',
-    warm: () => posSwWarmList(location.pathname, (performance.getEntriesByType ? performance.getEntriesByType('resource') : []), location.origin) } : {});
+  const e = env || (typeof window !== 'undefined' ? { sw: navigator.serviceWorker, caches: typeof caches !== 'undefined' ? caches : null, ls: window.localStorage, ver: APP_VER, url: 'pos-sw.js', scope: './', base: location.href,
+    shellList: () => posSwShellList(fetch, new URL('pos-shell.json', location.href).href),
+    warm: (extra) => posSwWarmList(location.pathname, [...(performance.getEntriesByType ? performance.getEntriesByType('resource') : []), ...Array.from(document.querySelectorAll('script[src],link[rel="modulepreload"][href],link[rel="stylesheet"][href]')).map(x => x.src || x.href)], location.origin, extra) } : {});
   if (!e.sw || !e.ls) return { on: false, why: 'no-sw' };
   if (on) {
     try { e.ls.setItem(POS_SW_FLAG, '1'); } catch { return { on: false, why: 'no-ls' }; }
     try { const reg = await e.sw.register(e.url + '?v=' + encodeURIComponent(e.ver || ''), { scope: e.scope });
       let tm = 0; const ready = e.sw.ready ? await Promise.race([e.sw.ready, new Promise(r => { tm = setTimeout(() => r(null), e.readyMs || 8000); })]).finally(() => clearTimeout(tm)) : reg;
-      const w = (ready || reg || {}).active; if (w && e.warm) w.postMessage({ type: 'warm', urls: e.warm() });
+      const w = (ready || reg || {}).active; if (w && e.warm) { const extra = e.shellList ? await e.shellList() : []; w.postMessage({ type: 'warm', urls: e.warm(extra) }); }
       return { on: true }; }
     catch (err) { return { on: false, why: String((err && err.message) || err).slice(0, 80) }; }
   }
   let had = false; try { had = !!e.ls.getItem(POS_SW_FLAG); e.ls.removeItem(POS_SW_FLAG); } catch { }
-  let n = 0; try { const regs = await e.sw.getRegistrations(); for (const r of regs) if (posSwIsPos(r)) { await r.unregister(); n++; } } catch { }
+  let n = 0; try { const regs = await e.sw.getRegistrations(); for (const r of regs) if (posSwIsPos(r, e.base)) { await r.unregister(); n++; } } catch { }
   let c = 0; try { if (e.caches) { for (const k of await e.caches.keys()) if (String(k).startsWith(POS_SW_CACHE)) { await e.caches.delete(k); c++; } } } catch { }
   return { on: false, had, unreg: n, cleared: c };
 }
-export { POS_DEVNO_KEY, POS_DEVKEY_KEY, POS_SRV_TAG, posDevRegOn, posDevNoGet, posDevNoSet, posDevSrvTag, posDevKey, posDevTagPick, posDevRegApi, POS_SW_FLAG, POS_SW_CACHE, posShellOn, posSwIsPos, posSwWarmList, posSwSync };
+export { POS_DEVNO_KEY, POS_DEVKEY_KEY, POS_SRV_TAG, posDevRegOn, posDevNoGet, posDevNoSet, posDevSrvTag, posDevKey, posDevTagPick, posDevRegApi, POS_SW_FLAG, POS_SW_CACHE, posShellOn, posSwIsPos, posSwWarmList, posSwSync, posSwUrlOk, POS_SW_WARM_MAX, posShellOff, posSwShellList };
 const POS_SH_KEY = 'mizan:posShiftLocal';
 const POS_SC_KEY = 'mizan:posShiftClose';   // v34.14: ورديات أُغلقت على الجهاز ولم تُرسل بعد (قائمة)
 const pendShiftsGet = () => { try { const v = JSON.parse(localStorage.getItem(POS_SC_KEY) || '[]'); return Array.isArray(v) ? v : (v ? [v] : []); } catch { return []; } };
@@ -9881,25 +9900,32 @@ const posOffRetAudit = (r, branchName) => ({ actionType: 'create', targetType: '
 /** فحص كاشف لسلسلة الفوترة لكل فرع/جهاز: icv متتالٍ وpih = بصمة الحلقة السابقة (الفواتير والمرتجعات وإشعارات الإلغاء). تنبيه لا منع.
     أول حلقة معروفة لا تُفحص (ما قبلها قد يكون مؤرشفًا)، والسجلات القديمة بلا icv خارج الفحص. [{ branchId, dev, kind:'gap'|'dup'|'pih', no, icv, prevIcv, prevNo }] */
 function posChainGaps(orders, branchId) {
-  const G = {};
+  const G = {}, H = {};   // H: بصمة ⇒ حلقة (لكل فرع) — لربط تبديل وسم الجهاز
   (orders || []).forEach(o => { if (!o || (branchId && o.branchId !== branchId)) return;
     [o.dev ? { dev: o.dev, x: o } : null, o.voidNote ? { dev: o.voidNote.dev || o.dev, x: o.voidNote } : null].forEach(e => { if (!e || !e.x.hash || !(Number(e.x.icv) > 0)) return;
-      const k = o.branchId + '|' + e.dev; (G[k] = G[k] || []).push({ branchId: o.branchId, dev: e.dev, no: e.x.no || '', icv: Number(e.x.icv), pih: String(e.x.pih || ''), hash: e.x.hash }); }); });
+      const k = o.branchId + '|' + e.dev, r = { branchId: o.branchId, dev: e.dev, no: e.x.no || '', icv: Number(e.x.icv), pih: String(e.x.pih || ''), hash: e.x.hash, date: String(e.x.date || o.date || '') };
+      (G[k] = G[k] || []).push(r); H[o.branchId + '|' + e.x.hash] = r; }); });
+  /* v56.56 (v56.54 ملاحظة 5): سلسلة الجهاز واحدة على الجهاز مهما تبدّل وسمه (سجل الأجهزة يُفعَّل ثم يُطفأ) — الحلقة التي تشير بصمتها السابقة
+     إلى حلقة الرقم السابق مباشرة بوسم آخر في الفرع نفسه استمرارٌ صحيح لا فجوة (تطابق البصمة دليل؛ لا يُخفى خلل حقيقي) */
+  const linked = (b) => { const p = H[b.branchId + '|' + b.pih]; return !!p && p.dev !== b.dev && p.icv === b.icv - 1; };
   const out = [];
   Object.values(G).forEach(L => { L.sort((a, b) => a.icv - b.icv || String(a.no).localeCompare(String(b.no)));
-    for (let i = 1; i < L.length; i++) { const a = L[i - 1], b = L[i]; const base = { branchId: b.branchId, dev: b.dev, no: b.no, icv: b.icv, prevIcv: a.icv, prevNo: a.no };
+    for (let i = 1; i < L.length; i++) { const a = L[i - 1], b = L[i]; const base = { branchId: b.branchId, dev: b.dev, no: b.no, icv: b.icv, prevIcv: a.icv, prevNo: a.no, date: b.date };
       if (b.icv === a.icv) { out.push({ ...base, kind: 'dup' }); continue; }
+      if (linked(b)) continue;
       if (b.icv !== a.icv + 1) { out.push({ ...base, kind: 'gap' }); continue; }
       if (b.pih !== a.hash) out.push({ ...base, kind: 'pih' }); } });
   return out;
 }
+/** v56.56 (قرار المالك 2026-11-27): فحص فجوات سلسلة الفوترة دائمًا لكل فرع (لا مع العمل دون اتصال فقط) — تنبيه لا منع؛ اختياريًا لفرع ويوم */
+const posChainGapsDay = (orders, branchId, date) => posChainGaps(orders, branchId).filter(g => !date || g.date === date);
 /* المرتجع دون اتصال (قرار المالك): مسموح حتى حد يحدده المدير لكل فرع (org.posCfg.offRetLimit[فرع])، والافتراضي صفر = ممنوع.
    الحد على مجموع مرتجعات الفرع دون اتصال التي لم تُراجَع بعد (لا لكل مرتجع وحده) — يُوسم offline:true ويظهر للمدير «للمراجعة بعد الاتصال». */
 const posOffRetLimit = (org, brId) => { const v = Number(((((org || {}).posCfg || {}).offRetLimit) || {})[brId]); return v > 0 && isFinite(v) ? posR2(v) : 0; };
 const posOffRetPending = (orders, revs, brId) => (orders || []).filter(o => o && o.kind === 'return' && o.offline === true && (!brId || o.branchId === brId) && !(revs || []).some(r => r && r.retId === o.id));
 /* v56.54 (قرار المالك: «اترك خيار لتحديد حد المرتجع»): نوع الحد لكل فرع — offRetMode[فرع]: 'total' (مجموع غير المراجَع، الافتراضي) أو 'each' (لكل مرتجع وحده)؛
    وفترة اختيارية لنوع المجموع offRetPeriod[فرع]: 'none' (الافتراضي) أو 'day' (يوم العمل) أو 'shift' (وردية هذا الجهاز). بلا الإعداد الجديد ⇒ كما في v56.53 حرفيًا.
-   الوردية غير معروفة (مرتجع بلا وردية) ⇒ يُرجَع إلى مجموع كل غير المراجَع (الأشد) — لا يُمنح حد أوسع بلا دليل. */
+   الوردية غير معروفة (مرتجع بلا وردية) ⇒ v56.56 بقرار المالك: حد اليوم (كان في v56.54: مجموع كل غير المراجَع). */
 const POS_ORET_MODES = ['total', 'each'], POS_ORET_PERIODS = ['none', 'day', 'shift'];
 const posOffRetRule = (org, brId) => { const c = (org || {}).posCfg || {}; const m = (c.offRetMode || {})[brId], p = (c.offRetPeriod || {})[brId];
   const mode = POS_ORET_MODES.includes(m) ? m : 'total'; return { lim: posOffRetLimit(org, brId), mode, period: mode === 'total' && POS_ORET_PERIODS.includes(p) ? p : 'none' }; };
@@ -9909,7 +9935,8 @@ function posOffRetCheck(org, orders, revs, brId, amt, ctx) {
   const R = posOffRetRule(org, brId), x = ctx || {};
   if (R.mode === 'each') { if (a > lim + 0.004) return { err: 'يتجاوز حد المرتجع الواحد دون اتصال لهذا الفرع (' + lim.toFixed(2) + ')؛ انتظر عودة الاتصال', lim, used: 0, mode: 'each' };
     return { ok: true, lim, used: 0, left: posR2(lim - a), mode: 'each' }; }
-  const per = R.period === 'day' && x.date ? 'day' : R.period === 'shift' && x.shiftId ? 'shift' : 'none';
+  // v56.56 (قرار المالك): «لكل وردية» بلا وردية مفتوحة ⇒ على مستوى اليوم (كان: كل غير المراجَع)؛ بلا تاريخ ⇒ الأشد كما كان
+  const per = R.period === 'day' && x.date ? 'day' : R.period === 'shift' && x.shiftId ? 'shift' : R.period === 'shift' && x.date ? 'day' : 'none';
   if (R.period !== 'none') {
     const pend = posOffRetPending(orders, revs, brId).filter(o => per === 'day' ? String(o.date || '') === String(x.date) : per === 'shift' ? o.shiftId === x.shiftId : true);
     const used = posR2(pend.reduce((s, o) => s + Math.abs(Number(o.total) || 0), 0)); const PT = { day: ' لهذا اليوم', shift: ' لهذه الوردية', none: '' }[per];
@@ -9929,7 +9956,7 @@ function posOffRetReview(ops, ret, me) {
   if (ret.byId ? ret.byId === me.id : ret.by === me.name) return { err: 'لا يعتمد المرتجع من سجّله — يعتمده مدير آخر' };
   return { rev: { id: uid('orv'), branchId: ret.branchId, retId: ret.id, retNo: ret.no || '', amount: posR2(Math.abs(Number(ret.total) || 0)), by: me.name, byId: me.id || '', at: nowISO() } };
 }
-export { posLockRun, posOnMark, posOnFresh, posOnClear, POS_ON_LS, posRetHashSrc, posOffRetAudit, posChainGaps };
+export { posLockRun, posOnMark, posOnFresh, posOnClear, POS_ON_LS, posRetHashSrc, posOffRetAudit, posChainGaps, posChainGapsDay };
 export { posOffOn, POS_IDB, POS_OB_KINDS, POS_OB_USED, posObKey, posObItem, posObSort, posSyncErr, posSyncDelay, posStoreIdb, posStoreLs, posStoreMem, posStoreOpen, posLegacyQ, posObMigrate, posObRestore, posSyncLog, posSyncLogList, posSyncRun, posOffRetLimit, posOffRetPending, posOffRetCheck, posOffRetReview };
 export { POS_ORET_MODES, POS_ORET_PERIODS, posOffRetRule };   // v56.54
 /* v56.0 (GAP-007): تعليق طلب سفري واستدعاؤه — مسودة على الجهاز لكل فرع (تعمل دون اتصال)، لا رقم فاتورة ولا عدّاد ولا بصمة
@@ -10106,8 +10133,9 @@ function posOrdersStats(orders) {
   const ok = (orders || []).filter(o => o.status !== 'void'), vd = (orders || []).filter(o => o.status === 'void');
   const s = posDaySummary(ok.map(o => ({ ...o, branchId: 'x', date: 'x' })), 'x', 'x');
   const promo = {}; let ldisc = 0, odisc = 0, mdisc = 0, lred = 0, lpts = 0, earned = 0, gross = 0;
-  ok.forEach(o => { gross += o.gross || 0; (o.lines || []).forEach(l => { if (l.disc) { ldisc += l.disc; const k = l.promoName || 'عرض'; promo[k] = posR2((promo[k] || 0) + l.disc); } });
-    if (o.orderDisc) { odisc += o.orderDisc; const k = (o.orderPromo || {}).name || 'خصم الفاتورة'; promo[k] = posR2((promo[k] || 0) + o.orderDisc); }
+  ok.forEach(o => { const X = posDiscOf(o);   // v56.56: الجزء المتساوي بخصوماته وعروضه كفاتورة كاملة (حقوله لا تُمس)
+    gross += X.gross || 0; X.lines.forEach(l => { if (l.disc) { ldisc += l.disc; const k = l.promoName || 'عرض'; promo[k] = posR2((promo[k] || 0) + l.disc); } });
+    if (X.od) { odisc += X.od; const k = (X.orderPromo || {}).name || 'خصم الفاتورة'; promo[k] = posR2((promo[k] || 0) + X.od); }
     mdisc += o.manualDisc != null ? o.manualDisc : (o.orderDisc || o.loyalty ? 0 : (o.disc || 0) - (o.lines || []).reduce((a, l) => a + (l.disc || 0), 0));
     if (o.loyalty) { lred += o.loyalty.redeemAmt || 0; lpts += o.loyalty.redeemed || 0; earned += o.loyalty.earned || 0; } });
   const pms = {}; ok.forEach(o => (o.payments || []).forEach(p => { if (p.pmName) pms[p.pmName] = posR2((pms[p.pmName] || 0) + (Number(p.amount) || 0)); }));
@@ -11860,7 +11888,7 @@ function itemLedger(org, ops, itemId, opt = {}) {
   const useOf = (pid) => { if (!(pid in per)) { const pr = products.find(x => x.id === pid); per[pid] = pr && (pr.parts || []).length ? (recipeRaw(org, pr.parts, 1).raw[itemId] || 0) : 0; } return per[pid]; };
   const sales = {}; const addS = (d, pid, q) => { const u = useOf(pid) * q; if (!u) return; const x = sales[d] || (sales[d] = { date: d, q: 0, n: 0 }); x.q += u; x.n += q; };
   const posBr = new Set();
-  (ops.posOrders || []).forEach(o => { if (o.status === 'void' || !served.includes(o.branchId) || !inP(o.date)) return; posBr.add(o.branchId); (o.lines || []).forEach(l => { if (l.productId) addS(o.date, l.productId, Number(l.qty) || 0); }); });
+  (ops.posOrders || []).forEach(o => { if (o.status === 'void' || !served.includes(o.branchId) || !inP(o.date)) return; posBr.add(o.branchId); posItemLines(o).forEach(l => { if (l.productId) addS(o.date, l.productId, Number(l.qty) || 0); }); });
   (ops.productSales || []).forEach(r => { if (!served.includes(r.branchId) || posBr.has(r.branchId) || !inP(r.to || r.from)) return; (r.lines || []).forEach(l => addS(r.to || r.from, l.productId, Number(l.qty) || 0)); });
   const salesRows = Object.values(sales).map(x => ({ ...x, q: Math.round(x.q * 1000) / 1000 })).sort((a, b) => a.date.localeCompare(b.date));
   const r3 = (n) => Math.round(n * 1000) / 1000;
@@ -12485,7 +12513,9 @@ const kdsTicket = (x) => ({ id: uid('kt'), branchId: x.branchId, src: x.src, ref
 function posTrim(d, td) {
   const cut2 = anDay(td || today(), -2), cut7 = anDay(td || today(), -7);
   return { ...d, kdsTickets: (d.kdsTickets || []).filter(k => k.status !== 'served' || String(k.at || '').slice(0, 10) >= cut2),
-    posTabs: (d.posTabs || []).filter(t => t.status === 'open' || String(t.closedAt || t.openedAt || '').slice(0, 10) >= cut7),
+    posTabs: (d.posTabs || []).filter(t => t.status === 'open' || String(t.closedAt || t.openedAt || '').slice(0, 10) >= cut7
+      || (t.conflicts || []).some(c => c && c.off === true && !c.resAt)   // v56.56 (F): تعارض دون اتصال لم يُحسم لا يُقلَّم أبدًا
+      || ((t.conflicts || []).some(c => c && !c.off && !c.res && !c.resAt) && String(t.closedAt || t.openedAt || '').slice(0, 10) >= anDay(td || today(), -60))),   // القديم بلا الوسم: حتى 60 يومًا
     // v49.2: التوصيلات المنتهية والمسوّاة تُقلَّم بعد 60 يومًا (الفاتورة نفسها باقية في posOrders)
     ...(d.posDeliveries ? { posDeliveries: d.posDeliveries.filter(x => !(x.settledAt || x.st === 'fail') || String(x.at || '').slice(0, 10) >= anDay(td || today(), -60)) } : {}) };
 }
@@ -12534,8 +12564,9 @@ const tabHal = (lines) => (lines || []).reduce((a, l) => a + Math.round((Number(
 function tabRemain(tab) {
   const S = tabSum(tab), paid = (((tab && tab.split) || {}).parts || []).filter(p => p.orderId);
   if (!paid.length) return S;
-  const used = {}; paid.forEach(p => (p.lines || []).forEach(l => { used[tabKey(l)] = (used[tabKey(l)] || 0) + (Number(l.qty) || 0); }));
-  const lines = S.lines.map(l => ({ ...l, qty: Math.max(0, l.qty - (used[tabKey(l)] || 0)) })).filter(l => l.qty > 0);
+  const used = {}; paid.forEach(p => (p.eqItems || p.lines || []).forEach(l => { used[tabKey(l)] = (used[tabKey(l)] || 0) + (Number(l.qty) || 0); }));   // v56.56: الجزء المتساوي بتفصيل أصنافه
+  // v56.56: أجزاء التقسيم بالتساوي كسرية (بالألف) — التقريب لستة أرقام يمنع بقايا الفاصلة العائمة (الأعداد الصحيحة كما كانت حرفيًا)
+  const lines = S.lines.map(l => ({ ...l, qty: Math.max(0, Math.round((l.qty - (used[tabKey(l)] || 0)) * 1e6) / 1e6) })).filter(l => l.qty > 0);
   return { lines, total: tabHal(lines) / 100, rounds: S.rounds, paidParts: paid.length };
 }
 // توزيع مبلغ (هللات) على أوزان بالتناسب، والفرق على آخر وزن غير صفري
@@ -12570,7 +12601,9 @@ function tabSplitItems(tab, alloc, n, priced) {
   return { parts: out, total: whole / 100, gross: R.total };
 }
 /** حفظ خطة التقسيم على الحساب (الأجزاء المدفوعة تبقى، وغير المدفوعة تُستبدل) — ver يتغير مع كل تقسيم (حارس التزامن) */
-const tabSplitSet = (tab, parts, meta = {}) => ({ ...tab, split: { ver: meta.ver || uid('sv'), at: meta.at || nowISO(), by: meta.by || '', parts: [...((((tab || {}).split) || {}).parts || []).filter(p => p.orderId), ...parts] } });
+const tabSplitSet = (tab, parts, meta = {}) => { const sp0 = ((tab || {}).split) || {}, paid = (sp0.parts || []).filter(p => p.orderId);
+  const cp = meta.cp || (paid.length && sp0.cp ? sp0.cp : null);   // v56.56 (D): حجز كوبون التقسيم بالتساوي يبقى ما دام جزء مدفوع يحمل حصته
+  return { ...tab, split: { ver: meta.ver || uid('sv'), at: meta.at || nowISO(), by: meta.by || '', ...(cp ? { cp } : {}), parts: [...paid, ...parts] } }; };
 /** تسعير الجزء المجمّد (لشاشة الدفع): كما خرج من تسعير الطاولة كاملة — بديل posPriceCart للجزء */
 const tabPartPriced = (pt) => ({ lines: (pt.lines || []).map(l => ({ ...l, disc: Number(l.disc) || 0 })), sub: Math.round(tabHal(pt.lines) - (pt.lines || []).reduce((a, l) => a + toHal(l.disc), 0)) / 100,
   orderDisc: Number(pt.orderDisc) || 0, orderPromo: pt.orderPromo || null, codeOk: !!pt.coupon, coupon: pt.coupon || null });
@@ -12585,11 +12618,11 @@ const linesSig = (L) => { const m = {}; (L || []).forEach(l => { const k = tabKe
 /** دفع جزء: يُختم الجزء بفاتورته، ويُغلق الحساب عند انتهاء المتبقي. يعيد { tab } أو { err, tab } —
     يُرفض الختم إن أُغلق الحساب، أو تغيّرت نسخة التقسيم (o.tabSplitVer)، أو الجزء مدفوع/غير موجود، أو اختلفت أسطر الفاتورة عن الجزء؛
     وعند الرفض تُسجَّل الفاتورة على الحساب «تعارضًا» (conflicts) ليراجعها المدير، ولا يتغير المتبقي */
-function tabPayPart(tab, partId, o, by) {
+function tabPayPart(tab, partId, o, by, off) {
   const sp = (tab && tab.split) || {}, pt = (sp.parts || []).find(p => p.id === partId);
   const why = !tab || tab.status !== 'open' ? 'الحساب لم يعد مفتوحًا' : !pt ? 'أُعيد تقسيم الحساب (الجزء لم يعد موجودًا)' : pt.orderId ? 'الجزء مدفوع بفاتورة ' + (pt.orderNo || '')
     : (o.tabSplitVer && sp.ver && o.tabSplitVer !== sp.ver) ? 'أُعيد تقسيم الحساب بعد بدء الدفع' : linesSig(pt.lines) !== linesSig(o.lines) ? 'أسطر الفاتورة تختلف عن الجزء' : '';
-  if (why) return { err: why, tab: tab ? { ...tab, conflicts: [...(tab.conflicts || []), { orderId: o.id, orderNo: o.no, at: o.at, total: o.total, partId, why }] } : tab };
+  if (why) return { err: why, tab: tab ? { ...tab, conflicts: [...(tab.conflicts || []), { orderId: o.id, orderNo: o.no, at: o.at, total: o.total, partId, why, ...(off ? { off: true } : {}) }] } : tab };   // v56.56: off = سُجّل مع العمل دون اتصال
   const t2 = { ...tab, split: { ...sp, parts: sp.parts.map(p => p.id === partId ? { ...p, orderId: o.id, orderNo: o.no, paidAt: o.at } : p) } };
   return { tab: tabRemain(t2).lines.length ? t2 : { ...t2, status: 'paid', orderId: o.id, orderNo: o.no, closedAt: o.at, closedBy: by || '' } };
 }
@@ -12607,6 +12640,191 @@ function tabMerge(src, dst, meta = {}) {
     mergeLog: [...(dst.mergeLog || []), { at, by, from: String(src.table), tabId: src.id, total: S.total }] };
   const { split: _s2, ...s0 } = src;
   return { into, from: { ...s0, status: 'merged', mergedInto: dst.id, mergedTo: String(dst.table), closedAt: at, closedBy: by } };
+}
+/* ============================================================
+   v56.56 — قرارات المالك 2026-11-27 على المطعم ونقطة البيع دون اتصال
+   ============================================================ */
+/** (3) تقسيم فاتورة الطاولة بالتساوي إلى n أجزاء (2–20) — خلف مفتاح التقسيم نفسه (posCfg.rest.split).
+    قرارات المجلس على المراجعة (A/B): كل جزء فاتورة ضريبية مبسّطة مستقلة بسطر ملخّص واحد لكل فئة ضريبية:
+    «حصة k من N — فاتورة الطاولة <رقم>» بكمية 1 وسعر = مبلغ الجزء (نقطة البيع بنسبة ضريبة واحدة ⇒ سطر واحد)، فصافي السطر = الكمية × السعر تمامًا،
+    وposTotals(أسطر الجزء) = إجماليات الجزء المجمّدة. الضريبة لكل جزء = round(مبلغه × النسبة ÷ (100 + النسبة)) — لا يُشترط أن تساوي ضريبة طاولة لم تصدر.
+    المبالغ: الطاولة تُسعَّر كاملة مرة واحدة (العروض والكوبون)، وكل جزء ⌊الإجمالي ÷ n⌋ بالهللة والباقي على الأخير.
+    تفصيل الأصناف الكسري (بالألف، الباقي على الأخير) في حقل داخلي eqItems — لا يُطبع ولا في lines — لخصم المخزون وتقارير الأصناف.
+    الكوبون لا يُوضع على جزء: يُعاد في cp ويُحجز مرة واحدة عند حفظ التقسيم (tabSplitSet ‹cp›). يعيد { parts, total, cp } أو { err } */
+const EQ_LINE_NAME = (k, n, ref) => 'حصة ' + k + ' من ' + n + ' — فاتورة الطاولة ' + ref;
+function tabSplitEqual(tab, n, priced, rate) {
+  const R = tabRemain(tab), N = Math.floor(Number(n) || 0);
+  if (!(N >= 2 && N <= 20) || Number(n) !== N) return { err: 'عدد الأجزاء من 2 إلى 20' };
+  if (!R.lines.length) return { err: 'لا أصناف متبقية للتقسيم' };
+  if (R.lines.some(l => !Number.isInteger(l.qty))) return { err: 'المتبقي من تقسيم سابق بالتساوي — ادفعه كاملًا' };
+  const PL = (priced && priced.lines) || null;
+  if (!PL || PL.length !== R.lines.length || PL.some((l, i) => l.productId !== R.lines[i].productId || Number(l.qty) !== R.lines[i].qty)) return { err: 'تسعير الطاولة لا يطابق أسطر الحساب — أعد المحاولة' };
+  const T = posTotals(PL, Number(priced.orderDisc) || 0, rate), W = toHal(T.total), OD = toHal(priced.orderDisc);
+  if (!(W > 0)) return { err: 'لا مبلغ للتقسيم' };
+  if (Math.floor(W / N) < 1) return { err: 'المبلغ أصغر من أن يُقسَّم على هذا العدد' };
+  const eqH = (H) => { const a = Math.floor(H / N); return Array.from({ length: N }, (_, k) => k === N - 1 ? H - a * (N - 1) : a); };   // بالتساوي والباقي على الأخير
+  const A = eqH(W), LQ = PL.map(l => eqH(Math.round((Number(l.qty) || 0) * 1000))), LD = PL.map(l => eqH(toHal(l.disc))), ODk = eqH(OD);
+  const off = (((tab && tab.split) || {}).parts || []).filter(p => p.orderId).length, ref = String((tab && tab.table) || '');
+  const parts = A.map((a, k) => { const lines = [{ productId: '', name: EQ_LINE_NAME(k + 1, N, ref), qty: 1, price: a / 100 }];
+    const P = posTotals(lines, 0, rate);
+    const eqItems = PL.map((l, i) => ({ productId: l.productId, name: l.name, price: Number(l.price) || 0, qty: LQ[i][k] / 1000, ...(l.note ? { note: l.note } : {}),
+      ...(LD[i][k] ? { disc: LD[i][k] / 100, ...(l.promoId ? { promoId: l.promoId, promoName: l.promoName } : {}) } : {}) })).filter(l => l.qty > 0);
+    return { id: uid('sp'), no: off + k + 1, eq: { k: k + 1, n: N, ref, ...(ODk[k] ? { od: ODk[k] / 100, ...(priced.orderPromo ? { orderPromo: priced.orderPromo } : {}) } : {}), ...(priced.coupon && priced.coupon.code ? { cpc: String(priced.coupon.code) } : {}) }, lines, eqItems,
+      gross: P.gross, total: P.total, vat: P.vat, net: P.net }; });
+  if (parts.some(p => !p.eqItems.length)) return { err: 'عدد الأجزاء أكبر من أن تُقسَّم عليه الأصناف — قلّل العدد' };
+  if (parts.reduce((x, p) => x + toHal(p.total), 0) !== W) return { err: 'مجموع الأجزاء لا يطابق إجمالي الحساب' };
+  return { parts, total: W / 100, cp: priced.coupon || null };
+}
+/** إجماليات جزء التقسيم بالتساوي المجمّدة (= posTotals لأسطره) لشاشة الدفع — null لغيره */
+const tabPartTotals = (pt) => pt && pt.eq ? { gross: Number(pt.gross) || 0, ldisc: 0, disc: 0, total: Number(pt.total) || 0, vat: Number(pt.vat) || 0, net: Number(pt.net) || 0 } : null;
+/** أسطر الأصناف لخصم المخزون وتقارير الأصناف: تفصيل الجزء المتساوي (eqItems) بدل سطر الملخّص، وغيره كما كان */
+/** v56.56 (قرار المجلس): خصومات الفاتورة للتقارير والقيد — جزء التقسيم بالتساوي يُعامل كفاتورة كاملة: خصم أسطره = disc في eqItems، وخصم الفاتورة = eq.od،
+    والإجمالي قبل الخصم = مبلغه + خصمه؛ حقول الفاتورة نفسها (gross/disc) لا تُمس. غيره كما كان حرفيًا. { lines, od, orderPromo, disc, gross, coupon } */
+function posDiscOf(o) {
+  const q = o || {};
+  if (q.kind !== 'return' && Array.isArray(q.eqItems) && q.tabEq) { const ld = q.eqItems.reduce((a, l) => a + toHal(l.disc), 0), od = toHal(q.tabEq.od);
+    return { lines: q.eqItems, od: od / 100, orderPromo: q.tabEq.orderPromo || null, disc: (ld + od) / 100, gross: (toHal(q.total) + ld + od) / 100, coupon: q.coupon || q.tabEq.cpc || '' }; }
+  return { lines: q.lines || [], od: Number(q.orderDisc) || 0, orderPromo: q.orderPromo || null, disc: Number(q.disc) || 0, gross: Number(q.gross) || 0, coupon: q.coupon || '' };
+}
+const posItemLines = (o) => (o && o.kind !== 'return' && Array.isArray(o.eqItems)) ? o.eqItems : ((o && o.lines) || []);   // المرتجع: تفصيله في posRetItemLines
+/** (C) مرتجع جزء متساوٍ: يعكس تفصيل أصنافه بنسبة المبلغ المردود (الكامل ⇒ كل التفصيل) — حقل داخلي eqItems على المرتجع (كنمط retLines) */
+function posRetEqItems(o, C) {
+  if (!o || !Array.isArray(o.eqItems) || !(Number(o.total) > 0)) return {};
+  const f = Math.min(1, (Number(C && C.total) || 0) / Number(o.total)); if (!(f > 0)) return {};
+  return { eqItems: o.eqItems.map(l => ({ productId: l.productId, name: l.name, qty: f >= 1 ? l.qty : Math.round(l.qty * f * 1000) / 1000 })).filter(l => l.qty > 0) };
+}
+/** أسطر المرتجع للمخزون/الهدر: تفصيل الجزء المتساوي إن وُجد، وإلا retLines كما كان */
+const posRetItemLines = (r) => (r && Array.isArray(r.eqItems)) ? r.eqItems : ((r && r.retLines) || []);
+/** دفع حساب الطاولة كاملًا: كما كان (يُغلق الحساب)، ومع العمل دون اتصال: إن لم يعد الحساب مفتوحًا (دُفع من جهاز آخر) تُسجَّل الفاتورة «تعارضًا» ولا يُستبدل ختمه */
+function tabPayWhole(tab, o, by, off) {
+  if (off && tab && tab.status !== 'open') return { err: 'الحساب لم يعد مفتوحًا (دُفع أو أُغلق من جهاز آخر)', tab: { ...tab, conflicts: [...(tab.conflicts || []), { orderId: o.id, orderNo: o.no, at: o.at, total: o.total, partId: '', why: 'الحساب لم يعد مفتوحًا (دُفع أو أُغلق من جهاز آخر)', off: true }] } };
+  return { tab: { ...tab, status: 'paid', orderId: o.id, orderNo: o.no, closedAt: o.at, closedBy: by || '' } };
+}
+/* ---------- (D) الكوبون مع التقسيم بالتساوي: خصمه موزّع على كل الأجزاء ⇒ حجز واحد عند حفظ التقسيم (مفتاحه نسخة التقسيم) ---------- */
+const EQ_CP_USE = (ver) => 'eqs_' + ver;
+/** الكوبون المحجوز للتقسيم السابق يُحرَّر فقط إن أُعيد التقسيم (أو أُسقط) قبل دفع أي جزء — يعيد الحجز المراد تحريره أو null */
+function tabEqCpRelease(prev, next) {
+  const pc = prev && prev.split && prev.split.cp; if (!pc || pc.rel) return null;
+  const nc = next && next.split && next.split.cp; if (nc && nc.use === pc.use) return null;
+  if (((prev.split.parts) || []).some(p => p.orderId)) return null;
+  return pc;
+}
+/** ...أو إن دُفعت كل الأجزاء ثم أُلغيت كلها أو أُرجعت كاملة — إلغاء جزء واحد والبقية تحمل حصتها من الخصم لا يحرّره */
+function tabEqCpAllVoid(tab, ops) {
+  const sp = tab && tab.split, cp = sp && sp.cp; if (!cp || cp.rel) return null;
+  const P = (sp.parts || []); if (!P.length || P.some(p => !p.orderId)) return null;
+  const O = new Map((((ops || {}).posOrders) || []).map(o => [o.id, o]));
+  return P.every(p => { const o = O.get(p.orderId); return o && (o.status === 'void' || posReturnable(ops, o).every(q => !(q > 0))); }) ? cp : null;
+}
+/** وسم التحرير على التقسيم (بعد نجاح cpnRelease) — مكرر التنفيذ لا يغيّر شيئًا */
+const tabEqCpMark = (tab, use, at) => !(tab && tab.split && tab.split.cp && tab.split.cp.use === use) || tab.split.cp.rel ? tab : { ...tab, split: { ...tab.split, cp: { ...tab.split.cp, rel: at || nowISO() } } };
+/** (5) التقسيم بالأصناف كما في v56.56 مع إغلاق السباق: إلغاء الجزء الذي يحمل الكوبون ⇒ ينتقل الكوبون إلى أول جزء غير مدفوع **بحجزه نفسه**
+    (cpHeld = معرّف الحجز الحي؛ لا تحرير ثم حجز جديد فلا نافذة يأخذه فيها غيره ولا جزء عالق)؛ لا جزء غير مدفوع ⇒ to:'' فيحرّره المستدعي. */
+function tabCouponMove(tab, orderId, at, held) {
+  const sp = (tab && tab.split) || null; if (!sp || tab.status !== 'open' || sp.cp) return { tab, to: '' };
+  const src = (sp.parts || []).find(p => p.orderId === orderId && p.coupon); if (!src) return { tab, to: '' };
+  if ((sp.parts || []).some(p => p !== src && p.coupon && !p.orderId)) return { tab, to: '' };
+  const dst = (sp.parts || []).filter(p => !p.orderId).sort((a, b) => (a.no || 0) - (b.no || 0))[0]; if (!dst) return { tab, to: '' };
+  return { to: dst.id, tab: { ...tab, split: { ...sp, parts: sp.parts.map(p => p.id === src.id ? (({ coupon: _c, cpHeld: _h, ...y }) => ({ ...y, cpMoved: { to: dst.id, at: at || nowISO() } }))(p)
+    : p.id === dst.id ? { ...p, coupon: src.coupon, cpHeld: held || src.cpHeld || orderId } : p) } } };
+}
+/* ---------- (4/E/F) تعارضات الفواتير بعد عودة الاتصال — الحسم في سجل محمي للإضافة فقط pos_conflict_res/{orderId} (القواعد) ---------- */
+/** القائمة من حسابات الطاولات (tab.conflicts)، والحسم من السجل المحمي فقط (resList) — لا من مستند الفرع.
+    [{ tabId, table, branchId, orderId, orderNo, total, why, at, date, by, byId, byEmail, status, off, res }] */
+function posConflicts(ops, brId, date, resList, pcfList) {
+  const O = new Map((((ops || {}).posOrders) || []).map(o => [o.id, o])), RS = new Map((resList || []).filter(r => r && r.orderId).map(r => [r.orderId, r])), out = [], seen = new Set();
+  const push = (t, c, rec) => { const o = O.get(c.orderId) || null; const d = String((rec && rec.date) || (o && o.date) || c.at || '').slice(0, 10);
+    if (date && d !== date) return; const r = RS.get(c.orderId); seen.add(c.orderId);
+    out.push({ tabId: t.id, table: String(t.table || ''), branchId: t.branchId, orderId: c.orderId, orderNo: c.orderNo || (o && o.no) || '', total: Number(c.total) || 0, why: c.why || '', at: c.at || '', date: d,
+      by: (o && o.by) || '', byId: (o && o.byId) || '', byEmail: (o && o.byEmail) || '', status: o ? o.status : '', off: c.off === true || !!rec, rec: !!rec, res: r && r.branchId === t.branchId ? r : null }); };
+  // v56.56 (قرار المجلس m1): السجل المحمي pos_conflicts أولًا — حذف tab.conflicts أو تعديلها لا يخفي تعارضًا مسجّلًا
+  (pcfList || []).forEach(x => { if (!x || !x.orderId || (brId && x.branchId !== brId) || seen.has(x.orderId)) return;
+    push({ id: x.tabId || '', table: x.table || '', branchId: x.branchId }, { orderId: x.orderId, orderNo: x.orderNo || '', total: x.total, why: x.why || '', at: x.at || '', off: true }, x); });
+  ((((ops || {}).posTabs) || [])).forEach(t => { if (!t || (brId && t.branchId !== brId)) return;
+    (t.conflicts || []).forEach(c => { if (!c || !c.orderId || seen.has(c.orderId)) return; push(t, c, null); }); });
+  return out;
+}
+/** التعارض المعتبر: سُجّل مع العمل دون اتصال (off) — يبقى ظاهرًا ولو أُطفئ المفتاح لاحقًا — أو القديم بلا الوسم والعمل دون اتصال مفعّل */
+const posConflictOn = (org, c) => !!c && (c.off === true || posOffOn(org));
+const POS_CONFLICT_ROLES = ['branch_manager', 'system_admin'];
+const pcrSame = (o, M) => (o.byId && M.id) ? o.byId === M.id : (o.byEmail && M.email) ? String(o.byEmail).toLowerCase() === String(M.email).toLowerCase() : !!(o.by && o.by === M.name);
+/** حسم تعارض: مدير الفرع (أو مسؤول النظام) وحده، ولا يحسمه من أصدر الفاتورة (المعرّف ثم البريد ثم الاسم؛ والقواعد بالبريد من السجل المحمي)، ومرة واحدة.
+    'keep' = إبقاء الفاتورتين صحيحتين؛ 'void' = إلغاء بمستند مرتجع — يُشترط أن تكون الفاتورة أُلغيت بإشعار دائن أو أُرجعت كاملة بمرتجع (لا حذف أبدًا).
+    يعيد { rec } (محتوى السجل المحمي بلا by/at/cv التي يضيفها الكاتب) أو { err } */
+function posConflictResolve(ops, tabId, orderId, act, me, resList) {
+  const M = me || {}; if (!POS_CONFLICT_ROLES.includes(M.role)) return { err: 'حسم التعارض لمدير الفرع' };
+  if (act !== 'keep' && act !== 'void') return { err: 'اختر «إبقاء» أو «إلغاء بمرتجع»' };
+  const t = (((ops || {}).posTabs) || []).find(x => x && x.id === tabId); const c = t && (t.conflicts || []).find(x => x && x.orderId === orderId);
+  if (!c) return { err: 'التعارض غير موجود' }; if ((resList || []).some(r => r && r.orderId === orderId)) return { err: 'حُسم هذا التعارض سابقًا' };
+  const o = (((ops || {}).posOrders) || []).find(x => x && x.id === orderId);
+  if (!o) return { err: 'الفاتورة لم تصل للسحابة بعد' };
+  if (pcrSame(o, M)) return { err: 'لا يحسم التعارض من أصدر الفاتورة — يحسمه مدير آخر' };
+  let doc = '', retId = '';
+  if (act === 'void') {
+    const rets = (ops.posOrders || []).filter(r => r && r.kind === 'return' && r.refId === o.id && r.status !== 'void');
+    if (o.status === 'void' && o.voidNote) doc = o.voidNote.no || '';
+    else if (rets.length && posReturnable(ops, o).every(q => !(q > 0))) { doc = rets.map(r => r.no).join('، '); retId = rets[0].id; }
+    else return { err: 'أصدر أولًا مرتجعًا كاملًا للفاتورة ' + (o.no || '') + ' (أو ألغِها بإشعار دائن) ثم اختر «إلغاء بمرتجع» — لا تُحذف الفاتورة' };
+  }
+  return { rec: { branchId: t.branchId, orderId, tabId, act, byName: String(M.name || '').slice(0, 200), ...(doc ? { doc: String(doc).slice(0, 200) } : {}), ...(retId ? { retId } : {}) } };
+}
+/** مرآة غير ملزمة على الحساب بعد نجاح الكتابة المحمية — للتقليم فقط (الحسم نفسه يُقرأ من السجل المحمي) */
+const tabConflictMark = (tab, orderId, at) => !tab ? tab : { ...tab, conflicts: (tab.conflicts || []).map(c => c && c.orderId === orderId && !c.resAt ? { ...c, resAt: at || nowISO() } : c) };
+/** مانع الإغلاق اليومي: تعارضات يوم الإغلاق المعتبرة لم يحسمها مدير الفرع في السجل المحمي. resList غير محمّل (null) ⇒ لا حسم (فشل مغلق) */
+const posConflictBlock = (org, ops, brId, date, resList, pcfList) => pcfList === null ? [{ orderId: '', orderNo: 'سجل التعارضات المحمي غير مقروء', readErr: true, branchId: brId, date }]   // m1: فشل مغلق
+  : posConflicts(ops, brId, date, resList, pcfList).filter(c => posConflictOn(org, c) && !c.res);
+/** (F) تعارض وصل بعد ترحيل إغلاق يومه: يوسم الإغلاق المرحّل (للمدقق في قائمة الإغلاقات ومهام الإقفال) — [{ closingId, branchId, date, n }] */
+function posConflictLate(org, ops, resList, pcfList) {
+  const C = posConflicts(ops, null, null, resList, pcfList).filter(c => posConflictOn(org, c) && !c.res), out = [];
+  ((ops || {}).closings || []).forEach(cl => { if (!countedClosing(cl)) return; const n = C.filter(c => c.branchId === cl.branchId && c.date === cl.date).length; if (n) out.push({ closingId: cl.id, branchId: cl.branchId, date: cl.date, n }); });
+  return out;
+}
+/** الكتابة المحمية: pos_conflict_res/{orderId} للإضافة فقط — by = بريد الحساب وat = وقت الخادم (القواعد). c للاختبار، وإلا هوية Firestore الحالية */
+let _pcrCache = { list: null, at: 0 };
+const pcrCached = () => _pcrCache.list;
+async function pcrWrite(rec, cIn) {
+  const c = cIn || await ctlIdentity(); if (!c) return { err: 'يتطلب الحسم الاتصال بالسجلات المحمية (Firestore)' };
+  try { await ctlTimeout(c.f.setDoc(c.f.doc(c.f.db, 'pos_conflict_res', String(rec.orderId)), { ...rec, by: c.email, at: c.f.serverTimestamp(), cv: APP_CV }));
+    _pcrCache = { list: [...(_pcrCache.list || []).filter(r => r.orderId !== rec.orderId), { ...rec, by: c.email, at: new Date().toISOString() }], at: Date.now() }; return { ok: true }; }
+  catch (e) { return { err: (e && e.code) === 'permission-denied' ? 'رفضت القواعد الحسم (الدور أو الفرع أو أنت من أصدر الفاتورة، أو لا مرتجع/إلغاء مسجّل في السجلات المحمية)' : 'تعذّر حفظ الحسم — أعد المحاولة' }; }
+}
+/** m1: السجل المحمي للتعارض نفسه pos_conflicts/{orderId} — يكتبه أي عضو للفرع متى رُصد التعارض (يشترط وجود السجل المحمي للفاتورة)، للإضافة فقط */
+let _pcfCache = { list: null, at: 0 };
+const pcfCached = () => _pcfCache.list;
+const pcfRec = (c) => ({ branchId: String(c.branchId || ''), orderId: String(c.orderId || ''), tabId: String(c.tabId || '').slice(0, 120), date: String(c.date || '').slice(0, 10),
+  ...(c.table ? { table: String(c.table).slice(0, 20) } : {}), ...(c.orderNo ? { orderNo: String(c.orderNo).slice(0, 60) } : {}), ...(c.why ? { why: String(c.why).slice(0, 400) } : {}), total: Number(c.total) || 0 });
+async function pcfWrite(rec, cIn) {
+  const c = cIn || await ctlIdentity(); if (!c) return { err: 'no-identity' };
+  try { await ctlTimeout(c.f.setDoc(c.f.doc(c.f.db, 'pos_conflicts', String(rec.orderId)), { ...rec, by: c.email, at: c.f.serverTimestamp(), cv: APP_CV }));
+    _pcfCache = { list: [...(_pcfCache.list || []).filter(r => r.orderId !== rec.orderId), { ...rec }], at: Date.now() }; return { ok: true }; }
+  catch (e) { return { err: (e && e.code) || 'error' }; }
+}
+/** بعد رصد التعارض: محاولات متباعدة (سجل الفاتورة المحمي قد يصل بعد لحظات) — موجود سلفًا ⇒ نجاح */
+async function pcfPut(rec, cIn, waits) { for (const w of (waits || [0, 5000, 30000, 120000])) { if (w) await new Promise(r => setTimeout(r, w)); const R = await pcfWrite(rec, cIn); if (R.ok) return R; } return { err: 'pending' }; }
+async function pcfLoad(branchIds, central, cIn) {
+  const c = cIn || await ctlIdentity(); if (!c) return null;
+  try { const col = c.f.collection(c.f.db, 'pos_conflicts');
+    const qs = central ? [col] : (branchIds || []).filter(Boolean).slice(0, 30).map(b => c.f.query(col, c.f.where('branchId', '==', b)));
+    const snaps = await ctlTimeout(Promise.all(qs.map(q => c.f.getDocs(q))), 60000);
+    const list = snaps.flatMap(s => s.docs.map(d => ({ id: d.id, ...(d.data() || {}) }))).map(r => ({ ...r, orderId: r.orderId || r.id, at: r.at && r.at.toDate ? r.at.toDate().toISOString() : r.at }));
+    _pcfCache = { list, at: Date.now() }; return list;
+  } catch (e) { return null; }
+}
+/** مصالحة: تعارضات الحساب الموسومة دون اتصال وليس لها سجل محمي بعد ⇒ تُكتب (أي عضو للفرع) */
+function pcfMissing(ops, pcfList, brIds) {
+  const have = new Set((pcfList || []).map(r => r.orderId)); const O = new Map((((ops || {}).posOrders) || []).map(o => [o.id, o])), out = [];
+  (((ops || {}).posTabs) || []).forEach(t => { if (!t || (brIds && !brIds.includes(t.branchId))) return; (t.conflicts || []).forEach(c => { if (!c || !c.orderId || c.off !== true || have.has(c.orderId)) return; const o = O.get(c.orderId);
+    out.push(pcfRec({ branchId: t.branchId, orderId: c.orderId, tabId: t.id, table: t.table, date: (o && o.date) || String(c.at || '').slice(0, 10), orderNo: c.orderNo, why: c.why, total: c.total })); }); });
+  return out;
+}
+async function pcrLoad(branchIds, central, cIn) {
+  const c = cIn || await ctlIdentity(); if (!c) return null;
+  try { const col = c.f.collection(c.f.db, 'pos_conflict_res');
+    const qs = central ? [col] : (branchIds || []).filter(Boolean).slice(0, 30).map(b => c.f.query(col, c.f.where('branchId', '==', b)));
+    const snaps = await ctlTimeout(Promise.all(qs.map(q => c.f.getDocs(q))), 60000);
+    const list = snaps.flatMap(s => s.docs.map(d => ({ id: d.id, ...(d.data() || {}) }))).map(r => ({ ...r, orderId: r.orderId || r.id, at: r.at && r.at.toDate ? r.at.toDate().toISOString() : r.at }));
+    _pcrCache = { list, at: Date.now() }; return list;
+  } catch (e) { return null; }
 }
 /* محطات المطبخ: المنتج المربوط بمحطة أولًا، ثم تصنيفه؛ غير المربوط ⇒ «عام» */
 function kdsStations(org, brId) {
@@ -12751,8 +12969,8 @@ const saleRecipeItems = (org) => { const set = new Set(); ((org && org.products)
 function saleDayUse(org, ops, bId, date) {
   const products = (org && org.products) || [], items = (org && org.items) || [];
   const os = (ops.posOrders || []).filter(o => o.branchId === bId && o.date === date && o.status !== 'void');
-  const lines = []; if (os.length) os.forEach(o => { (o.lines || []).forEach(l => { if (l.productId) lines.push([l.productId, Number(l.qty) || 0]); });
-    (o.kind === 'return' ? o.retLines || [] : []).forEach(l => { if (l.productId) lines.push([l.productId, -(Number(l.qty) || 0)]); }); });   // v46.8: المرتجع يُخرج من «المبيعات» (يذهب للهدر)
+  const lines = []; if (os.length) os.forEach(o => { posItemLines(o).forEach(l => { if (l.productId) lines.push([l.productId, Number(l.qty) || 0]); });   // v56.56: الجزء المتساوي بتفصيله
+    (o.kind === 'return' ? posRetItemLines(o) : []).forEach(l => { if (l.productId) lines.push([l.productId, -(Number(l.qty) || 0)]); }); });   // v46.8: المرتجع يُخرج من «المبيعات» (يذهب للهدر)
   else (ops.productSales || []).filter(r => r.branchId === bId && (r.to || r.from) === date).forEach(r => (r.lines || []).forEach(l => lines.push([l.productId, Number(l.qty) || 0])));
   const per = {}, use = {};
   lines.forEach(([pid, q]) => { if (!q) return; if (!(pid in per)) { const pr = products.find(x => x.id === pid); per[pid] = pr ? saleUse(org, pr.parts, 1) : {}; }
@@ -13103,7 +13321,7 @@ function voucherHtml(org, v) {
 // استهلاك المكونات لأطباق مرتجع واحد (للهدر)
 function saleRetUse(org, r) {
   const products = (org && org.products) || [], items = (org && org.items) || [], use = {};
-  (r.retLines || []).forEach(l => { const pr = products.find(x => x.id === l.productId); if (!pr) return; Object.entries(saleUse(org, pr.parts, 1)).forEach(([k, v]) => { use[k] = (use[k] || 0) + v * (Number(l.qty) || 0); }); });
+  posRetItemLines(r).forEach(l => { const pr = products.find(x => x.id === l.productId); if (!pr) return; Object.entries(saleUse(org, pr.parts, 1)).forEach(([k, v]) => { use[k] = (use[k] || 0) + v * (Number(l.qty) || 0); }); });
   Object.keys(use).forEach(k => { const it = items.find(x => x.id === k); if (!it || !isStocked(it)) delete use[k]; else use[k] = Math.round(use[k] * 10000) / 10000; });
   return use;
 }
@@ -13272,7 +13490,7 @@ function usageReport(org, ops, wid, from, to) {
   const recs = (ops.productSales || []).filter(r => served.includes(r.branchId) && !posBr.has(r.branchId) && r.from >= from && r.to <= to);
   const partial = (ops.productSales || []).filter(r => served.includes(r.branchId) && !(r.from >= from && r.to <= to) && r.to >= from && r.from <= to);
   const pQty = {}; recs.forEach(r => (r.lines || []).forEach(l => { pQty[l.productId] = (pQty[l.productId] || 0) + (Number(l.qty) || 0); }));
-  posOs.forEach(o => (o.lines || []).forEach(l => { if (l.productId) pQty[l.productId] = (pQty[l.productId] || 0) + (Number(l.qty) || 0); }));
+  posOs.forEach(o => posItemLines(o).forEach(l => { if (l.productId) pQty[l.productId] = (pQty[l.productId] || 0) + (Number(l.qty) || 0); }));
   const theo = {}; let revenue = 0;
   const tax = org.taxCfg || {}; const netOf = (p) => tax.enabled ? p / (1 + (Number(tax.rate) || 15) / 100) : p;
   Object.entries(pQty).forEach(([pid, q]) => { const pr = products.find(x => x.id === pid); if (!pr) return; revenue += q * netOf(Number(pr.sellPrice) || 0);
@@ -13627,7 +13845,7 @@ function menuEngineering(org, ops, opts = {}) {
   const products = org.products || [], items = org.items || [];
   const qty = {}; const src = { pos: 0, imp: 0, partial: 0 };
   (ops.posOrders || []).filter(o => inB(o.branchId) && o.status !== 'void' && (o.date || '') >= from && (o.date || '') <= to)
-    .forEach(o => { src.pos++; (o.lines || []).forEach(l => { if (l.productId) qty[l.productId] = (qty[l.productId] || 0) + (Number(l.qty) || 0); }); });
+    .forEach(o => { src.pos++; posItemLines(o).forEach(l => { if (l.productId) qty[l.productId] = (qty[l.productId] || 0) + (Number(l.qty) || 0); }); });
   (ops.productSales || []).filter(r => inB(r.branchId)).forEach(r => {
     if (r.from >= from && r.to <= to) { src.imp++; (r.lines || []).forEach(l => { qty[l.productId] = (qty[l.productId] || 0) + (Number(l.qty) || 0); }); }
     else if (r.to >= from && r.from <= to) src.partial++; });
@@ -13670,7 +13888,7 @@ function profitMatrix(org, ops, opts = {}) {
   const cells = new Map();
   ((ops || {}).posOrders || []).forEach(o => {
     if (o.status === 'void' || (okB && !okB.has(o.branchId))) return; const d = String(o.date || o.at || '').slice(0, 10); if (d < from || d > to) return;
-    const L = (o.lines || []).filter(l => l.productId); const val = (l) => (Number(l.price) || 0) * (Number(l.qty) || 0) - (Number(l.disc) || 0);
+    const L = posItemLines(o).filter(l => l.productId); const val = (l) => (Number(l.price) || 0) * (Number(l.qty) || 0) - (Number(l.disc) || 0);
     const base = L.reduce((a, l) => a + val(l), 0), net = Number(o.net) || 0, per = pmPeriod(d, by);
     L.forEach(l => { const k = l.productId + '|' + o.branchId + '|' + per;
       const c = cells.get(k) || { productId: l.productId, name: l.name, branchId: o.branchId, period: per, qty: 0, rev: 0, cost: 0, noCost: false };
@@ -13935,7 +14153,7 @@ function ibanApply(d, decided) {
    التحضيرة داخل تحضيرة: احتياج الداخلية = ما سيُحضَّر من الخارجية ÷ دفعتها × كميتها فيها. */
 function prepMix(org, ops, branchId, td) {
   const from = anDay(td, -27), days = new Set(), Q = {};
-  (ops.posOrders || []).filter(o => o.branchId === branchId && o.status !== 'void' && o.date >= from && o.date <= td).forEach(o => { days.add(o.date); (o.lines || []).forEach(l => { if (l.productId) Q[l.productId] = (Q[l.productId] || 0) + (Number(l.qty) || 0); }); });
+  (ops.posOrders || []).filter(o => o.branchId === branchId && o.status !== 'void' && o.date >= from && o.date <= td).forEach(o => { days.add(o.date); posItemLines(o).forEach(l => { if (l.productId) Q[l.productId] = (Q[l.productId] || 0) + (Number(l.qty) || 0); }); });
   (ops.productSales || []).filter(r => r.branchId === branchId && r.from >= from && r.to <= td).forEach(r => { for (let d = r.from; d <= r.to; d = anDay(d, 1)) days.add(d); (r.lines || []).forEach(l => { Q[l.productId] = (Q[l.productId] || 0) + (Number(l.qty) || 0); }); });
   const S = dailySales(ops, [branchId])[branchId] || {}; const rev = sum([...days], d => S[d] || 0);
   const qps = {}; if (rev > 0) Object.entries(Q).forEach(([k, v]) => { if (v > 0) qps[k] = v / rev; });
@@ -17135,7 +17353,7 @@ export { mktUnmergeBlock, splitOps, composeOps, outOfScopeRecords, MKT_RW_KEY, r
 export { moveIdx, RowGrip, RECUR_AR, recurNext, recurDue };
 export { peekDoc, DocLink, DocPeekHost, VoiceSearchHost, voiceNorm };
 export { fefoPick, lotsFor, projList, projectPL, projNextCode };
-export { finPicture, fxRevalOn, fxRevalRows, CLOSE_TASKS_DEF, closeListOn, closeAutoChecks, closeManualState, closeLockBlock, equityStatement, EQS_ROWS, posGlOpen, posGlAt, posGlRanges, posGlFrom, posGlPv, posGlOn, posGlDay, posGlLines, posGlCheck, lvReturnPlan, lvTrack, leaveSignDoc, appOfTab, appTaskBadges, homeKpis, isLateWork, HUB_BASE, hubTabs, HR_TABS, refsApi, docxPages, textPages, xlsxPages, cfoDash, REC_PRI, REC_DEPT, finRecs, recRealized, CTL_SEV, CTL_ST, CTL_OPEN, CTL_CAT, CTL_FLOW, ctlScan, caseSync, caseMove, FA_RATIOS, faSnap, faQuality, finAnalyze, MCP_KINDS, mcpPlanJournal, mcpPlanReclass, mcpApplyReclass, mcpPlanExp, MCP_XI_HEAD, mcpApi, invPayments, INV_CLS, XI_CLS, accClsOf, invCls, PJ_PRE, IMP_PRE, pjNumber, pjStamp, pjBackfill, pjMissing, XI_KW, XI_AR, XI_TEMPLATE, xiDetect, xiPlan, xiRecords, xiNum, CAT_FOR, catListOf, catsFor, catOf, recDomains, DOMAIN_DEF, domCfgOf, domOk, domFilter, userBrIds, DomainChips, usersApi, closingImgs, closingArchiveOne, closingStripImgs, posKey, posYmOf, posSplitOn, posSplitDoc, posJoin, brRead, brWrite, posSplitBranch, posUnsplitBranch, LOY_AUDIT_WHY, loyAudit, AI_GROWTH_PRESETS, growthDigest, aiGrowthClean, aiGrowthAsk, COMMS_PROVIDERS, COMMS_CH, COMMS_VARS, COMMS_DEF, commsCfgOf, commsRender, smsParts, commsQuiet, commsTplErr, BRR_CH, brReport, dtLocal, REC_DEF, recCfgOf, recIndex, recFor, recStats, CAMP_ST, campNextNo, campStatusOf, campStats, campSpend, AUTO_DEFAULTS, autoCfgOf, payrollAccrualApply, poSuggestions, autoAlerts, prevMonthOf, SecPager, recurApply, EDIT_KINDS, editPermOf, canEditRec, BrandSymbol, BrandLockup, ACCT_GROUPS, MYWORK_CATS, myWorkGroups, MyWork, rptShell, RPT_TEMPLATES, rptFmt, rptFlat, rptTotals, rptHtml, printReport, rptXlsxRows, makeRptXlsx, rptCsv, rptDownload, DEP_METHODS, depMethod, deprSchedule, glLedger, acctActivity, COST_METHODS, costMethod, stockCostingAvg, stockCostingFifo, costCompare, itemBin, binSort, binOrder, pmPeriod, profitMatrix, RFQ_ST, rfqNextNo, rfqCompare, rfqToPOs, DLV_ST, DLV_NEXT, posDrivers, dlvNeeded, dlvRecord, dlvMove, dlvSummary, posAreas, tableArea, areasErr, salesByArea, computeSmartAlerts, stockShortages, CV_KIND, cvNextNo, partyOpenDocs, applyCashVoucher, cashVoucherHtml, VCH_T, VCH_TRF, vchTypeOf, assignVouchers, voucherList, voucherHtml, saleDeductFrom, saleDeductOn, saleUse, saleRecipeItems, saleDayUse, syncSaleMoves, itemLedger, UOM_LIST, UOM_GROUPS, uomOf, uomConv, uomOk, uomNeeded, lineUnits, lineFac, UomSelect, Notifications, closeAlertsCfg, closeAlertEvents, closeAlertFor, shiftSumText, waShare, CLOSE_ALERT_ROLES, posDocView, printScreen, cutoutPixels, productThumb, prepWasteStats, normDigits, normScan, posPaper, posPaperDev, setPosPaperDev, prepShelfH, prepBatchState, PREP_ST, canBrPurchase, brSigCheck, BR_PURCHASERS, poWhOf, syncPoInbox, INV_BILLERS, ITEM_NEW_TYPES, itemsSeq, nextItemCode, vatNoOk, supVatOf, ItemPick, A4_CSS, posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim, restCfg, coversOf, posWaiters, coversEff, salesByWaiter, tabRemain, tabSplitItems, tabSplitSet, tabPartPriced, tabSplitReset, tabPayPart, tabMerge, kdsStations, kdsStationOf, kdsStationsErr, kdsSplit, kdsPrepReport, kdsPrepSheets, prepItemId, prepItemOf, prodNeeds, prodCheck, prodMoves, clrMerge, clrRead, clrViewStats, ppvReport, invTurnover, dirOf, isMzbk, mzbkDecrypt, clrData, clrRecord, clrSigRef, clrDiff, clrCompare, clrOn, clrState, clrMirror, clrLoad, clrSeed, fjData, fjStatus, fjRecord, fjDiff, fjCompare, fjOn, fjState, fjMirror, fjLoad, fpLockedTo, fpOn, fpLoad, fmLoad, fmSet, fjSeed, fjLegacyRecord, dedupeSameId, findRecentDups, negStockChanges, negStockMsg, FD_KINDS, fdDate, fdData, fdProg, fdPaid, fdRecord, fdDiff, fdCompare, fdLoad, fdSeed, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
+export { finPicture, fxRevalOn, fxRevalRows, CLOSE_TASKS_DEF, closeListOn, closeAutoChecks, closeManualState, closeLockBlock, equityStatement, EQS_ROWS, posGlOpen, posGlAt, posGlRanges, posGlFrom, posGlPv, posGlOn, posGlDay, posGlLines, posGlCheck, lvReturnPlan, lvTrack, leaveSignDoc, appOfTab, appTaskBadges, homeKpis, isLateWork, HUB_BASE, hubTabs, HR_TABS, refsApi, docxPages, textPages, xlsxPages, cfoDash, REC_PRI, REC_DEPT, finRecs, recRealized, CTL_SEV, CTL_ST, CTL_OPEN, CTL_CAT, CTL_FLOW, ctlScan, caseSync, caseMove, FA_RATIOS, faSnap, faQuality, finAnalyze, MCP_KINDS, mcpPlanJournal, mcpPlanReclass, mcpApplyReclass, mcpPlanExp, MCP_XI_HEAD, mcpApi, invPayments, INV_CLS, XI_CLS, accClsOf, invCls, PJ_PRE, IMP_PRE, pjNumber, pjStamp, pjBackfill, pjMissing, XI_KW, XI_AR, XI_TEMPLATE, xiDetect, xiPlan, xiRecords, xiNum, CAT_FOR, catListOf, catsFor, catOf, recDomains, DOMAIN_DEF, domCfgOf, domOk, domFilter, userBrIds, DomainChips, usersApi, closingImgs, closingArchiveOne, closingStripImgs, posKey, posYmOf, posSplitOn, posSplitDoc, posJoin, brRead, brWrite, posSplitBranch, posUnsplitBranch, LOY_AUDIT_WHY, loyAudit, AI_GROWTH_PRESETS, growthDigest, aiGrowthClean, aiGrowthAsk, COMMS_PROVIDERS, COMMS_CH, COMMS_VARS, COMMS_DEF, commsCfgOf, commsRender, smsParts, commsQuiet, commsTplErr, BRR_CH, brReport, dtLocal, REC_DEF, recCfgOf, recIndex, recFor, recStats, CAMP_ST, campNextNo, campStatusOf, campStats, campSpend, AUTO_DEFAULTS, autoCfgOf, payrollAccrualApply, poSuggestions, autoAlerts, prevMonthOf, SecPager, recurApply, EDIT_KINDS, editPermOf, canEditRec, BrandSymbol, BrandLockup, ACCT_GROUPS, MYWORK_CATS, myWorkGroups, MyWork, rptShell, RPT_TEMPLATES, rptFmt, rptFlat, rptTotals, rptHtml, printReport, rptXlsxRows, makeRptXlsx, rptCsv, rptDownload, DEP_METHODS, depMethod, deprSchedule, glLedger, acctActivity, COST_METHODS, costMethod, stockCostingAvg, stockCostingFifo, costCompare, itemBin, binSort, binOrder, pmPeriod, profitMatrix, RFQ_ST, rfqNextNo, rfqCompare, rfqToPOs, DLV_ST, DLV_NEXT, posDrivers, dlvNeeded, dlvRecord, dlvMove, dlvSummary, posAreas, tableArea, areasErr, salesByArea, computeSmartAlerts, stockShortages, CV_KIND, cvNextNo, partyOpenDocs, applyCashVoucher, cashVoucherHtml, VCH_T, VCH_TRF, vchTypeOf, assignVouchers, voucherList, voucherHtml, saleDeductFrom, saleDeductOn, saleUse, saleRecipeItems, saleDayUse, syncSaleMoves, itemLedger, UOM_LIST, UOM_GROUPS, uomOf, uomConv, uomOk, uomNeeded, lineUnits, lineFac, UomSelect, Notifications, closeAlertsCfg, closeAlertEvents, closeAlertFor, shiftSumText, waShare, CLOSE_ALERT_ROLES, posDocView, printScreen, cutoutPixels, productThumb, prepWasteStats, normDigits, normScan, posPaper, posPaperDev, setPosPaperDev, prepShelfH, prepBatchState, PREP_ST, canBrPurchase, brSigCheck, BR_PURCHASERS, poWhOf, syncPoInbox, INV_BILLERS, ITEM_NEW_TYPES, itemsSeq, nextItemCode, vatNoOk, supVatOf, ItemPick, A4_CSS, posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim, restCfg, coversOf, posWaiters, coversEff, salesByWaiter, tabRemain, tabSplitItems, tabSplitSet, tabPartPriced, tabSplitReset, tabPayPart, tabMerge, tabSplitEqual, tabPartTotals, tabPayWhole, posConflicts, POS_CONFLICT_ROLES, posConflictResolve, tabConflictMark, posConflictBlock, tabCouponMove, EQ_LINE_NAME, posDiscOf, posItemLines, posRetEqItems, posRetItemLines, EQ_CP_USE, tabEqCpRelease, tabEqCpAllVoid, tabEqCpMark, posConflictOn, posConflictLate, pcrWrite, pcrLoad, pcrCached, pcfRec, pcfWrite, pcfPut, pcfLoad, pcfCached, pcfMissing, kdsStations, kdsStationOf, kdsStationsErr, kdsSplit, kdsPrepReport, kdsPrepSheets, prepItemId, prepItemOf, prodNeeds, prodCheck, prodMoves, clrMerge, clrRead, clrViewStats, ppvReport, invTurnover, dirOf, isMzbk, mzbkDecrypt, clrData, clrRecord, clrSigRef, clrDiff, clrCompare, clrOn, clrState, clrMirror, clrLoad, clrSeed, fjData, fjStatus, fjRecord, fjDiff, fjCompare, fjOn, fjState, fjMirror, fjLoad, fpLockedTo, fpOn, fpLoad, fmLoad, fmSet, fjSeed, fjLegacyRecord, dedupeSameId, findRecentDups, negStockChanges, negStockMsg, FD_KINDS, fdDate, fdData, fdProg, fdPaid, fdRecord, fdDiff, fdCompare, fdLoad, fdSeed, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
 export { ClosingForm };
 // v38.3 — للاختبارات الآلية (tests/): دوال المحرك والشاشات تُستورد من النواة مباشرة
 export { stockCosting, eosEntitledAmt, eosFullAmt, findDupInvoices, invNoNorm, promoLineDisc, tafqeet, MktGrowth, Hub, Launcher, PosApp, Inventory, Partners, SalesHub, QrFeedback, AppsCenter, BranchWarehouse, Admin, AuditView, Accounting, emptyOrg, emptyOps, HUBS };

@@ -48,7 +48,7 @@ test('(1) «لكل مرتجع وحده»: كل مرتجع حتى الحد بلا
   assert.equal(E.posOffRetRule(o, 'b2').mode, 'total', 'لكل فرع');
 });
 
-test('(1) المجموع لكل يوم عمل أو لكل وردية؛ الوردية غير المعروفة ⇒ كل غير المراجَع (الأشد)', () => {
+test('(1) المجموع لكل يوم عمل أو لكل وردية؛ الوردية غير المعروفة ⇒ حد اليوم (قرار المالك v56.56؛ كان: كل غير المراجَع)', () => {
   const day = org({ offRetPeriod: { b1: 'day' } });
   assert.deepEqual(E.posOffRetCheck(day, orders(), [], 'b1', 65, { date: D1 }), { ok: true, lim: 100, used: 35, left: 0, period: 'day' }, 'مرتجع الأمس خارج اليوم');
   assert.equal(E.posOffRetCheck(day, orders(), [], 'b1', 65.01, { date: D1 }).err, 'يتجاوز حد المرتجع دون اتصال لهذا الفرع لهذا اليوم (100.00) — غير المراجَع 35.00؛ انتظر عودة الاتصال');
@@ -56,9 +56,11 @@ test('(1) المجموع لكل يوم عمل أو لكل وردية؛ الور�
   const sh = org({ offRetPeriod: { b1: 'shift' } });
   assert.deepEqual(E.posOffRetCheck(sh, orders(), [], 'b1', 75, { date: D1, shiftId: 's0' }), { ok: true, lim: 100, used: 25, left: 0, period: 'shift' });
   assert.deepEqual(E.posOffRetCheck(sh, orders(), [], 'b1', 100, { date: D1, shiftId: 's9' }), { ok: true, lim: 100, used: 0, left: 0, period: 'shift' });
-  // بلا وردية (رد بغير النقد دون وردية مفتوحة) ⇒ مجموع كل غير المراجَع
-  assert.deepEqual(E.posOffRetCheck(sh, orders(), [], 'b1', 40, { date: D1, shiftId: '' }), { ok: true, lim: 100, used: 60, left: 0, period: 'none' });
-  assert.match(E.posOffRetCheck(sh, orders(), [], 'b1', 40.01, { date: D1 }).err, /لهذا الفرع \(100\.00\) — غير المراجَع 60\.00/);
+  // v56.56 (قرار المالك): بلا وردية (رد بغير النقد دون وردية مفتوحة) ⇒ حد اليوم — مرتجع الأمس خارج اليوم
+  assert.deepEqual(E.posOffRetCheck(sh, orders(), [], 'b1', 65, { date: D1, shiftId: '' }), { ok: true, lim: 100, used: 35, left: 0, period: 'day' });
+  assert.equal(E.posOffRetCheck(sh, orders(), [], 'b1', 65.01, { date: D1 }).err, 'يتجاوز حد المرتجع دون اتصال لهذا الفرع لهذا اليوم (100.00) — غير المراجَع 35.00؛ انتظر عودة الاتصال');
+  // بلا وردية ولا تاريخ ⇒ الأشد كما كان
+  assert.deepEqual(E.posOffRetCheck(sh, orders(), [], 'b1', 40, {}), { ok: true, lim: 100, used: 60, left: 0, period: 'none' });
   assert.deepEqual(E.posOffRetCheck(day, orders(), [], 'b1', 40, {}).used, 60, 'بلا تاريخ ⇒ الأشد');
 });
 
@@ -271,7 +273,7 @@ async function runHeal({ flag, regs, cacheKeys }) {
   const reg = (url) => ({ active: { scriptURL: url }, unregister: () => { st.unreg.push(url); return Promise.resolve(true); } });
   const ls = mkLs(flag ? { 'mizan:posSwOn': '1' } : {}); const ss = mkLs();
   const win = { caches: { keys: async () => keys, delete: async (k) => { st.deleted.push(k); return true; } } };
-  const ctx = { navigator: { serviceWorker: { getRegistrations: async () => regs.map(reg) } }, window: win, caches: win.caches, localStorage: ls, sessionStorage: ss, location: { reload: () => { st.reload++; } } };
+  const ctx = { navigator: { serviceWorker: { getRegistrations: async () => regs.map(reg) } }, window: win, caches: win.caches, localStorage: ls, sessionStorage: ss, location: { href: 'https://pos.example/?u=1', reload: () => { st.reload++; } }, URL };
   vm.runInNewContext(code, ctx); await new Promise(r => setTimeout(r, 20)); return st;
 }
 test('(2) سكربت الشفاء: بلا العلامة كما كان (يُزال pos-sw وكل الكاش)، ومع العلامة يُستثنى pos-sw وكاشه فقط', async () => {

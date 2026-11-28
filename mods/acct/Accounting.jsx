@@ -26,10 +26,14 @@ import { makeRptXlsx } from '../../App.jsx';   // v50.0 منظومة التقا�
 import { FL_START, FL_GROUPS, flReadOn, flLoad, flEntriesOf, flBalDiff, flScope } from '../../App.jsx';   // v56.14 D4 الميزان والقوائم من الدفتر المخزّن
 import { DEP_METHODS, depMethod, deprSchedule, wfOn, wfRequired, wfState, wfCanAct, wfApprove } from '../../App.jsx';   // v49.4 طرق الإهلاك
 import { assetBrSave } from '../../App.jsx';   // v56.48 سجل مركز تكلفة الأصل (قرار المالك)
+import { pcrLoad, pcfLoad } from '../../App.jsx';   // v56.56 (F/m1)
 import { equityStatement, EQS_ROWS, closeListOn, closeAutoChecks, closeManualState, closeLockBlock, fxRevalOn, fxRevalRows } from '../../App.jsx';   // v56.20 (E2) + v56.21 (E3)   // v56.19 (FINANCE E1)
 import { ACCT_GROUPS, DocLink, RowGrip, moveIdx, RECUR_AR, recurNext, recurDue, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, projList, projectPL, projNextCode, ACCT_SECTIONS, ACC_KIND, Field, Kpi, LOCK_MSG, MizanMerge, Modal, NUM_FACE, Num, ROLES, _xe, acctSecKey, arDate, bankOfBranch, branchBanks, bsLayout, bsRowsOf, buildAccounting, buildPartners, capOK, countedClosing, customerAging, detectStmtMap, entityById, entityList, gosiRatesFor, isLayout, isRowsOf, isoD, lockedThru, makeXlsx, money, monthEnd, monthLedger, multiEntityOn, naMissing, nowISO, openDocWin, parseCsvGrid, parseMt940, parseXlsxGrid, payTotal, periodLocked, posClrOf, printA4, qrSvg, roleEdit, rolePost, snapMonths, stAddDays, stDate, stNum, sum, supplierAging, today, uid, useSecNav, zatcaTLV } from '../../App.jsx';
 
 export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }) {
+  // v56.56 (قرار المجلس F): حسم تعارضات نقطة البيع من السجل المحمي لبند مهام الإقفال (يُحمَّل فقط إن وُجدت تعارضات)
+  const [pcrL, setPcrL] = useState(null); const [pcfL, setPcfL] = useState(null); const hasPConf = !!((org.posCfg || {}).offline) || (ops.posTabs || []).some(t => (t.conflicts || []).length);
+  useEffect(() => { if (!hasPConf) return; let on = true; pcrLoad(null, true).then(L => { if (on) setPcrL(L); }); pcfLoad(null, true).then(L => { if (on) setPcfL(L); }); return () => { on = false; }; }, [hasPConf]);
   const [view, setView] = useState('jr'); const [prjF, setPrjF] = useState({ name: '', branchId: '', budget: '' }); const [prjOpen, setPrjOpen] = useState(null);   // v47.4           // jr قيود · coa دليل · tb ميزان · fs قوائم
   const [vatTab, setVatTab] = useState('form');      // v35.8: أقسام تفاصيل الإقرار
   const [vpay, setVpay] = useState(null);            // v36.1: نموذج سداد الضريبة
@@ -3048,7 +3052,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                   </Field>
                   <button className="btn pri" onClick={doLock}><Lock size={14} />قفل الفترات</button>
                 </div>
-                {(() => { const mm = lockTo || prevYm; const on = closeListOn(org); const AC = closeAutoChecks(A, ops, mm, org); const MS = closeManualState(ops, mm, org);
+                {(() => { const mm = lockTo || prevYm; const on = closeListOn(org); const AC = closeAutoChecks(A, { ...ops, posConflictRes: pcrL || [], posConflictRecs: pcfL || [] }, mm, org); const MS = closeManualState(ops, mm, org);
                   const mark = async (k, ap) => { const cur = (ops.closeTasks || []).find(t => t.month === mm && t.key === k);
                     if (ap && cur && (cur.doneById || cur.doneBy) === (me.id || me.name)) return say('يعتمد المهمة غير من أنجزها (فصل المهام)', 'no');
                     const note = ap ? '' : (window.prompt('ملاحظة أو مرجع الدليل (اختياري):') || '');
