@@ -303,3 +303,27 @@ test('تحميل بيانات الإرسال: الأعمدة الإضافية و
   const D0 = await loadPlatformData(base, get);
   assert.equal(D0.ops.commsJobs, undefined); assert.equal(D0.ops.mktConsents, undefined); assert.equal(D0.loy, undefined, 'الموصل كما كان');
 });
+
+/* ===== المرحلة H (v56.59) — التزامن: اعتماد وإرسال متزامنان للدفعة نفسها ===== */
+test('التزامن (H): اعتمادان متزامنان من المالك والمدير العام للدفعة نفسها ⇒ يُقبل واحد و«اعتُمدت سابقًا» للآخر، وسجل اعتماد واحد', async () => {
+  const H = harness();
+  assert.equal((await H.call('mk', { jobId: 'j1' }, 'submit')).status, 200);
+  const rs = await Promise.all([H.call('own', { jobId: 'j1' }, 'approve'), H.call('gm', { jobId: 'j1' }, 'approve')]);
+  assert.deepEqual(rs.map(r => r.status).sort(), [200, 409]); assert.equal(rs.find(r => r.status === 409).json.code, 'dup');
+  const ap = H.db['comms_appr/j1']; assert.ok(ap); assert.equal(ap.fields.email.stringValue, rs[0].status === 200 ? 'own@test.sa' : 'gm@test.sa', 'السجل لمن قُبل اعتماده');
+  // إرسالان متزامنان للاعتماد نفسه (قبل الاعتماد) ⇒ سجل إرسال واحد
+  const H2 = harness(); const ss = await Promise.all([H2.call('mk', { jobId: 'j1' }, 'submit'), H2.call('mk', { jobId: 'j1' }, 'submit')]);
+  assert.deepEqual(ss.map(r => r.status).sort(), [200, 409]);
+});
+
+test('التزامن (H): نقرتا «إرسال» متزامنتان (أو جهازان) ⇒ دفعة واحدة تصل للمحوّل مرة واحدة، والأخرى 409 dup، والسجل واحد', async () => {
+  const H = harness(); assert.deepEqual(await H.ready(), [200, 200]);
+  const orig = COMMS_ADAPTERS.dryrun.send; let calls = 0, msgs = 0;
+  COMMS_ADAPTERS.dryrun.send = async (batch, o) => { calls++; msgs += (batch || []).length; return orig(batch, o); };
+  try {
+    const rs = await Promise.all([H.call('gm', { jobId: 'j1' }), H.call('own', { jobId: 'j1' }), H.call('gm', { jobId: 'j1' })]);
+    assert.deepEqual(rs.map(r => r.status).sort(), [200, 409, 409]); rs.filter(r => r.status === 409).forEach(r => assert.equal(r.json.code, 'dup'));
+    assert.equal(calls, 1, 'المحوّل استُدعي مرة واحدة'); assert.equal(msgs, rs.find(r => r.status === 200).json.result.n, 'كل مستلم مرة واحدة');
+    assert.equal(Object.keys(H.db).filter(k => k.startsWith('comms_log/')).length, 1);
+  } finally { COMMS_ADAPTERS.dryrun.send = orig; }
+});

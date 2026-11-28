@@ -38,7 +38,7 @@ export function scaleData(o = {}) {
     return { id: 'inv' + i, supplierId: 's' + (i % NS), supplierName: 'مورد تجريبي ' + (i % NS), invoiceNo: 'INV-' + i, amount: amt, vatAmt: r2(amt * 15 / 115), taxable: true, date: d, dueDate: day(Math.max(0, (i % DAYS) - 30)),
       paidAmount: i % 3 ? amt : 0, ...(i % 3 ? { paidDate: d, payFund: '1201' } : {}), branchId: 'b' + (i % NB), category: i % 2 ? 'مواد خام' : 'خدمات' }; });
   const salesInvoices = Array.from({ length: NSI }, (_, i) => { const d = day(i % DAYS), tot = r2(1150 + (i % 9) * 115);
-    return { id: 'si' + i, no: 'INV-S-' + i, kind: 'invoice', terms: 'credit', customerKey: 'cust:c' + (i % NC), date: d, dueDate: day(Math.max(0, (i % DAYS) - 30)), total: tot, vat: r2(tot * 15 / 115),
+    return { id: 'si' + i, no: 'INV-S-' + i, kind: 'invoice', terms: 'credit', customerKey: 'cust:c' + (i % NC), date: d, dueDate: day(Math.max(0, (i % DAYS) - 30)), total: tot, vat: r2(tot * 15 / 115), net: r2(tot - r2(tot * 15 / 115)),
       receipts: i % 2 ? [{ date: d, amount: tot }] : [] }; });
   const ledgerEntries = []; const advances = [];
   const months = [...new Set(closings.map(c => c.date.slice(0, 7)))].sort();
