@@ -5067,7 +5067,7 @@ test('v56.58 إلغاء فاتورة جزء من تقسيم بالأصناف: ا
   assert.match(await p.locator('[data-partvoid="1"]').innerText(), new RegExp('ملغى\\s*' + n1 + '\\s*— أصنافه في المتبقي'));
   assert.equal(await p.locator('[data-part="3"] [data-partre]').count(), 1);
   assert.equal(await p.locator('[data-payrest]').isDisabled(), true, 'المتبقي الحر (حمص) مع جزء الإعادة ⇒ يُدفع جزء الإعادة أولًا');
-  assert.match(await p.locator('[data-payrestnote]').innerText(), /ادفع أولًا الجزء 3/);
+  assert.match(await p.locator('[data-payrestnote]').innerText(), /ادفع أولًا الأجزاء غير المدفوعة\s*2، 3\s*\(منها الجزء 3/, 'يسمّي الأجزاء غير المدفوعة الفعلية');
   await shot(p, 'v5658-part-void');
   await p.keyboard.press('Escape'); await p.waitForTimeout(100);
   await payPart('2', 2);

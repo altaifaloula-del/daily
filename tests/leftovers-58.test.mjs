@@ -180,7 +180,7 @@ test('(2′) tabCpHeldCarry: نقل إلى جزء جديد بالرمز نفسه
   const lv = { ...legacy, split: { ...legacy.split, parts: legacy.split.parts.map(p => p.id === p1.id ? { ...p, voided: { at: AT } } : p) } };
   assert.deepEqual(E.tabCpHeldCarry(lv, E.tabSplitReset(lv)).rel, [{ code: 'T6', use: 'o1', limited: true }]);
   // (أ) جزء جديد بالرمز نفسه ⇒ الحجز نفسه
-  const S2 = E.tabSplitItems(lv, { 0: [1, 1] }, 2, priceFree(lv, 'T6', {})); const n2 = E.tabSplitSet(lv, S2.parts, { at: AT }); const C2 = E.tabCpHeldCarry(lv, n2);
+  const S2 = E.tabSplitItems(lv, { 0: [2, 1] }, 2, priceFree(lv, 'T6', {})); assert.equal(S2.err, undefined); const n2 = E.tabSplitSet(lv, S2.parts, { at: AT }); const C2 = E.tabCpHeldCarry(lv, n2);
   assert.deepEqual(C2.rel, []); assert.deepEqual(C2.tab.split.parts.filter(p => p.cpHeld).map(p => [p.cpHeld, p.coupon.code]), [['o1', 'T6']]);
   // (ب) جزء إعادة يحمل حصته بلا رمز ⇒ يحمل الرمز والحجز (إلغاء الجزء 2 المدفوع غير الحامل)
   let tb = E.tabPayPart(lv, p2.id, payO(lv, lv.split.parts[1], 'o2'), 'ك').tab;   // الجزء 2 دُفع بالحجز المنقول
@@ -223,5 +223,5 @@ test('(D) إلغاء الحامل ثم جولة جديدة ثم إعادة تق�
   const PZ = priceFree(r1, 'T6', live1); assert.equal(PZ.coupon, null);
   const S = E.tabSplitItems(r1, { 0: [2, 1] }, 2, PZ); assert.equal(S.err, undefined); const nx = E.tabSplitSet(r1, S.parts, { at: AT });
   const C = E.tabCpHeldCarry(r1, nx); assert.deepEqual(C.rel, []);
-  assert.ok(cpDisc(C.tab) <= 600, 'الخصم الكلي ≤ 6.00'); assert.equal(cpDisc(C.tab), 400, 'حصتا الجزأين القائمين فقط (جزء الإعادة 2.00 ... وما سقط لا يُحتسب)'.length ? cpDisc(C.tab) : 0);
+  assert.ok(cpDisc(C.tab) <= 600, 'الخصم الكلي ≤ 6.00'); assert.equal(cpDisc(C.tab), 200, 'حصة جزء الإعادة 2.00 فقط (الجزآن الساقطان لم يُدفعا، والتقسيم الجديد بلا كوبون)');
 });
