@@ -53,7 +53,9 @@ export const ENGINE_EXPORTS = ['depBrRanges', 'depBrAt', 'depBrFrom', 'depBrOf',
   // v56.56 — قرارات المالك 2026-11-27 على نقطة البيع
   'posChainGapsDay', 'tabSplitEqual', 'tabPartTotals', 'tabPayWhole', 'posConflicts', 'POS_CONFLICT_ROLES', 'posConflictResolve', 'tabConflictMark', 'posConflictBlock', 'tabCouponMove', 'EQ_LINE_NAME', 'posDiscOf', 'posItemLines', 'posRetEqItems', 'posRetItemLines', 'EQ_CP_USE', 'tabEqCpRelease', 'tabEqCpAllVoid', 'tabEqCpMark', 'posConflictOn', 'posConflictLate', 'pcrWrite', 'pcrLoad', 'pcrCached', 'pcfRec', 'pcfWrite', 'pcfPut', 'pcfLoad', 'pcfCached', 'pcfMissing', 'saleRetUse', 'posSwUrlOk', 'POS_SW_WARM_MAX', 'posShellOff', 'posSwShellList',
   // v56.55 — البند F: قراءة فاتورة المورد بالذكاء الاصطناعي كمقترح
-  'AI_INV_ROLES', 'AI_INV_FIELDS', 'aiInvOn', 'aiInvCheck', 'aiInvSim', 'aiInvEdited', 'purKey', 'vatNoOk'];
+  'AI_INV_ROLES', 'AI_INV_FIELDS', 'aiInvOn', 'aiInvCheck', 'aiInvSim', 'aiInvEdited', 'purKey', 'vatNoOk',
+  // v56.57 — قراءة فاتورة الخدمات والمصروفات كمقترح
+  'AI_SVC_MAX_ACCS', 'aiSvcAccList', 'aiSvcLastAcc', 'aiSvcCheck', 'aiSvcLinesEdited'];
 
 export async function buildEngine() {
   fs.mkdirSync(cache, { recursive: true });

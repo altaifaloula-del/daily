@@ -166,6 +166,8 @@ const isoD = (dt) => dt.getFullYear() + '-' + pad2(dt.getMonth() + 1) + '-' + pa
 const today = () => isoD(new Date());
 // يوم العمل للإغلاق: ما قبل 6 صباحًا يخص وردية اليوم السابق (المطاعم تغلق بعد منتصف الليل)
 const businessDay = () => { const d = new Date(); if (d.getHours() < 6) d.setDate(d.getDate() - 1); return isoD(d); };
+// v56.57: يوم العمل لوقت معيّن (قبل 6 صباحًا = اليوم السابق) — كما businessDay(); تقرير أوقات التحضير كان يقارن تاريخ التقويم بيوم العمل فيُسقط تذاكر ما بعد منتصف الليل
+const bizDayOf = (at) => { const d = new Date(at); if (isNaN(d.getTime())) return ''; if (d.getHours() < 6) d.setDate(d.getDate() - 1); return isoD(d); };
 const nowISO = () => new Date().toISOString();
 // v52.3: الوقت المخزّن بتوقيت UTC (…Z) كان يُعرض مقصوصًا فيظهر متأخرًا 3 ساعات عن توقيت الرياض — يُحوَّل الآن للتوقيت المحلي «YYYY-MM-DD HH:MM»
 const dtLocal = (x) => { if (x == null || x === '') return ''; try { const str = String(x); if (!(x instanceof Date) && !/(Z|[+-]\d\d:?\d\d)$/.test(str)) return str.slice(0, 16).replace('T', ' ');
@@ -4065,7 +4067,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.56';
+const APP_VER = 'v56.57';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -4126,6 +4128,7 @@ export { FL_GROUPS, flLvl, flGroupOf, flUnclassified, flReversalOf, flCorrect };
 export { flReadOn, flEntriesOf, flBalDiff, flDayBefore };   // v56.14 D4
 export { ctlBarOn };
 export { AI_INV_ROLES, AI_INV_FIELDS, AI_INV_FIELD_AR, aiInvOn, aiInvCheck, aiInvSim, aiInvEdited };   // v56.55 البند F — قراءة فاتورة المورد كمقترح
+export { AI_SVC_MAX_ACCS, AI_SVC_ACC_RE, AI_SVC_CTL, aiSvcCtl, aiSvcAccList, aiSvcLastAcc, aiSvcCheck, aiSvcLinesEdited };   // v56.57 — قراءة فاتورة الخدمات والمصروفات كمقترح
 export { mktCtlOn, mktCanExport, mktCanExportAll, mktUndoPending };   // v56.35
 export { loyMonthAdj, posLoyOpening, posMisLoyRanges, posMisLoyFrom, posMisLoyAt, posGlNote };   // v56.33
 export { cvLive, cvApprRanges, cvApprAt, cvApprOpenFrom, cvNeedsAppr, cvApprove };   // v56.32
@@ -11981,7 +11984,8 @@ function aiInvCheck(read, ctx) {
   const td = String(c.today || '').slice(0, 10);
   if (date && td && date > td) w('future_date', 'تاريخ الفاتورة ' + date + ' بعد اليوم');
   if (date && periodLocked({ periodLocks: { lockedThrough: String(c.lockedThrough || '') } }, date)) w('locked_period', 'تاريخ الفاتورة في فترة مقفلة (حتى ' + c.lockedThrough + ') — لن يُقبل الحفظ');
-  if (supplierId && fields.invoiceNo) { const k0 = purKey({ supplierId, invoiceNo: fields.invoiceNo }); const o = k0 && (Array.isArray(c.invoices) ? c.invoices : []).find(i => i && (!c.excludeId || i.id !== c.excludeId) && purKey(i) === k0);   // الفاتورة قيد التعديل مستثناة كما في فحص الحفظ
+  const dupSup = supplierId || (c.pick && sups.some(s => s.id === c.pick) ? c.pick : null);   // v56.57: أو المرشّح الذي اختاره المستخدم صراحة
+  if (dupSup && fields.invoiceNo) { const k0 = purKey({ supplierId: dupSup, invoiceNo: fields.invoiceNo }); const o = k0 && (Array.isArray(c.invoices) ? c.invoices : []).find(i => i && (!c.excludeId || i.id !== c.excludeId) && purKey(i) === k0);   // الفاتورة قيد التعديل مستثناة كما في فحص الحفظ
     if (o) w('dup_invoice', 'رقم الفاتورة ' + fields.invoiceNo + ' مسجّل لهذا المورد' + (o.date ? ' بتاريخ ' + String(o.date).slice(0, 10) : '')); }
   if (cur && cur !== 'SAR') w('currency', 'عملة الفاتورة ' + cur + ' ليست الريال السعودي');
   const low = Object.keys(conf).filter(k => conf[k] < 0.6); if (low.length) w('low_conf', 'ثقة منخفضة في: ' + low.map(k => AI_INV_FIELD_AR[k] || k).join('، '));
@@ -11991,6 +11995,72 @@ function aiInvCheck(read, ctx) {
 }
 /** حقول النموذج المقترحة التي عُدّلت بعد التطبيق (للسجل aiRead.edited) — vals قيم التطبيق، cur القيم عند الحفظ */
 const aiInvEdited = (applied, vals, cur) => (Array.isArray(applied) ? applied : []).filter(k => String(((vals || {})[k]) ?? '') !== String(((cur || {})[k]) ?? ''));
+/* v56.57 — قراءة «فاتورة الخدمات والمصروفات» بالذكاء الاصطناعي كـ«مقترح» (قرار المالك 2026-11-27، docs/finance/07-AI-INVOICE-READ.md).
+   المفتاح نفسه purchaseCfg.aiRead والأدوار نفسها AI_INV_ROLES (النموذجان يفتحهما الشرط نفسه canPay في تطبيق المشتريات — اختبار انجراف).
+   aiSvcCheck نقية وحتمية: كل فحوص aiInvCheck على الرأس، وفوقها البنود: الضريبة مقابل المبلغ، مجموع البنود مقابل الصافي والإجمالي،
+   والحساب المقترح من القائمة المسموح بها للنموذج وحدها (غير ذلك null + تحذير)، وإلا حساب آخر فاتورة خدمات لهذا المورد «من آخر استخدام».
+   لا اختيار مورد بالاسم، ولا إنشاء مورد أو حساب. */
+const AI_SVC_MAX_ACCS = 300;
+const AI_SVC_ACC_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,29}$/;   // أرقام الدليل وحسابات المنشأة (مثل MZ-…) — نسخة الخادم في server-aiinv.js
+const AI_SVC_INVIS = /[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g;   // محارف الاتجاه والمحارف الخفية — نسخة الخادم في server-aiinv.js
+/* v56.57 (قرار المجلس 1) — الحسابات التي لا تُرسل للذكاء الاصطناعي ولا تُقترح: حسابات الرقابة والمقابلة.
+   النقد والبنوك والوسطاء (cash)، الذمم 13xx، سلف الموظفين 1401، أوامر الصرف 1402، ضريبة المدخلات 1501، المخزون 1601 ومستودعاته،
+   بضاعة في الطريق 1609، مجمع الإهلاك 1791 وحساب مجمع الهبوط المضبوط، وحسابات المقابلة (CTL_CONTRA) و5150 «بضاعة آخر المدة».
+   الاختيار اليدوي في النموذج يبقى على كل الحسابات كما هو (قرار v44.3). */
+const AI_SVC_CTL = ['1101', '1201', '1380', '1399', '1401', DS_PRE_ACC, '1501', '1601', '1609', '1791', '5150',
+  '5201', '5202', '5203', '5204', '5701', '5401', '5803', '5804', '5801'];   // + مصروفات يرحّلها النظام آليًا ولا تأتي من فاتورة مورد (قرار المجلس 2026-11-28): الرواتب، الإهلاك، عجز الصندوق، فروق العملة، خسائر الأصول
+const aiSvcCtl = (a, org) => { const c = String((a && a.code) || ''); const imp = String((((org || {}).impair) || {}).accAcc || ''), impL = String((((org || {}).impair) || {}).lossAcc || '');
+  return !!(a && (a.cash || a.whId || a.appId)) || AI_SVC_CTL.includes(c) || CTL_CONTRA.has(c) || /^1[1-3]/.test(c) || /^1601/.test(c) || /^1[89]\d{2}$/.test(c) || (!!imp && c === imp) || (!!impL && c === impL); };   // ومصروف الهبوط المضبوط
+/** قائمة الحسابات المرسلة للخادم والمسموح باقتراحها: من حسابات الدليل (buildAccounting) — المصروفات ثم الأصول غير الرقابية — رمز واسم فقط، 300 على الأكثر */
+const aiSvcAccList = (accs, org) => { const L = (Array.isArray(accs) ? accs : []).filter(a => a && AI_SVC_ACC_RE.test(String(a.code || '')) && String(a.name || '').replace(AI_SVC_INVIS, '').trim() && !aiSvcCtl(a, org));
+  const rank = (a) => a.kind === 'exp' ? 0 : a.kind === 'asset' ? 1 : 2;
+  return L.filter(a => rank(a) < 2).sort((x, y) => rank(x) - rank(y) || String(x.code).localeCompare(String(y.code))).slice(0, AI_SVC_MAX_ACCS)
+    .map(a => ({ code: String(a.code), name: String(a.name).replace(/[\u0000-\u001F\u007F]/g, ' ').replace(AI_SVC_INVIS, '').trim().slice(0, 120) })); };
+/** حساب آخر فاتورة خدمات لهذا المورد (الأحدث تاريخًا ثم إنشاءً ثم رقمًا — حتمي)، من الحسابات المسموح بها فقط */
+function aiSvcLastAcc(invoices, supplierId, allowed, excludeId) {
+  if (!supplierId) return null; const ok = allowed instanceof Set ? allowed : new Set((allowed || []).map(String));
+  const L = (Array.isArray(invoices) ? invoices : []).filter(i => i && i.kind === 'svc' && i.supplierId === supplierId && !i.creditNote && !i.supDebit && (!excludeId || i.id !== excludeId) && Array.isArray(i.expLines))
+    .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || String(b.createdAt || '').localeCompare(String(a.createdAt || '')) || String(b.id || '').localeCompare(String(a.id || '')));
+  for (const i of L) { const l = i.expLines.find(x => x && x.accCode && ok.has(String(x.accCode))); if (l) return String(l.accCode); }
+  return null;
+}
+function aiSvcCheck(read, ctx) {
+  const r = read && typeof read === 'object' && !Array.isArray(read) ? read : {}; const c = ctx && typeof ctx === 'object' ? ctx : {};
+  const raw = (Array.isArray(r.lines) ? r.lines : []).slice(0, 100).filter(l => l && typeof l === 'object' && !Array.isArray(l));
+  // الرأس بفحوص aiInvCheck كما هي (البنود بالمبلغ وحده لفحص مجموعها مقابل الصافي)
+  const base = aiInvCheck({ ...r, lines: raw.map(l => ({ desc: l.desc, amount: l.amount })) }, c);
+  // الخضوع لكل بند: إن قُرئت ضريبة كل البنود يُكتفى بفحصها بندًا بندًا (البند المعفى أو الصفري يجعل ضريبة الرأس أقل من النسبة × الصافي دون خطأ)
+  const lineVatAll = raw.length > 0 && raw.every(l => aiInvNum(l.amount) != null && aiInvNum(l.vat) != null);
+  const W = base.warnings.filter(x => !(lineVatAll && x.code === 'vat_rate')); const w = (code, text) => W.push({ code, text });
+  const accs = (Array.isArray(c.accounts) ? c.accounts : []).filter(a => a && a.code != null).map(a => ({ code: String(a.code), name: String(a.name || '') }));
+  const allowed = new Set(accs.map(a => a.code)); const nameOf = Object.fromEntries(accs.map(a => [a.code, a.name]));
+  const sups = (Array.isArray(c.suppliers) ? c.suppliers : []).filter(s => s && s.id && s.active !== false);
+  // مورد آخر استخدام: المطابَق بالرقم الضريبي، أو المختار صراحة من المرشّحين (c.pick) — لا بالاسم آليًا
+  const supFor = base.supplierId || (c.pick && sups.some(s => s.id === c.pick) ? c.pick : null);
+  const last = aiSvcLastAcc(c.invoices, supFor, allowed, c.excludeId);
+  const rate = c.taxRate != null && isFinite(Number(c.taxRate)) ? Number(c.taxRate) : 15;
+  const bad = [], none = [], vatBad = [], neg = [];
+  const lines = raw.map((l, i) => { const amount = aiInvNum(l.amount), vat = aiInvNum(l.vat); const code0 = aiInvStr(l.accountCode, 30);
+    let accCode = null, accFrom = null; const isNeg = amount != null && amount < 0;
+    if (isNeg) neg.push(amount);   // بند خصم: لا يُطبَّق ولا يُقترح له حساب (قرار المجلس 3)
+    else { if (code0 && allowed.has(code0)) { accCode = code0; accFrom = 'ai'; } else if (code0) bad.push(i + 1);
+      if (!accCode && last) { accCode = last; accFrom = 'last'; }
+      if (!accCode) none.push(i + 1); }
+    if (c.taxOn !== false && amount != null && vat != null && vat > 0.004) { const exp = Math.round(amount * rate) / 100; if (Math.abs(vat - exp) > Math.max(0.05, Math.abs(exp) * 0.005)) vatBad.push(i + 1); }
+    return { desc: aiInvStr(l.desc, 200), amount, vat, taxable: vat == null ? null : vat > 0.004, accCode, accName: accCode ? (nameOf[accCode] || '') : '', accFrom, ...(isNeg ? { neg: true } : {}) }; });
+  if (bad.length) w('acc_unknown', 'رمز الحساب المقترح غير موجود في حسابات هذا النموذج للبند ' + bad.join('، ') + ' — لم يُعتمد');
+  if (lines.some(l => l.accFrom === 'last')) w('acc_last', 'حساب البند ' + lines.map((l, i) => l.accFrom === 'last' ? i + 1 : 0).filter(Boolean).join('، ') + ' من آخر استخدام لهذا المورد — تحقق أنه يناسب الخدمة');
+  if (none.length) w('acc_missing', 'بلا حساب مقترح للبند ' + none.join('، ') + ' — اختر الحساب');
+  neg.forEach(a => w('line_neg', 'بند خصم مقروء (−' + money(Math.abs(a)) + ') لم يُطبَّق — أدخله يدويًا إن لزم'));
+  if (vatBad.length) w('line_vat', 'ضريبة البند ' + vatBad.join('، ') + ' لا تساوي ' + rate + '% من مبلغه');
+  const T = base.fields.total;
+  if (T != null && lines.length && lines.every(l => l.amount != null && l.vat != null)) { const s = Math.round(lines.reduce((a, l) => a + l.amount + l.vat, 0) * 100) / 100;
+    if (Math.abs(s - T) > 0.05) w('lines_total', 'مجموع البنود مع ضريبتها (' + money(s) + ') لا يساوي الإجمالي (' + money(T) + ')'); }
+  return { fields: { ...base.fields, lines }, supplierId: base.supplierId, supplierCandidates: base.supplierCandidates, warnings: W, lastAcc: last };
+}
+/** هل عُدّلت البنود المطبّقة قبل الحفظ؟ (العدد أو الوصف أو الحساب أو المبلغ أو الخضوع) — للسجل aiRead.edited ‹lines› */
+const aiSvcLinesEdited = (applied, cur) => { const k = (L) => JSON.stringify((Array.isArray(L) ? L : []).map(l => [String((l && l.desc) ?? '').trim(), String((l && l.accCode) ?? ''), String(Number((l && l.net) || 0)), !!(l && l.taxable)]));
+  return k(applied) !== k(cur); };
 /** اختيار صنف من الأصناف المضافة مرتّبة بالرمز التسلسلي — بحث بالرمز أو الاسم أو الباركود (المسح بالماسح يختار مباشرة) */
 // v45.2 — قراءة المسح بأي صيغة: الأرقام العربية-الهندية (٠١٢…) والفارسية (۰۱۲…) تُحوَّل للأرقام الإنجليزية،
 //   وإن كانت لوحة مفاتيح الجهاز عربية فالقارئ يكتب حروفًا عربية مكان الإنجليزية (P ⇐ «ح») — تُعاد لحروفها حسب تخطيط لوحة المفاتيح العربية القياسي.
@@ -12855,7 +12925,7 @@ function kdsSplit(org, brId, x, products) {
 /** تقرير أوقات التحضير: من وصول التذكرة (at) حتى «جاهز» (readyAt) — لكل محطة ولكل صنف؛ المتأخر = أكبر من الهدف بالدقائق (بلا هدف: null) */
 function kdsPrepReport(tickets, opt = {}) {
   const tgt = Number(opt.target) || 0, r1 = (v) => Math.round(v * 10) / 10;
-  const L = (tickets || []).filter(k => k && k.at && k.readyAt && (!opt.branchId || k.branchId === opt.branchId)).filter(k => { const d = k.date || isoD(new Date(k.at)); return (!opt.from || d >= opt.from) && (!opt.to || d <= opt.to); })
+  const L = (tickets || []).filter(k => k && k.at && k.readyAt && (!opt.branchId || k.branchId === opt.branchId)).filter(k => { const d = k.date || bizDayOf(k.at); return (!opt.from || d >= opt.from) && (!opt.to || d <= opt.to); })
     .map(k => ({ k, m: (Date.parse(k.readyAt) - Date.parse(k.at)) / 60000 })).filter(x => x.m >= 0);
   const agg = (m, key, name, mins, qty) => { const x = m.get(key) || { key, name, n: 0, qty: 0, sum: 0, max: 0, late: 0 }; x.n++; x.qty += qty; x.sum += mins; x.max = Math.max(x.max, mins); if (tgt && mins > tgt) x.late++; m.set(key, x); };
   const S = new Map(), I = new Map();
