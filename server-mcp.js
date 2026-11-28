@@ -358,7 +358,7 @@ export function mountMcp(app, { audit = null, refs = null, express, requireMembe
   };
   // v54.5 — المرحلة 6: قيد تصحيحي من «وكيل المراجعة» يمر بنفس تحقق propose_journal_entry ويُحفظ مقترحًا بانتظار اعتماد مسؤول النظام — لا ترحيل مباشر
   const REV_ROLES = new Set(['system_admin', 'finance_department', 'accountant', 'general_management', 'head_office']);
-  app.post('/api/mcp/proposals/review', express.json({ limit: '64kb' }), requireMember, lim, async (req, res) => {
+  app.post('/api/mcp/proposals/review', requireMember, lim, express.json({ limit: '64kb' }), async (req, res) => {
     if (!req.user || !REV_ROLES.has(req.user.role)) return res.status(403).json({ error: 'للمالية والإدارة فقط' });
     const t = tenantOf(req); if (!t || !t.sa) return res.status(409).json({ error: 'لم يُضبط حساب الخدمة على الخادم', code: 'no-sa' });
     const b = req.body || {}; const caseNo = String(b.caseNo || '').slice(0, 20);
@@ -372,7 +372,7 @@ export function mountMcp(app, { audit = null, refs = null, express, requireMembe
     const t = admin(req, res); if (!t) return;
     try { res.json({ proposals: (await propList(t)).slice(0, 200) }); } catch (e) { res.status(502).json({ error: e.message }); }
   });
-  app.post('/api/mcp/proposals/decide', express.json({ limit: '64kb' }), requireMember, lim, async (req, res) => {
+  app.post('/api/mcp/proposals/decide', requireMember, lim, express.json({ limit: '64kb' }), async (req, res) => {
     const t = admin(req, res); if (!t) return;
     const b = req.body || {}; const id = String(b.id || ''); const dec = String(b.decision || '');
     if (!/^mp-\d{8}-[a-f0-9]{10}$/.test(id) || !['applied', 'rejected'].includes(dec)) return res.status(400).json({ error: 'طلب غير صالح' });

@@ -12,7 +12,7 @@
  * لا يحذف شيئًا ولا يلمس مشروع الطيف أبدًا.
  */
 import fs from 'node:fs'; import path from 'node:path'; import { fileURLToPath, pathToFileURL } from 'node:url';
-import { tenantConfigError, PLANS, TENANT_REGIONS } from '../tenant.js';
+import { tenantConfigError, PLANS, TENANT_REGIONS, okStrictEmail, shq } from '../tenant.js';
 import { TENANT_STATUSES, STATUS_AR } from '../plans.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -25,7 +25,7 @@ export function validateArgs(a) {
   if (!okId(a.id)) errs.push('--id: حروف إنجليزية صغيرة وأرقام وشرطة (2–22) وليس default');
   if (!a.name || String(a.name).trim().length < 2) errs.push('--name: اسم المنشأة مطلوب');
   if (!PLANS.includes(a.plan || '')) errs.push('--plan: ' + PLANS.join(' | '));
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(a.owner || '')) errs.push('--owner: بريد مالك المنشأة مطلوب (يُثبَّت مديرًا قبل فتح الرابط)');
+  if (!okStrictEmail(a.owner || '')) errs.push('--owner: بريد مالك المنشأة مطلوب (يُثبَّت مديرًا قبل فتح الرابط)');
   if (a.billing && !/^[A-Z0-9]{6}-[A-Z0-9]{6}-[A-Z0-9]{6}$/.test(a.billing)) errs.push('--billing: صيغة حساب الفوترة XXXXXX-XXXXXX-XXXXXX');
   return errs;
 }
@@ -50,7 +50,9 @@ export function statusPlan(a) {
 
 /** خطوات التهيئة بالترتيب — كل خطوة: عنوان، وأوامر (إن وُجدت)، وملاحظة */
 export function provisionPlan(a) {
-  const P = projectIdOf(a.id), q = (s) => '"' + String(s).replace(/"/g, '\\"') + '"';
+  // v56.59 — لا أمر بمدخلات غير صالحة، وكل نص حر مقتبس اقتباسًا مفردًا (لا $() ولا `` ولا ; تُنفَّذ)
+  const errs = validateArgs(a); if (errs.length) throw new Error(errs.join('\n'));
+  const P = projectIdOf(a.id), q = shq;
   const K = a.id.toUpperCase().replace(/-/g, '_');
   return [
     { t: 'إنشاء مشروع Google Cloud مستقل للمنشأة', cmd: ['gcloud projects create ' + P + ' --name=' + q('Muktasab ' + a.id)] },
@@ -63,7 +65,7 @@ export function provisionPlan(a) {
     { t: 'تثبيت مالك المنشأة مديرًا قبل نشر الرابط (يغلق باب «أول من يسجّل يصبح مديرًا»)', cmd: ['curl -sS -X PATCH "https://firestore.googleapis.com/v1/projects/' + P + '/databases/(default)/documents/platform/admins" -H "Authorization: Bearer $(gcloud auth print-access-token)" -H "Content-Type: application/json" -d \'{"fields":{"emails":{"arrayValue":{"values":[{"stringValue":"' + String(a.owner).toLowerCase() + '"}]}},"at":{"integerValue":"' + Date.now() + '"}}}\''] },
     { t: 'تسجيل حالة الاشتراك «نشط» (لا يغيّرها أي حساب في المنشأة — حساب الخدمة فقط)', cmd: [subPatch(P, 'active', true)], note: 'الخطة نفسها في السجل وعلى الخادم (MQ_TENANTS_JSON)' },
     { t: 'تقييد مفتاح الويب بنطاق المنصة', cmd: [], note: 'Google Cloud ← APIs & Services ← Credentials ← قيود HTTP referrer على نطاق مُكتسَب' },
-    { t: 'إضافة المنشأة إلى السجل', cmd: ['node scripts/tenant-provision.mjs registry --id ' + a.id + ' --name ' + q(a.name) + ' --plan ' + a.plan + ' --owner ' + a.owner + ' --sdk sdkconfig.json'], note: 'ثم طلب دمج يعتمده المالك' },
+    { t: 'إضافة المنشأة إلى السجل', cmd: ['node scripts/tenant-provision.mjs registry --id ' + a.id + ' --name ' + q(a.name) + ' --plan ' + a.plan + ' --owner ' + q(a.owner) + ' --sdk sdkconfig.json'], note: 'ثم طلب دمج يعتمده المالك' },
     { t: 'إعداد الخادم للمنشأة', cmd: [], note: 'متغيرات Render: إضافة {"id":"' + a.id + '","projectId":"' + P + '","plan":"' + a.plan + '","apiKeyEnv":"FB_KEY_' + K + '","zatcaKeyEnv":"ZATCA_KEY_' + K + '"} إلى MQ_TENANTS_JSON، ثم FB_KEY_' + K + ' = مفتاح الويب، وZATCA_KEY_' + K + ' = سر عشوائي جديد (32+ حرفًا، لا يُعاد استخدام سر منشأة أخرى) — مثل: openssl rand -base64 48. اختياريًا للوحة مُكتسَب (تغيير حالة الاشتراك بضغطة): أضف "saEnv":"SA_OPS_' + K + '" ومحتوى حساب خدمة بدور Cloud Datastore User في هذا المشروع (gcloud iam service-accounts create mithqal-ops --project=' + P + ')' },
     { t: 'النسخ الليلي للمنشأة', cmd: ['gcloud iam service-accounts create mithqal-backup --project=' + P, 'gcloud projects add-iam-policy-binding ' + P + ' --member=serviceAccount:mithqal-backup@' + P + '.iam.gserviceaccount.com --role=roles/datastore.viewer', 'gcloud iam service-accounts keys create sa-' + a.id + '.json --iam-account=mithqal-backup@' + P + '.iam.gserviceaccount.com'], note: 'أسرار المستودع: FIREBASE_SERVICE_ACCOUNT_' + K + ' = محتوى sa-' + a.id + '.json (ثم احذف الملف)، وBACKUP_KEY_' + K + ' = سر تشفير مستقل (12+ حرفًا). سير النسخ الليلي يلتقط المنشأة من السجل تلقائيًا' },
     { t: 'فتح «الإعداد الأول» لمالك المنشأة', cmd: [], note: 'الرابط: ' + '<موقع مُكتسَب>/?t=' + a.id + ' — ينشئ المالك حسابه ومنشأته بنفسه' }

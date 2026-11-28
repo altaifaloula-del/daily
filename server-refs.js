@@ -55,10 +55,12 @@ export function mountRefs(app, { express, requireMember, rateLimit, T, fetchImpl
   const docPath = (t, col, id) => base(t).replace('https://firestore.googleapis.com/v1/', '') + '/' + col + '/' + id;
   const lim = rateLimit({ windowMs: 60 * 1000, max: 60 }); const upLim = rateLimit({ windowMs: 60 * 60 * 1000, max: 30 });
   const jobs = new Map();
+  // v56.59 — الهوية قبل قراءة أي جسم (طلب بلا هوية بجسم 40MB ⇒ 401 دون تحليله)، ويسبقها حد لكل عنوان IP على مسار الرفع الكبير
+  const ipUpLim = rateLimit({ windowMs: 10 * 60 * 1000, max: 20, keyFn: (r) => 'refup-ip:' + (r.ip || 'anon') });
 
   app.get('/api/refs', requireMember, lim, async (req, res) => { const t = tenantOf(req, res); if (!t) return;
     try { const L = await lib(t); res.json({ docs: L.docs.map(d => ({ ...d, chunks: L.chunks.filter(c => c.doc === d.id).length })), cats: REF_CATS, auth: REF_AUTH }); } catch (e) { res.status(502).json({ error: e.message }); } });
-  app.post('/api/refs/search', express.json({ limit: '16kb' }), requireMember, lim, async (req, res) => { const t = tenantOf(req, res); if (!t) return;
+  app.post('/api/refs/search', requireMember, lim, express.json({ limit: '16kb' }), async (req, res) => { const t = tenantOf(req, res); if (!t) return;
     const b = req.body || {}; const q = String(b.q || '').slice(0, 500); if (q.trim().length < 2) return res.status(400).json({ error: 'اكتب عبارة البحث' });
     try { const L = await lib(t); let hits = refSearch(L.chunks, L.docs, q, { cat: b.cat, authority: b.authority, family: b.family, year: b.year, includeInactive: !!b.includeInactive, limit: 20 });
       let ranked = false, rkNote = '';
@@ -68,7 +70,7 @@ export function mountRefs(app, { express, requireMember, rateLimit, T, fetchImpl
         if (o.length) { const seen = new Set(o); hits = [...o.map(i => hits[i]), ...hits.filter((_, i) => !seen.has(i))]; ranked = true; } } catch (e) { log.error('refs rerank', e.message); if (isNoCredit(e)) rkNote = AI_NO_CREDIT; } }
       res.json({ q, ranked, hits, ...(rkNote ? { rerankError: rkNote } : {}), note: 'المقتطفات حرفية من الملفات المرفوعة. «غير موثّق» = لم يتحقق مسؤول النظام من إصداره ونفاذه.' }); } catch (e) { res.status(502).json({ error: e.message }); } });
   // رفع: {meta, pages:[{page,text}]} أو {meta, pdf: base64}
-  app.post('/api/refs/upload', express.json({ limit: '40mb' }), requireMember, upLim, async (req, res) => { const t = tenantOf(req, res); if (!t) return;
+  app.post('/api/refs/upload', ipUpLim, requireMember, upLim, (req, res, next) => isAdmin(req) ? next() : res.status(403).json({ error: 'رفع المراجع لمسؤول النظام فقط' }), express.json({ limit: '40mb' }), async (req, res) => { const t = tenantOf(req, res); if (!t) return;
     if (!isAdmin(req)) return res.status(403).json({ error: 'رفع المراجع لمسؤول النظام فقط' });
     let meta; try { meta = refMetaClean((req.body || {}).meta); } catch (e) { return res.status(400).json({ error: e.message }); }
     const b = req.body || {}; const id = 'rf-' + crypto.randomBytes(6).toString('hex'); const job = { id, state: 'running', at: now() }; jobs.set(id, job);
@@ -84,7 +86,7 @@ export function mountRefs(app, { express, requireMember, rateLimit, T, fetchImpl
     })().catch(e => { job.state = 'error'; job.error = isNoCredit(e) ? AI_NO_CREDIT : e.message; job.code = isNoCredit(e) ? 'no-credit' : ''; log.error('refs upload', e.message); });
   });
   app.get('/api/refs/job/:id', requireMember, (req, res) => { const j = jobs.get(String(req.params.id)); if (!j) return res.status(404).json({ error: 'غير موجود' }); res.json(j); });
-  app.post('/api/refs/update', express.json({ limit: '16kb' }), requireMember, lim, async (req, res) => { const t = tenantOf(req, res); if (!t) return;
+  app.post('/api/refs/update', requireMember, lim, express.json({ limit: '16kb' }), async (req, res) => { const t = tenantOf(req, res); if (!t) return;
     if (!isAdmin(req)) return res.status(403).json({ error: 'لمسؤول النظام فقط' });
     const b = req.body || {}; const id = String(b.id || ''); if (!/^rf-[a-f0-9]{12}$/.test(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
     try { const cur = await fs(t, base(t) + '/ref_docs/' + id); if (!cur.ok) return res.status(404).json({ error: 'غير موجود' });
@@ -95,7 +97,7 @@ export function mountRefs(app, { express, requireMember, rateLimit, T, fetchImpl
       cache.delete(t.id); log.log('refs: تحديث', t.id, id, req.user.email); res.json({ ok: true }); } catch (e) { res.status(400).json({ error: e.message }); } });
   // v54.5 — المرحلة 6: وكيل المراجعة: لكل حالة رقابية ⇐ بحث في المراجع ⇐ Claude مقيَّد بالمقاطع ⇐ تحقق حتمي (revValidate). لا يكتب شيئًا في بيانات المنشأة.
   const revLim = rateLimit({ windowMs: 60 * 60 * 1000, max: 60 });
-  app.post('/api/refs/review', express.json({ limit: '128kb' }), requireMember, revLim, async (req, res) => { const t = tenantOf(req, res); if (!t) return;
+  app.post('/api/refs/review', requireMember, revLim, express.json({ limit: '128kb' }), async (req, res) => { const t = tenantOf(req, res); if (!t) return;
     if (!REVIEW_ROLES.has(req.user && req.user.role)) return res.status(403).json({ error: 'المراجعة المحاسبية للمالية والإدارة فقط' });
     if (!aiClient) return res.status(503).json({ error: 'وكيل المراجعة يتطلب ANTHROPIC_API_KEY على الخادم', code: 'no-ai' });
     const cases = (Array.isArray((req.body || {}).cases) ? req.body.cases : []).slice(0, 10).map(c => ({ no: String(c.no || '').slice(0, 20), key: String(c.key || '').slice(0, 300), cat: String(c.cat || '').slice(0, 30), sev: String(c.sev || '').slice(0, 12),

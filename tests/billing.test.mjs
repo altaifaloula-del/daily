@@ -77,7 +77,7 @@ function harness({ env = ENV, users = {}, gwState = {} } = {}) {
   };
   return { call, store, created, gwState, cfg };
 }
-const U = { a2: { email: 'a@c2.sa', role: 'system_admin', tenant: 'c2' }, cash2: { email: 'k@c2.sa', role: 'cashier', tenant: 'c2' }, a3: { email: 'a@c3.sa', role: 'system_admin', tenant: 'c3' }, taif: { email: 'o@altaif.sa', role: 'system_admin', tenant: 'default' } };
+const U = { a2: { email: 'a@c2.sa', role: 'system_admin', tenant: 'c2' }, cash2: { email: 'k@c2.sa', role: 'cashier', tenant: 'c2' }, a3: { email: 'a@c3.sa', role: 'system_admin', tenant: 'c3' }, taif: { email: 'o@example.sa', role: 'system_admin', tenant: 'default' } };
 
 test('الدفع عبر البوابة: فاتورة واحدة للدورة، والإشعار لا يُصدَّق — الحالة والمبلغ من «ميسر» نفسها', async () => {
   const H = harness({ users: U });

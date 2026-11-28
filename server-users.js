@@ -2,9 +2,11 @@
  * v52.9 — إدارة حسابات الدخول من التطبيق (بلاغ المالك 2026-11-20: حسابات الفروع والمحاسب «كلمة السر غير صحيحة»، وبريدها شكلي لا يستقبل رابط التعيين).
  * • لمسؤول النظام فقط (الدور من سجل العضوية الموثّق على الخادم)، وفي منشأته فقط (مشروع رمز الدخول).
  * • الهدف يجب أن يكون عضوًا في المنشأة نفسها، ولا يُمس حساب مسؤول نظام آخر (منع الاستيلاء) ولا حساب الطالب نفسه (يغيّره من «كلمة السر»).
+ * • (v56.59) ولا يُمس حساب أي بريد في platform/admins (مدير المنصة) — قراءة متعذّرة ⇒ رفض (فشل مغلق).
  * • يعمل بحساب خدمة المنشأة (الرئيسية: FIREBASE_SERVICE_ACCOUNT على الخادم) — كلمة السر لا تُسجَّل ولا تُخزَّن ولا تعود في الرد.
  */
 import { saTokenSource } from './server-billing.js';
+import { providerConfig } from './server-provider.js';
 
 const SCOPE = 'https://www.googleapis.com/auth/identitytoolkit';
 const okEmail = (v) => /^[^\s@]{1,64}@[^\s@]{1,189}\.[^\s@]{2,}$/.test(v);
@@ -25,7 +27,8 @@ export function validatePassword(p) {
   return '';
 }
 
-export function mountUserAdmin(app, { express, requireMember, rateLimit, T, fetchImpl = fetch, log = console }) {
+export function mountUserAdmin(app, { express, requireMember, rateLimit, T, fetchImpl = fetch, log = console, env = process.env }) {
+  const providerAdmins = providerConfig(env).admins;   // v56.59: مدراء لوحة مزوّد المنصة (MQ_PROVIDER_ADMINS) محميون كذلك
   const json = express.json({ limit: '4kb' });
   const lim = rateLimit({ windowMs: 10 * 60 * 1000, max: 30 });
   const tokens = new Map();
@@ -46,6 +49,17 @@ export function mountUserAdmin(app, { express, requireMember, rateLimit, T, fetc
     const f = ((await r.json()) || {}).fields || {};
     return { role: (f.role && f.role.stringValue) || '', active: !!(f.active && f.active.booleanValue) };
   };
+  const platformAdmin = async (t, email) => {   // v56.59 — الهدف من مدراء المنصة (platform/admins)؟ فشل مغلق عند تعذّر القراءة
+    const r = await fetchImpl('https://firestore.googleapis.com/v1/projects/' + encodeURIComponent(t.dataProject || t.projectId) + '/databases/(default)/documents/platform/admins',
+      { headers: { authorization: 'Bearer ' + await tokenForFs(t) } });
+    if (r.status === 404) return false;
+    if (!r.ok) throw new Error('تعذّرت قراءة مدراء المنصة');
+    const f = ((await r.json().catch(() => null)) || {}).fields || {};
+    // مستند موجود بلا قائمة emails صالحة ⇒ تعذّر قراءة (فشل مغلق) لا «ليس مديرًا»
+    if (!(f.emails && f.emails.arrayValue)) throw new Error('تعذّرت قراءة مدراء المنصة');
+    const vals = f.emails.arrayValue.values || [];
+    return vals.some(v => String((v && v.stringValue) || '').trim().toLowerCase() === email);
+  };
   const fsTokens = new Map();
   const tokenForFs = (t) => { if (!fsTokens.has(t.id)) fsTokens.set(t.id, saTokenSource(t.sa, { fetchImpl })); return fsTokens.get(t.id)(); };
 
@@ -60,6 +74,9 @@ export function mountUserAdmin(app, { express, requireMember, rateLimit, T, fetc
     let mem; try { mem = await memberOf(t, email); } catch (e) { res.status(502).json({ error: e.message }); return null; }
     if (!mem) { res.status(404).json({ error: 'هذا البريد ليس عضوًا في منشأتك' }); return null; }
     if (mem.role === 'system_admin') { res.status(403).json({ error: 'لا يُدار حساب مسؤول نظام آخر من هنا' }); return null; }
+    // v56.59 (قرار المالك: «لا يحق له») — لا يُمس حساب مدير منصة (platform/admins) أيًّا كان دوره في العضوية
+    let padm; try { padm = await platformAdmin(t, email); } catch (e) { res.status(502).json({ error: e.message }); return null; }
+    if (padm || providerAdmins.includes(email)) { res.status(403).json({ error: 'لا يُدار حساب مدير المنصة من هنا' }); return null; }
     return { t, email };
   };
 

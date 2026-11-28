@@ -6,7 +6,7 @@ import { Target, Users, Grid3x3 as Layers, ShieldCheck, Settings, Download, User
 import { Field, Kpi, Modal, money, makeXlsx, today, nowISO, uid, normPhone, loyPost, ROLES,
   mktCfg, mktCanApprove, MKT_SEGS, MKT_SEG_ORDER, crmBuild, crmSegment, crmDupes, mktKpis, mktCanContact,
   loyX, loyTier, loyPeriodicTx, mktProfiles, rewardCoupon, cpnKey, posR2, CAMP_ST, campNextNo, campStatusOf, campStats, buildAccounting, recCfgOf, recStats, dtLocal, brReport, printScreen, AI_GROWTH_PRESETS, growthDigest, aiGrowthAsk, COMMS_PROVIDERS, COMMS_CH, COMMS_VARS, commsCfgOf, commsRender, smsParts, commsTplErr, loyAudit, LOY_AUDIT_WHY,
-  logAudit, MKT_RW_KEY, rwPendSplit, rwUndoTx, mktUnmergeBlock, mktBrOn, mktRecBranch, mktMergesLive, loyGet, mkmSrcOn, mkmWrite } from '../../App.jsx';
+  logAudit, MKT_RW_KEY, rwPendSplit, rwUndoTx, mktUnmergeBlock, mktBrOn, mktRecBranch, mktMergesLive, loyGet, mkmSrcOn, mkmWrite , aiCentralOk } from '../../App.jsx';
 import { mktCtlOn, mktCanExport, mktCanExportAll, mktUndoPending } from '../../App.jsx';   // v56.35 الدفعة 4
 import { Megaphone, Sparkles, Building2, Bot, MessageSquare } from 'lucide-react';
 import { Gift, Gift as Ticket, Send } from 'lucide-react';
@@ -36,7 +36,7 @@ export function MktGrowth({ org, ops, me, myBranches, commit, commitOrg, say }) 
   useEffect(() => { if (!loy || !canApp) return; const P = rwPend().filter(x => !x.uid || x.uid === (me.id || me.email || '')); if (!P.length) return; const { done, refund, wait } = rwPendSplit(P, org.posPromos, Date.now(), loy.tx);
     (async () => { const o2 = await cloud.get(KEYS.org, null).catch(() => null); const sp = o2 ? rwPendSplit(P, o2.posPromos, Date.now(), loy.tx) : { done, refund, wait }; const left = [...sp.wait]; const refund2 = sp.refund; if (refund2.length) { const r = await loyPost(refund2.map(x => rwUndoTx(x, nowISO()))); if (r) { setLoy(r); say('أُعيدت نقاط ' + refund2.length + ' استبدال لم يصدر كوبونه ✓'); logAudit({ actionType: 'update', targetType: 'customer', targetId: 'loyalty', title: 'أعاد نقاط استبدال لم يصدر كوبونه', details: refund2.map(x => x.phone + ' · ' + x.pts + ' · ' + x.code).join('، ') }).catch(() => { }); } else left.push(...refund2); }
       const others = rwPend().filter(x => !P.includes(x) && !P.some(y => y.txid === x.txid)); rwPendSet([...others, ...left]); void done; })(); }, [!!loy]);
-  const V = [['dash', 'لوحة التسويق', Target], ['crm', 'ملفات العملاء', Users], ['seg', 'الشرائح', Layers], ['loy', 'الولاء والمكافآت', Gift], ['cpn', 'الكوبونات', Ticket], ['cmp', 'الحملات', Megaphone], ['rec', 'التوصيات', Sparkles], ['brr', 'تقارير الفروع', Building2], ['ai', 'المساعد الذكي', Bot], ['msg', 'الرسائل', Send], ['com', 'إعدادات التواصل', MessageSquare], ['gov', 'الموافقات والتكرار', ShieldCheck], ['cfg', 'الإعدادات', Settings]];
+  const V = [['dash', 'لوحة التسويق', Target], ['crm', 'ملفات العملاء', Users], ['seg', 'الشرائح', Layers], ['loy', 'الولاء والمكافآت', Gift], ['cpn', 'الكوبونات', Ticket], ['cmp', 'الحملات', Megaphone], ['rec', 'التوصيات', Sparkles], ['brr', 'تقارير الفروع', Building2], ['ai', 'المساعد الذكي', Bot], ['msg', 'الرسائل', Send], ['com', 'إعدادات التواصل', MessageSquare], ['gov', 'الموافقات والتكرار', ShieldCheck], ['cfg', 'الإعدادات', Settings]].filter(([k]) => k !== 'ai' || aiCentralOk(me));   // v56.59: المساعد الذكي للأدوار المركزية وحدها (الخادم يفرضه)
   return (
     <div className="grid" style={{ gap: 12 }} data-mkt>
       <div className="row" style={{ gap: 6, flexWrap: 'wrap' }} role="tablist" aria-label="أقسام التسويق">
@@ -52,7 +52,7 @@ export function MktGrowth({ org, ops, me, myBranches, commit, commitOrg, say }) 
       {loy && view === 'loy' && <Loy org={org} ops={ops} loy={loy} setLoy={setLoy} canApp={canApp} me={me} commit={commit} commitOrg={commitOrg} say={say} bTag={bTag} list={list} />}
       {loy && view === 'cpn' && <Cpn org={org} ops={ops} loy={loy} canApp={canApp} me={me} commitOrg={commitOrg} say={say} brName={brName} />}
       {loy && view === 'cmp' && <Cmp org={org} ops={ops} list={list} canApp={canApp} me={me} commit={commit} commitOrg={commitOrg} say={say} brName={brName} />}
-      {loy && view === 'ai' && <Ai org={org} ops={ops} list={list} central={central} brIds={brIds} />}
+      {loy && view === 'ai' && aiCentralOk(me) && <Ai org={org} ops={ops} list={list} central={central} brIds={brIds} />}
       {view === 'com' && <Com org={org} me={me} canApp={canApp} commitOrg={commitOrg} say={say} />}
       {!central && view === 'msg' && <div className="note">دفعات الرسائل تُنشأ وتُعتمد من المركز.</div>}
       {loy && central && view === 'msg' && <CommsJobs org={org} ops={ops} loy={loy} me={me} commit={commit} say={say} canApp={canApp} />}
