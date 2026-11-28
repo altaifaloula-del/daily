@@ -51,7 +51,7 @@ export function MktGrowth({ org, ops, me, myBranches, commit, commitOrg, say }) 
       {loy && view === 'gov' && <Gov list={list} ops={ops} org={org} me={me} canApp={canApp && central} commit={commit} say={say} setLoy={setLoy} loyD={loy} />}
       {loy && view === 'loy' && <Loy org={org} ops={ops} loy={loy} setLoy={setLoy} canApp={canApp} me={me} commit={commit} commitOrg={commitOrg} say={say} bTag={bTag} list={list} />}
       {loy && view === 'cpn' && <Cpn org={org} ops={ops} loy={loy} canApp={canApp} me={me} commitOrg={commitOrg} say={say} brName={brName} />}
-      {loy && view === 'cmp' && <Cmp org={org} ops={ops} list={list} canApp={canApp} me={me} commit={commit} commitOrg={commitOrg} say={say} brName={brName} />}
+      {loy && central && view === 'cmp' && <Cmp org={org} ops={ops} list={list} canApp={canApp} me={me} commit={commit} commitOrg={commitOrg} say={say} brName={brName} />}
       {loy && view === 'ai' && aiCentralOk(me) && <Ai org={org} ops={ops} list={list} central={central} brIds={brIds} />}
       {view === 'com' && <Com org={org} me={me} canApp={canApp} commitOrg={commitOrg} say={say} />}
       {!central && view === 'msg' && <div className="note">دفعات الرسائل تُنشأ وتُعتمد من المركز.</div>}
