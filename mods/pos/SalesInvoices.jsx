@@ -6,7 +6,15 @@ import { eclWoOf } from '../../App.jsx';   // v56.40
 import { arDocs, posCreditExceptionsApi } from '../../App.jsx';   // v56.46 ذمم الكاشير (للاطلاع) وفحص التفويض
 import { siConvOn, siConvOf, siConvCheck, siConvert, SI_CONV_REASON } from '../../App.jsx';   // v56.51 (3) تحويل المبسّطة إلى ضريبية
 
-export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
+import { siTabOk } from '../../App.jsx';   // v56.63 قرار المالك: الشاشة للمركز فقط
+
+// v56.63 (قرار المالك): «فواتير المبيعات» للأدوار ذات النطاق الكامل فقط — حساب الفرع (مدير فرع، إقليمي، كاشير، أي نطاق ≠ all)
+// لا يرى الشاشة ولا زر الإنشاء، حتى لو وصلها بأي طريق. حفظه أصلًا مرفوض في مسار الفرع (CORE_COLS) وفي قواعد fin_docs.
+export function SalesInvoices(props) {
+  if (!siTabOk(props.me && props.me.role)) return <div className="note" data-sinv-denied>فواتير المبيعات يصدرها ويديرها المركز (المالية أو الإدارة) — غير متاحة لحساب الفرع.</div>;
+  return <SalesInvoicesIn {...props} />;
+}
+function SalesInvoicesIn({ org, ops, me, myBranches, commit, say }) {
   const all = ops.salesInvoices || [];
   const central = ROLES[me.role]?.scope === 'all';
   const brIds = (myBranches || []).map(b => b.id);

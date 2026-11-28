@@ -209,6 +209,15 @@ export const pushApi = {
   }
 };
 
+/* v56.63 (م-1، قرار المجلس الخيار أ) — قواعد Firestore تشترط جلسة بخطوتين لكتابة قائمة المدراء والعضويات متى وُجدت سياسة
+   غير فارغة (تُلزم المدراء أو أي دور). دالة نقية: هل الكتابة ستُرفض لهذا السبب؟ policy = مستند platform/security أو null. */
+export const ACCESS_MFA_MSG = 'فعّل التحقق بخطوتين لحسابك لإدارة المستخدمين';
+export function accessMfaNeeded(policy, usedSecondFactor) {
+  const p = policy || {};
+  const armed = p.admins === true || (Array.isArray(p.roles) && p.roles.length > 0);
+  return armed && !usedSecondFactor;
+}
+
 export const authApi = {
   get enabled() { return FB_READY; },
 
@@ -362,6 +371,15 @@ export const authApi = {
       // v27.1: نعيد أيضًا ما تعتمد عليه قواعد Firestore (الفرع/النطاق/الدور) كي تُشخِّص الواجهة أي تعارض مع سجل المستخدم في المنصة
       return { exists: snap.exists(), active: snap.exists() && d.active === true, role: d.role || '', branchId: d.branchId || '', branchIds: Array.isArray(d.branchIds) ? d.branchIds : [], scope: d.scope || '' };
     } catch { return { exists: false, active: false, role: '', branchId: '', branchIds: [], scope: '' }; }
+  },
+
+  /** v56.63: هل ترفض القواعد كتابة العضويات/قائمة المدراء من هذه الجلسة لأنها بلا خطوة ثانية والسياسة قائمة؟ */
+  async accessMfaBlocked() {
+    const f = await firestore(); if (!f) return false;
+    const u = await authedUser(); if (!u) return false;
+    let pol = null; try { const sn = await f.getDoc(f.doc(f.db, 'platform', 'security')); pol = sn.exists() ? (sn.data() || {}) : null; } catch { return false; }
+    let used = false; try { const t = await u.getIdTokenResult(); used = !!(t.claims.firebase && t.claims.firebase.sign_in_second_factor); } catch { }
+    return accessMfaNeeded(pol, used);
   },
 
   /** عضوية مستخدم (يديرها المدراء): تفعيل/تعطيل + دوره وفرعه */
