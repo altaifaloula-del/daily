@@ -978,12 +978,14 @@ const stNum = (v) => {
   s = s.replace(/[٠-٩]/g, ch => String(AR.indexOf(ch))).replace(/٫/g, '.').replace(/[\u2212\u2012\u2013\u2014\uFE63\uFF0D]/g, '-').replace(/[٬,\s]/g, '').replace(/ر\.?س|SAR|SR/gi, '');
   let neg = false;
   const dc = s.match(/^(DR|CR)\.?(?=[\d(.+-])/i) || s.match(/(?<=[\d).-])(DR|CR)\.?$/i);
-  if (dc) { s = dc.index === 0 ? s.slice(dc[0].length) : s.slice(0, dc.index); if (/^dr$/i.test(dc[1])) neg = true; }
+  let dr = false;   // DR يفرض السالب (ولو كان الرقم سالبًا صراحة لا يُعكس)، وCR لا يغيّر إشارة صريحة
+  if (dc) { s = dc.index === 0 ? s.slice(dc[0].length) : s.slice(0, dc.index); if (/^dr$/i.test(dc[1])) dr = true; }
   if (/^\(.*\)$/.test(s)) { neg = true; s = s.slice(1, -1); }
   if (s.endsWith('-')) { neg = true; s = s.slice(0, -1); }
   const n = parseFloat(s);
   if (!isFinite(n)) return 0;
-  return neg ? -n : n;
+  const x = neg ? -n : n;
+  return dr ? -Math.abs(x) : x;
 };
 /* v32.2 — قراءة كشف الحساب بالصيغة البنكية القياسية MT940 (تُنزَّل من قنوات البنوك للشركات):
    :60F: الرصيد الافتتاحي · :61: حركة (تاريخ القيمة، مدين/دائن، المبلغ بفاصلة عشرية، النوع، المرجع) · :86: البيان · :62F: الرصيد الختامي */
@@ -1145,7 +1147,7 @@ const parseXlsxGrid = async (buf, opts = {}) => {   // v40.6: opts.all ⇒ [{nam
   if (!shXml) throw new Error('sheet');
   return gridOf(shXml);
 };
-const stHdrWords = (v) => String(v ?? '').toLowerCase().replace(/[ً-ٰٟـ]/g, '').replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه')
+const stHdrWords = (v) => String(v ?? '').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').replace(/([a-z\d])([A-Z])/g, '$1 $2').toLowerCase().replace(/[ً-ٰٟـ]/g, '').replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه')
   .split(/[^a-zء-ي0-9]+/).filter(Boolean).map(w => /^[a-z]/.test(w)
     ? (w.length > 3 && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w)
     : w.replace(/^(?:بال|وال|لل|ال)(?=[ء-ي]{3})/, '').replace(/(?<=[ء-ي]{3})ات$/, '').replace(/(?<=[ء-ي]{3})ه$/, ''));
@@ -1154,7 +1156,7 @@ const detectStmtMap = (grid) => {
   const kw = {
     date: ['تاريخ', 'التاريخ', 'date', 'يوم'],
     credit: ['دائن', 'إيداع', 'ايداع', 'وارد', 'credit', 'deposit'],
-    debit: ['مدين', 'خصم', 'سحب', 'صادر', 'debit', 'withdraw', 'withdrawal'],
+    debit: ['مدين', 'خصم', 'سحب', 'المسحوبات', 'صادر', 'debit', 'withdraw', 'withdrawal'],
     amount: ['مبلغ', 'المبلغ', 'قيمة', 'amount'],
     desc: ['وصف', 'بيان', 'البيان', 'تفاصيل', 'description', 'details', 'narration', 'narrative']
   };

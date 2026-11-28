@@ -21,6 +21,22 @@ test('stNum (v56.61): الكسر العربي «٫» وفاصل الآلاف «�
   for (const [v, x] of cases) assert.equal(E.stNum(v), x, JSON.stringify(v));
 });
 
+test('stNum (بعد المراجعة المحاسبية): DR يفرض السالب ولا يعكس سالبًا صريحًا، وCR لا يغيّر إشارة صريحة — كل التركيبات', () => {
+  const cases = [['100 DR', -100], ['DR 100', -100], ['-100 DR', -100], ['DR -100', -100], ['100- DR', -100], ['(100) DR', -100], ['DR (100)', -100], ['−100 DR', -100],
+    ['100 CR', 100], ['CR 100', 100], ['-100 CR', -100], ['CR -100', -100], ['(100) CR', -100], ['100- CR', -100], ['+100 CR', 100], ['+100 DR', -100], ['100', 100], ['-100', -100]];
+  for (const [v, x] of cases) assert.equal(E.stNum(v), x, JSON.stringify(v));
+});
+
+test('detectStmtMap (بعد المراجعة المحاسبية): تقسيم camelCase وPascalCase والشرطة السفلية قبل المطابقة بالكلمة، و«المسحوبات» مدين — بلا مطابقة جزئية', () => {
+  const m = (h) => E.detectStmtMap([h, ['x']]);
+  assert.deepEqual(m(['TransactionDate', 'Narrative', 'Debit_Amount', 'CreditAmount']), { date: 0, credit: 3, debit: 2, amount: 2, desc: 1, start: 1 });
+  assert.deepEqual(m(['ValueDate', 'TXNDescription', 'Amount']), { date: 0, credit: -1, debit: -1, amount: 2, desc: 1, start: 1 });
+  assert.deepEqual(m(['التاريخ', 'البيان', 'المسحوبات', 'الإيداعات']), { date: 0, credit: 3, debit: 2, amount: -1, desc: 1, start: 1 });
+  assert.deepEqual(E.stHdrWords('TransactionDate'), ['transaction', 'date']); assert.deepEqual(E.stHdrWords('Debit_Amount'), ['debit', 'amount']);
+  assert.deepEqual(E.stHdrWords('TXNDescription'), ['txn', 'description']);
+  assert.equal(m(['LastUpdated', 'Amount']), null, 'LastUpdated ليس تاريخًا'); assert.equal(m(['Updatedate', 'Amount']), null, 'لا مطابقة جزئية داخل الكلمة');
+});
+
 /* ===================== BANK-H-04: التواريخ (قرار المالك: ميلادي فقط) ===================== */
 test('stDate (v56.61): التحقق بالتقويم (فبراير والكبيسة و31 أبريل)، الهجري يُرفض، وترتيب شهر/يوم/سنة عند طلبه فقط', () => {
   const cases = [['2026-02-29', ''], ['2028-02-29', '2028-02-29'], ['31/04/2026', ''], ['30/04/2026', '2026-04-30'], ['00/05/2026', ''], ['05/00/2026', ''], ['2026-00-10', ''],
