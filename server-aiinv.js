@@ -20,6 +20,9 @@ const FETCH_MS = 10000;
 export const AI_SVC_MAX_ACCS = 300;
 export const AI_SVC_ACC_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,29}$/;
 export const AI_SVC_NAME_MAX = 120;
+/** محارف الاتجاه والمحارف الخفية (U+200B–U+200F، U+202A–U+202E، U+2066–U+2069، U+FEFF): تُحذف من الرد وتُرفض في أسماء الحسابات (v56.57) */
+export const INVIS_RE = /[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g;
+const INVIS_ONE = /[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/;
 
 /** بصمة الملف: JPEG ‎FF D8 FF، PNG ‎89 50 4E 47، WebP ‎«RIFF» ثم 4 بايت ثم «WEBP» */
 export function magicOk(kind, b) {
@@ -61,7 +64,7 @@ export function aiSvcAccounts(a) {
   for (const o of a) {
     if (!o || typeof o !== 'object' || Array.isArray(o) || Object.keys(o).some(k => k !== 'code' && k !== 'name')) return { err: 'حساب غير صالح في القائمة' };
     if (typeof o.code !== 'string' || !AI_SVC_ACC_RE.test(o.code)) return { err: 'رمز حساب غير صالح في القائمة' };
-    if (typeof o.name !== 'string' || !o.name.trim() || o.name.length > AI_SVC_NAME_MAX || /[\u0000-\u001F\u007F]/.test(o.name)) return { err: 'اسم حساب غير صالح في القائمة' };
+    if (typeof o.name !== 'string' || !o.name.trim() || o.name.length > AI_SVC_NAME_MAX || /[\u0000-\u001F\u007F]/.test(o.name) || INVIS_ONE.test(o.name)) return { err: 'اسم حساب غير صالح في القائمة' };
     if (seen.has(o.code)) return { err: 'رمز حساب مكرر في القائمة' };
     seen.add(o.code); out.push({ code: o.code, name: o.name.trim() });
   }
@@ -70,7 +73,7 @@ export function aiSvcAccounts(a) {
 
 const r2 = (n) => Math.round(n * 100) / 100;
 const AR_DIG = (s) => s.replace(/[٠-٩]/g, d => String(d.charCodeAt(0) - 0x0660)).replace(/[۰-۹]/g, d => String(d.charCodeAt(0) - 0x06F0)).replace(/٫/g, '.').replace(/٬/g, '');
-const str = (v, max) => (typeof v === 'string' || (typeof v === 'number' && isFinite(v))) ? (String(v).replace(/[\u0000-\u001F\u007F]/g, ' ').trim().slice(0, max) || null) : null;
+const str = (v, max) => (typeof v === 'string' || (typeof v === 'number' && isFinite(v))) ? (String(v).replace(/[\u0000-\u001F\u007F]/g, ' ').replace(INVIS_RE, '').trim().slice(0, max) || null) : null;
 const num = (v) => { if (typeof v === 'string') { v = AR_DIG(v).replace(/[,\s]/g, ''); if (!/^-?\d+(\.\d+)?$/.test(v)) return null; }
   if (typeof v !== 'number' && typeof v !== 'string') return null; const n = Number(v); return isFinite(n) && Math.abs(n) < 1e10 ? r2(n) : null; };
 /** تاريخ تقويمي صحيح (2026-02-30 مرفوض) */

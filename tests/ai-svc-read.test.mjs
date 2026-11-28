@@ -7,7 +7,7 @@ import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { buildEngine } from './build-engine.mjs';
-import { AI_INV_ROLES as SRV_ROLES, AI_SVC_MAX_ACCS as SRV_MAX, AI_SVC_ACC_RE as SRV_RE, aiInvInput, aiSvcAccounts, aiSvcClean, mountAiInvoice, AI_SVC_SYSTEM, AI_INV_SYSTEM } from '../server-aiinv.js';
+import { AI_INV_ROLES as SRV_ROLES, AI_SVC_MAX_ACCS as SRV_MAX, AI_SVC_ACC_RE as SRV_RE, INVIS_RE, aiInvInput, aiSvcAccounts, aiSvcClean, mountAiInvoice, AI_SVC_SYSTEM, AI_INV_SYSTEM } from '../server-aiinv.js';
 
 let E;
 before(async () => { E = await buildEngine(); });
@@ -219,4 +219,53 @@ test('المسار svc: الحدود والقفل مشتركة مع فاتورة
   const p1 = Hl.call('u@test.sa', { image: IMG }); await new Promise(r => setTimeout(r, 5));
   assert.equal((await Hl.call('u@test.sa', SB)).status, 429, 'قراءة جارية واحدة لكل مستخدم مهما كان النوع');
   release(); assert.equal((await p1).status, 200);
+});
+
+/* ===== v56.57 قرارات المجلس بعد المراجعة ===== */
+const ORG = { branches: [{ id: 'b1', name: 'فرع', bankName: 'بنك', bankIban: 'SA00' }], deliveryApps: [{ id: 'a1', n: 'تطبيق', c: 20 }], posClearing: { enabled: true, from: '2026-01' },
+  warehouses: [{ id: 'w1', name: 'مستودع', accCode: '160101', kind: 'main' }], whCfg: { on: true }, impair: { accAcc: '1795', lossAcc: '5805' },
+  customAccounts: [{ code: '1795', name: 'مجمع هبوط', kind: 'asset' }, { code: '1720', name: 'تحسينات مستأجرة', kind: 'asset' }, { code: '6101', name: 'صيانة‏ المباني', kind: 'exp' }, { code: '1150', name: 'صندوق مستورد', kind: 'asset', cash: true }] };
+const CTL = ['1101', '1111', '1201', '1211', '1911', '1801', '1811', '1301', '1399', '1380', '1401', '1402', '1501', '1601', '160101', '1609', '1791', '1795', '1150', '5150', '2101', '4101'];
+
+test('(1) حسابات الرقابة لا تُرسل ولا تُقترح: النقد والبنوك والوسطاء، الذمم 13xx، السلف، ضريبة المدخلات، المخزون ومستودعاته، البضاعة في الطريق، مجمّعا الإهلاك والهبوط', () => {
+  const A = E.buildAccounting(ORG, {}).accounts; const L = E.aiSvcAccList(A, ORG); const sent = L.map(a => a.code);
+  for (const c of CTL) assert.ok(!sent.includes(c), 'أُرسل ' + c);
+  for (const c of ['1701', '1720', '6101', '5198']) assert.ok(sent.includes(c), 'غاب ' + c);
+  assert.equal(L.find(a => a.code === '6101').name, 'صيانة المباني', 'المحارف الخفية تُحذف من الاسم المرسل');
+  assert.ok(aiSvcAccounts(L).v, 'القائمة المرسلة يقبلها الخادم');
+  assert.ok(A.some(a => a.code === '1501') && A.some(a => a.code === '1791'), 'الدليل نفسه فيه الحسابات — الإقصاء من القائمة المرسلة فقط');
+  // المقترح: رمز رقابي من النموذج ⇒ null + acc_missing، وآخر استخدام على حساب رقابي لا يُقترح
+  const inv = [svcInv({ id: 'p', expLines: [{ accCode: '1501', net: 1 }] }), svcInv({ id: 'q', date: '2026-02-01', expLines: [{ accCode: '1201', net: 1 }, { accCode: '1601', net: 1 }] })];
+  for (const code of ['1501', '1201', '1601', '1791', '1380', '1401', '1609', '1101']) {
+    const r = E.aiSvcCheck(read({ lines: [{ desc: 'أ', amount: 1000, vat: 150, accountCode: code }] }), ctx({ accounts: L, invoices: inv }));
+    assert.equal(r.fields.lines[0].accCode, null, code); assert.ok(codes(r).includes('acc_missing'), code); assert.equal(r.lastAcc, null);
+  }
+});
+
+test('(2) تحذير الرقم المكرر يعمل حين يختار المستخدم المورد من المرشّحين (pick) — في الفاتورتين', () => {
+  const inv = [svcInv({ id: 'd1', supplierId: 's3', invoiceNo: 'S-100' })];
+  const r0 = read({ supplierName: 'مكتب الاستشارات', supplierVatNo: null });
+  assert.ok(!codes(E.aiSvcCheck(r0, ctx({ invoices: inv }))).includes('dup_invoice'), 'بلا اختيار لا مورد');
+  assert.ok(codes(E.aiSvcCheck(r0, ctx({ invoices: inv, pick: 's3' }))).includes('dup_invoice'));
+  assert.ok(!codes(E.aiSvcCheck(r0, ctx({ invoices: inv, pick: 's2' }))).includes('dup_invoice'), 'مورد آخر');
+  assert.ok(codes(E.aiInvCheck(r0, ctx({ invoices: inv, pick: 's3' }))).includes('dup_invoice'), 'فاتورة التوريد أيضًا');
+  assert.equal(E.aiInvCheck(r0, ctx({ invoices: inv, pick: 's3' })).supplierId, null, 'الاختيار لا يجعله مطابقًا');
+});
+
+test('(3) بند الخصم السالب: تحذير صريح بمبلغه ولا يُطبَّق ولا يُقترح له حساب، وتحذير الإجمالي باقٍ', () => {
+  const r = E.aiSvcCheck(read({ subtotal: 950, vat: 142.5, total: 1092.5, lines: [{ desc: 'صيانة', amount: 1000, vat: 150, accountCode: '5201' }, { desc: 'خصم', amount: -50, vat: -7.5, accountCode: '5201' }] }), ctx());
+  const w = r.warnings.filter(x => x.code === 'line_neg'); assert.equal(w.length, 1); assert.equal(w[0].text, 'بند خصم مقروء (−50.00) لم يُطبَّق — أدخله يدويًا إن لزم');
+  assert.deepEqual([r.fields.lines[1].neg, r.fields.lines[1].accCode], [true, null]); assert.ok(!codes(r).includes('acc_missing'));
+});
+
+test('(4) الخادم: محارف الاتجاه والخفية تُحذف من الرد وتُرفض في أسماء الحسابات', () => {
+  const bad = ['​', '‎', '‏', '‪', '‮', '⁦', '⁩', '﻿'];
+  for (const ch of bad) {
+    assert.equal(aiInvInput({ image: IMG, kind: 'svc', accounts: [{ code: '5201', name: 'صيانة' + ch }] }).status, 400, ch.codePointAt(0).toString(16));
+    const c = aiSvcClean({ supplierName: 'مورد' + ch + ' أ', invoiceNo: ch + 'F-1', notes: 'ن' + ch, lines: [{ desc: 'ب' + ch, amount: 1, accountCode: '5201' + ch }] }, ['5201']);
+    assert.equal(c.supplierName, 'مورد أ'); assert.equal(c.invoiceNo, 'F-1'); assert.equal(c.notes, 'ن'); assert.equal(c.lines[0].desc, 'ب'); assert.equal(c.lines[0].accountCode, '5201');
+  }
+  assert.ok(!INVIS_RE.test('صيانة عادية'));
+  const app = fs.readFileSync(new URL('../App.jsx', import.meta.url), 'utf8');
+  assert.equal(/const AI_SVC_INVIS = (\/.+\/g);/.exec(app)[1], String(INVIS_RE), 'انجراف بين العميل والخادم');
 });

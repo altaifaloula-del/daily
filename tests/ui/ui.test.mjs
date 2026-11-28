@@ -4887,7 +4887,7 @@ test('v56.57 قراءة فاتورة الخدمات والمصروفات كمق�
   const sent = []; let A1 = '', A2 = '';
   await p.route('http://zatca.test/api/ai/invoice-read', r => { const b = JSON.parse(r.request().postData()); sent.push(b);
     r.fulfill({ json: { result: { supplierName: 'مؤسسة اللحوم الطازجة', supplierVatNo: '300111222300003', invoiceNo: 'SV-9', date: '2025-12-01', currency: 'SAR', subtotal: 500, vat: 60, total: 560,
-      lines: [{ desc: 'صيانة مكيف', amount: 400, vat: 60, accountCode: A1 }, { desc: 'رسوم خدمة', amount: 100, vat: 0, accountCode: null }], confidence: {}, notes: null } } }); });
+      lines: [{ desc: 'صيانة مكيف', amount: 400, vat: 60, accountCode: A1 }, { desc: 'رسوم خدمة', amount: 100, vat: 0, accountCode: null }, { desc: 'خصم', amount: -20, vat: 0, accountCode: A1 }], confidence: {}, notes: null } } }); });
   const png = { name: 'svc.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64') };
   // حسابان من مجموعة «المصروفات» في النموذج نفسه
   await p.locator('[data-svc]').click(); await p.waitForTimeout(200);
@@ -4910,10 +4910,16 @@ test('v56.57 قراءة فاتورة الخدمات والمصروفات كمق�
   assert.equal(sent.length, 1); assert.deepEqual(Object.keys(sent[0]), ['image', 'kind', 'accounts']); assert.equal(sent[0].kind, 'svc');
   assert.ok(sent[0].accounts.length > 0 && sent[0].accounts.length <= 300); assert.ok(sent[0].accounts.every(a => Object.keys(a).join() === 'code,name'));
   assert.ok(sent[0].accounts.some(a => a.code === A1)); assert.ok(!sent[0].accounts.some(a => a.code === '2101'), 'ذمم الموردين ليست من حسابات النموذج');
+  // قرار المجلس 1: حسابات الرقابة لا تُرسل (وتبقى في القائمة اليدوية للنموذج)
+  const ctl = sent[0].accounts.map(a => a.code).filter(c => /^1[1-3]/.test(c) || ['1401', '1402', '1501', '1601', '1609', '1791', '5150'].includes(c) || /^1601/.test(c) || /^1[89]\d{2}$/.test(c));
+  assert.deepEqual(ctl, []);
+  const manual = await p.locator('select[aria-label="حساب البند 1"] option').evaluateAll(o => o.map(x => x.value));
+  assert.ok(['1101', '1201', '1501', '1601'].every(c => manual.includes(c)), 'الاختيار اليدوي كما هو');
   // المقترح: البنود بحساباتها، والثاني «من آخر استخدام»، ولا شيء محفوظ
   const panel = await p.locator('[data-aisvcpanel]').innerText();
   assert.match(panel, /مقترح من الذكاء الاصطناعي — راجع كل حقل قبل الحفظ/); assert.match(panel, /مطابق بالرقم الضريبي/); assert.match(panel, /طريقة الدفع لا تُملأ من القراءة/);
-  assert.equal(await p.locator('[data-aisvcline]').count(), 2); assert.equal(await p.locator('[data-aiaccfrom="last"]').count(), 1);
+  assert.equal(await p.locator('[data-aisvcline]').count(), 3); assert.equal(await p.locator('[data-aiaccfrom="last"]').count(), 1); assert.equal(await p.locator('[data-aineg]').count(), 1);
+  assert.match(await p.locator('[data-aiwarncode="line_neg"]').innerText(), /بند خصم مقروء \(−20\.00\) لم يُطبَّق — أدخله يدويًا إن لزم/);
   const wc = await p.locator('[data-aiwarncode]').evaluateAll(els => els.map(e => e.getAttribute('data-aiwarncode')));
   assert.ok(wc.includes('acc_last'), wc.join(','));
   assert.equal(await p.evaluate(() => window.cur.invoices.length), 1, 'المقترح لا يحفظ');
@@ -4928,6 +4934,7 @@ test('v56.57 قراءة فاتورة الخدمات والمصروفات كمق�
   assert.equal(await p.locator('input[aria-label="مبلغ البند 1"]').inputValue(), '400'); assert.equal(await p.locator('input[aria-label="مبلغ البند 2"]').inputValue(), '100');
   assert.equal(await p.locator('[data-svcline] >> nth=0 >> input[type=checkbox]').isChecked(), true); assert.equal(await p.locator('[data-svcline] >> nth=1 >> input[type=checkbox]').isChecked(), false);
   assert.equal(await p.locator('[data-aisugline]').count(), 2); assert.match(await p.locator('[data-aisugline="1"]').innerText(), /من آخر استخدام/);
+  assert.match(await p.locator('[data-aineghint]').innerText(), /بند خصم مقروء \(−20\.00\) لم يُطبَّق/, 'الخصم غير المطبّق ظاهر في النموذج');
   // تعديل بند يزيل علامته، وطريقة الدفع لم تُملأ (الحفظ بلا اختيارها مرفوض كالمعتاد)
   await p.fill('input[aria-label="مبلغ البند 2"]', '120'); await p.waitForTimeout(100);
   assert.equal(await p.locator('[data-aisugline]').count(), 1); assert.equal(await p.locator('[data-aitotal]').count(), 1, 'الإجمالي المقروء ≠ إجمالي البنود');
@@ -4978,6 +4985,13 @@ test('v56.57 فاتورة الخدمات: الرقم الضريبي المقرو
   await p.locator('[data-aivatok] input').check(); await p.locator('[data-svcsave]').click(); await p.waitForTimeout(300);
   const r = await p.evaluate(() => ({ n: window.cur.invoices.length, vat: window.curOrg.suppliers.find(x => x.id === 's2').vatNo, other: window.curOrg.suppliers.find(x => x.id === 's1').vatNo, ai: window.cur.invoices[0].aiRead.applied }));
   assert.deepEqual(r, { n: 2, vat: '311111111111113', other: '', ai: ['supplierId', 'invoiceNo', 'date', 'vatNo', 'lines'] });
+  // قرار المجلس 2: الرقم المكرر يُنبَّه له حين يُختار المورد من المرشّحين (الرقم الضريبي صار في بطاقة s2، فنقرأ بلا رقم)
+  await p.route('http://zatca.test/api/ai/invoice-read', r => r.fulfill({ json: { result: { supplierName: 'شركة الخضار', supplierVatNo: null, invoiceNo: 'SV-5', date: '2025-12-01', currency: 'SAR', subtotal: 200, vat: 30, total: 230, lines: [], confidence: {}, notes: null } } }));
+  await p.locator('[data-svc]').click(); await p.waitForTimeout(200);
+  await p.setInputFiles('.modal input[aria-label="صورة فاتورة المورد"]', png); await p.waitForTimeout(300); await p.locator('[data-airead]').click(); await p.waitForTimeout(400);
+  assert.equal(await p.locator('[data-aiwarncode="dup_invoice"]').count(), 0);
+  await p.selectOption('select[aria-label="مرشح المورد"]', 's2'); await p.waitForTimeout(150);
+  assert.equal(await p.locator('[data-aiwarncode="dup_invoice"]').count(), 1, 'بعد اختيار المرشّح');
   assert.deepEqual(errs, []); await ctx.close();
 });
 

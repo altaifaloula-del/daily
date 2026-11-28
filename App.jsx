@@ -4126,7 +4126,7 @@ export { FL_GROUPS, flLvl, flGroupOf, flUnclassified, flReversalOf, flCorrect };
 export { flReadOn, flEntriesOf, flBalDiff, flDayBefore };   // v56.14 D4
 export { ctlBarOn };
 export { AI_INV_ROLES, AI_INV_FIELDS, AI_INV_FIELD_AR, aiInvOn, aiInvCheck, aiInvSim, aiInvEdited };   // v56.55 البند F — قراءة فاتورة المورد كمقترح
-export { AI_SVC_MAX_ACCS, AI_SVC_ACC_RE, aiSvcAccList, aiSvcLastAcc, aiSvcCheck, aiSvcLinesEdited };   // v56.57 — قراءة فاتورة الخدمات والمصروفات كمقترح
+export { AI_SVC_MAX_ACCS, AI_SVC_ACC_RE, AI_SVC_CTL, aiSvcCtl, aiSvcAccList, aiSvcLastAcc, aiSvcCheck, aiSvcLinesEdited };   // v56.57 — قراءة فاتورة الخدمات والمصروفات كمقترح
 export { mktCtlOn, mktCanExport, mktCanExportAll, mktUndoPending };   // v56.35
 export { loyMonthAdj, posLoyOpening, posMisLoyRanges, posMisLoyFrom, posMisLoyAt, posGlNote };   // v56.33
 export { cvLive, cvApprRanges, cvApprAt, cvApprOpenFrom, cvNeedsAppr, cvApprove };   // v56.32
@@ -11982,7 +11982,8 @@ function aiInvCheck(read, ctx) {
   const td = String(c.today || '').slice(0, 10);
   if (date && td && date > td) w('future_date', 'تاريخ الفاتورة ' + date + ' بعد اليوم');
   if (date && periodLocked({ periodLocks: { lockedThrough: String(c.lockedThrough || '') } }, date)) w('locked_period', 'تاريخ الفاتورة في فترة مقفلة (حتى ' + c.lockedThrough + ') — لن يُقبل الحفظ');
-  if (supplierId && fields.invoiceNo) { const k0 = purKey({ supplierId, invoiceNo: fields.invoiceNo }); const o = k0 && (Array.isArray(c.invoices) ? c.invoices : []).find(i => i && (!c.excludeId || i.id !== c.excludeId) && purKey(i) === k0);   // الفاتورة قيد التعديل مستثناة كما في فحص الحفظ
+  const dupSup = supplierId || (c.pick && sups.some(s => s.id === c.pick) ? c.pick : null);   // v56.57: أو المرشّح الذي اختاره المستخدم صراحة
+  if (dupSup && fields.invoiceNo) { const k0 = purKey({ supplierId: dupSup, invoiceNo: fields.invoiceNo }); const o = k0 && (Array.isArray(c.invoices) ? c.invoices : []).find(i => i && (!c.excludeId || i.id !== c.excludeId) && purKey(i) === k0);   // الفاتورة قيد التعديل مستثناة كما في فحص الحفظ
     if (o) w('dup_invoice', 'رقم الفاتورة ' + fields.invoiceNo + ' مسجّل لهذا المورد' + (o.date ? ' بتاريخ ' + String(o.date).slice(0, 10) : '')); }
   if (cur && cur !== 'SAR') w('currency', 'عملة الفاتورة ' + cur + ' ليست الريال السعودي');
   const low = Object.keys(conf).filter(k => conf[k] < 0.6); if (low.length) w('low_conf', 'ثقة منخفضة في: ' + low.map(k => AI_INV_FIELD_AR[k] || k).join('، '));
@@ -11999,11 +12000,19 @@ const aiInvEdited = (applied, vals, cur) => (Array.isArray(applied) ? applied : 
    لا اختيار مورد بالاسم، ولا إنشاء مورد أو حساب. */
 const AI_SVC_MAX_ACCS = 300;
 const AI_SVC_ACC_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,29}$/;   // أرقام الدليل وحسابات المنشأة (مثل MZ-…) — نسخة الخادم في server-aiinv.js
-/** قائمة الحسابات المرسلة للخادم: من حسابات النموذج نفسه — المصروفات ثم الأصول — رمز واسم فقط، 300 على الأكثر */
-const aiSvcAccList = (accs) => { const L = (Array.isArray(accs) ? accs : []).filter(a => a && AI_SVC_ACC_RE.test(String(a.code || '')) && String(a.name || '').trim());
+const AI_SVC_INVIS = /[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g;   // محارف الاتجاه والمحارف الخفية — نسخة الخادم في server-aiinv.js
+/* v56.57 (قرار المجلس 1) — الحسابات التي لا تُرسل للذكاء الاصطناعي ولا تُقترح: حسابات الرقابة والمقابلة.
+   النقد والبنوك والوسطاء (cash)، الذمم 13xx، سلف الموظفين 1401، أوامر الصرف 1402، ضريبة المدخلات 1501، المخزون 1601 ومستودعاته،
+   بضاعة في الطريق 1609، مجمع الإهلاك 1791 وحساب مجمع الهبوط المضبوط، وحسابات المقابلة (CTL_CONTRA) و5150 «بضاعة آخر المدة».
+   الاختيار اليدوي في النموذج يبقى على كل الحسابات كما هو (قرار v44.3). */
+const AI_SVC_CTL = ['1101', '1201', '1380', '1399', '1401', DS_PRE_ACC, '1501', '1601', '1609', '1791', '5150'];
+const aiSvcCtl = (a, org) => { const c = String((a && a.code) || ''); const imp = String((((org || {}).impair) || {}).accAcc || '');
+  return !!(a && (a.cash || a.whId || a.appId)) || AI_SVC_CTL.includes(c) || CTL_CONTRA.has(c) || /^1[1-3]/.test(c) || /^1601/.test(c) || /^1[89]\d{2}$/.test(c) || (!!imp && c === imp); };
+/** قائمة الحسابات المرسلة للخادم والمسموح باقتراحها: من حسابات الدليل (buildAccounting) — المصروفات ثم الأصول غير الرقابية — رمز واسم فقط، 300 على الأكثر */
+const aiSvcAccList = (accs, org) => { const L = (Array.isArray(accs) ? accs : []).filter(a => a && AI_SVC_ACC_RE.test(String(a.code || '')) && String(a.name || '').replace(AI_SVC_INVIS, '').trim() && !aiSvcCtl(a, org));
   const rank = (a) => a.kind === 'exp' ? 0 : a.kind === 'asset' ? 1 : 2;
   return L.filter(a => rank(a) < 2).sort((x, y) => rank(x) - rank(y) || String(x.code).localeCompare(String(y.code))).slice(0, AI_SVC_MAX_ACCS)
-    .map(a => ({ code: String(a.code), name: String(a.name).replace(/[\u0000-\u001F\u007F]/g, ' ').trim().slice(0, 120) })); };
+    .map(a => ({ code: String(a.code), name: String(a.name).replace(/[\u0000-\u001F\u007F]/g, ' ').replace(AI_SVC_INVIS, '').trim().slice(0, 120) })); };
 /** حساب آخر فاتورة خدمات لهذا المورد (الأحدث تاريخًا ثم إنشاءً ثم رقمًا — حتمي)، من الحسابات المسموح بها فقط */
 function aiSvcLastAcc(invoices, supplierId, allowed, excludeId) {
   if (!supplierId) return null; const ok = allowed instanceof Set ? allowed : new Set((allowed || []).map(String));
@@ -12029,17 +12038,17 @@ function aiSvcCheck(read, ctx) {
   const rate = c.taxRate != null && isFinite(Number(c.taxRate)) ? Number(c.taxRate) : 15;
   const bad = [], none = [], vatBad = [], neg = [];
   const lines = raw.map((l, i) => { const amount = aiInvNum(l.amount), vat = aiInvNum(l.vat); const code0 = aiInvStr(l.accountCode, 30);
-    let accCode = null, accFrom = null;
-    if (code0 && allowed.has(code0)) { accCode = code0; accFrom = 'ai'; } else if (code0) bad.push(i + 1);
-    if (!accCode && last) { accCode = last; accFrom = 'last'; }
-    if (!accCode) none.push(i + 1);
-    if (amount != null && amount < 0) neg.push(i + 1);
+    let accCode = null, accFrom = null; const isNeg = amount != null && amount < 0;
+    if (isNeg) neg.push(amount);   // بند خصم: لا يُطبَّق ولا يُقترح له حساب (قرار المجلس 3)
+    else { if (code0 && allowed.has(code0)) { accCode = code0; accFrom = 'ai'; } else if (code0) bad.push(i + 1);
+      if (!accCode && last) { accCode = last; accFrom = 'last'; }
+      if (!accCode) none.push(i + 1); }
     if (c.taxOn !== false && amount != null && vat != null && vat > 0.004) { const exp = Math.round(amount * rate) / 100; if (Math.abs(vat - exp) > Math.max(0.05, Math.abs(exp) * 0.005)) vatBad.push(i + 1); }
-    return { desc: aiInvStr(l.desc, 200), amount, vat, taxable: vat == null ? null : vat > 0.004, accCode, accName: accCode ? (nameOf[accCode] || '') : '', accFrom }; });
+    return { desc: aiInvStr(l.desc, 200), amount, vat, taxable: vat == null ? null : vat > 0.004, accCode, accName: accCode ? (nameOf[accCode] || '') : '', accFrom, ...(isNeg ? { neg: true } : {}) }; });
   if (bad.length) w('acc_unknown', 'رمز الحساب المقترح غير موجود في حسابات هذا النموذج للبند ' + bad.join('، ') + ' — لم يُعتمد');
   if (lines.some(l => l.accFrom === 'last')) w('acc_last', 'حساب البند ' + lines.map((l, i) => l.accFrom === 'last' ? i + 1 : 0).filter(Boolean).join('، ') + ' من آخر استخدام لهذا المورد — تحقق أنه يناسب الخدمة');
   if (none.length) w('acc_missing', 'بلا حساب مقترح للبند ' + none.join('، ') + ' — اختر الحساب');
-  if (neg.length) w('line_neg', 'مبلغ البند ' + neg.join('، ') + ' سالب (خصم؟) — لا يُملأ في النموذج، أدخله يدويًا');
+  neg.forEach(a => w('line_neg', 'بند خصم مقروء (−' + money(Math.abs(a)) + ') لم يُطبَّق — أدخله يدويًا إن لزم'));
   if (vatBad.length) w('line_vat', 'ضريبة البند ' + vatBad.join('، ') + ' لا تساوي ' + rate + '% من مبلغه');
   const T = base.fields.total;
   if (T != null && lines.length && lines.every(l => l.amount != null && l.vat != null)) { const s = Math.round(lines.reduce((a, l) => a + l.amount + l.vat, 0) * 100) / 100;

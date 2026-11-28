@@ -10,4 +10,5 @@ export default {
 "المورد مصنّف غير مقيم — الاحتساب العكسي والاستقطاع لا يُملآن من القراءة: راجعهما كالمعتاد": "Supplier is tagged non-resident — reverse charge and withholding are not filled from the reading: review them as usual",
 "استبدال البنود المدخلة بالبنود المقروءة؟": "Replace the entered lines with the read lines?",
 "لا حسابات مصروفات أو أصول في الدليل تُقترح منها البنود": "No expense or asset accounts in the chart to suggest lines from",
+"خصم — لا يُطبَّق": "Discount — not applied",
 };

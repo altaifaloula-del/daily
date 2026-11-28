@@ -493,6 +493,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     </div>);
   // v56.55 (البند F) — قراءة صورة فاتورة المورد بالذكاء الاصطناعي كمقترح: لا حفظ ولا ترحيل؛ الإنسان يطبّق ثم يحفظ بالمسار المعتاد وفحوصه
   const aiInvShow = (f) => !!(f && f.img && f.img.url) && aiInvOn(org) && AI_INV_ROLES.includes(me.role) && !!aiInvUrl();
+  const aiInvCtx = (f, pick) => ({ suppliers: org.suppliers || [], invoices: ops.invoices || [], taxRate: Number((org.taxCfg || {}).rate) || 15, taxOn: !!(org.taxCfg || {}).enabled, today: today(), lockedThrough: ((org.periodLocks || {}).lockedThrough) || '', excludeId: (f && f.replaces) || '', ...(pick ? { pick } : {}) });
   const aiInvRead = async () => {
     const f0 = newInv; if (!aiInvShow(f0) || f0.aiBusy) return;
     setNewInv(x => x && ({ ...x, aiBusy: true }));
@@ -500,8 +501,8 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
       const r = await fetch(aiInvUrl(), { method: 'POST', headers: await aiHeaders(), body: JSON.stringify({ image: f0.img.url }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
-      const P = aiInvCheck(j.result, { suppliers: org.suppliers || [], invoices: ops.invoices || [], taxRate: Number((org.taxCfg || {}).rate) || 15, taxOn: !!(org.taxCfg || {}).enabled, today: today(), lockedThrough: ((org.periodLocks || {}).lockedThrough) || '', excludeId: f0.replaces || '' });
-      setNewInv(x => x && ({ ...x, aiBusy: false, aiP: { ...P, pick: P.supplierId || '' } }));
+      const P = aiInvCheck(j.result, aiInvCtx(f0));
+      setNewInv(x => x && ({ ...x, aiBusy: false, aiP: { ...P, pick: P.supplierId || '', raw: j.result } }));
     } catch (e) { setNewInv(x => x && ({ ...x, aiBusy: false })); say('تعذّرت قراءة الفاتورة: ' + (e.message || 'خطأ غير معروف'), 'no'); }
   };
   // التطبيق يملأ حقول الرأس فقط؛ البنود تُختار من الأصناف المضافة (قرار المالك v44.1) فلا تُملأ من القراءة
@@ -528,7 +529,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
       <div className="grid g2" style={{ gap: 4, fontSize: 12 }}>{rows.map(([k, v]) => <div key={k} data-aifield={k}><span style={{ color: 'var(--faint)' }}>{AI_INV_FIELD_AR[k]}{pct(k)}: </span><b className={typeof v === 'string' && /^[\d.,-]+$/.test(v) ? 'num' : ''}>{show(v)}</b></div>)}</div>
       <div style={{ margin: '8px 0', fontSize: 12 }} data-aisupplier>{sp ? <><span className="badge b-mint">المورد: {sp.name} — مطابق بالرقم الضريبي</span><div className="hint" data-aisupcheck style={{ color: 'var(--amber)' }}>تحقق أن الفاتورة صادرة فعلًا من هذا المورد</div></>
         : P.supplierCandidates.length ? <Field label="المورد غير مطابق بالرقم الضريبي — اختر من المرشّحين بالاسم أو اتركه">
-          <select className="sel" aria-label="مرشح المورد" value={P.pick || ''} onChange={e => { const v = e.target.value; setNewInv(x => ({ ...x, aiP: { ...x.aiP, pick: v } })); }}>
+          <select className="sel" aria-label="مرشح المورد" value={P.pick || ''} onChange={e => { const v = e.target.value; setNewInv(x => ({ ...x, aiP: { ...aiInvCheck(x.aiP.raw, aiInvCtx(x, v)), pick: v, raw: x.aiP.raw } })); }}>
             <option value="">— لا تغيّر المورد —</option>{P.supplierCandidates.map(c => <option key={c.id} value={c.id}>{c.name} ({Math.round(c.score * 100)}%)</option>)}</select></Field>
         : <span className="hint">لا مورد مطابق ولا مرشّح — اختر المورد من القائمة يدويًا (لا يُنشأ مورد تلقائيًا)</span>}</div>
       {F.lines.length > 0 && <div className="hint" data-ailines>البنود المقروءة ({F.lines.length}) للمرجع فقط — تُختار بنود الفاتورة من الأصناف المضافة: {F.lines.slice(0, 8).map(l => (l.desc || '—') + (l.amount != null ? ' ' + money(l.amount) : '')).join(' · ')}{F.lines.length > 8 ? ' …' : ''}</div>}
@@ -701,7 +702,10 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
   // فاتورة خدمات ومصروفات: بنود متعددة لكل منها حساب مصروف من دليل الحسابات (قرار المالك)
   // v44.3 (قرار المالك): كل حسابات الدليل متاحة لبنود فاتورة الخدمات والمصروفات — مرتبة بالرمز ومجمّعة بالنوع، عدا ذمم الموردين 2101 (طرف الفاتورة الدائن)
   const ACC_KIND_AR = { asset: 'الأصول', liab: 'الالتزامات', equity: 'حقوق الملكية', rev: 'الإيرادات', exp: 'المصروفات' };
-  const svcAccs = useMemo(() => svc ? buildAccounting(org, {}).accounts.filter(a => String(a.code) !== '2101').map(a => ({ code: String(a.code), name: a.name, kind: a.kind || 'exp' })).sort((x, y) => x.code.localeCompare(y.code)) : [], [svc, org]);
+  const svcOpen = !!svc;
+  const svcChart = useMemo(() => svcOpen ? buildAccounting(org, {}).accounts : [], [svcOpen, org]);
+  const svcAccs = useMemo(() => svcChart.filter(a => String(a.code) !== '2101').map(a => ({ code: String(a.code), name: a.name, kind: a.kind || 'exp' })).sort((x, y) => x.code.localeCompare(y.code)), [svcChart]);
+  const svcAiAccs = useMemo(() => aiSvcAccList(svcChart, org), [svcChart, org]);   // v56.57 (قرار المجلس 1): ما يُرسل للذكاء الاصطناعي ويُقترح — بلا حسابات الرقابة؛ الاختيار اليدوي على svcAccs كما هو
   const svcGroups = Object.keys(ACC_KIND_AR).map(k => [k, svcAccs.filter(a => a.kind === k)]).concat([['', svcAccs.filter(a => !ACC_KIND_AR[a.kind])]]).filter(([, l]) => l.length);
   const svcLine = () => ({ desc: '', accCode: '', net: '', taxable: !!(org.taxCfg || {}).enabled });
   const svcCalc = (f) => { const r2 = (n) => Math.round(n * 100) / 100; const rate = (Number((org.taxCfg || {}).rate) || 15) / 100;
@@ -741,11 +745,11 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
   };
   // v56.57 — قراءة فاتورة الخدمات والمصروفات بالذكاء الاصطناعي كمقترح: المفتاح والأدوار والمسار نفسها (kind: 'svc')، ولا حفظ ولا ترحيل
   //   التطبيق يملأ الرأس (بقواعد v56.55) والبنود (الوصف، المبلغ، الخضوع، الحساب) بعلامة «مقترح»؛ الاحتساب العكسي والاستقطاع وطريقة الدفع يختارها المستخدم كالمعتاد
-  const aiSvcCtx = (pick) => ({ suppliers: org.suppliers || [], invoices: ops.invoices || [], accounts: svcAccs, taxRate: Number((org.taxCfg || {}).rate) || 15, taxOn: !!(org.taxCfg || {}).enabled,
+  const aiSvcCtx = (pick) => ({ suppliers: org.suppliers || [], invoices: ops.invoices || [], accounts: svcAiAccs, taxRate: Number((org.taxCfg || {}).rate) || 15, taxOn: !!(org.taxCfg || {}).enabled,
     today: today(), lockedThrough: ((org.periodLocks || {}).lockedThrough) || '', ...(pick ? { pick } : {}) });
   const aiSvcRead = async () => {
     const f0 = svc; if (!aiInvShow(f0) || f0.aiBusy) return;
-    const accounts = aiSvcAccList(svcAccs); if (!accounts.length) return say('لا حسابات مصروفات أو أصول في الدليل تُقترح منها البنود', 'no');
+    const accounts = svcAiAccs; if (!accounts.length) return say('لا حسابات مصروفات أو أصول في الدليل تُقترح منها البنود', 'no');
     setSvc(x => x && ({ ...x, aiBusy: true }));
     try {
       const r = await fetch(aiInvUrl(), { method: 'POST', headers: await aiHeaders(), body: JSON.stringify({ image: f0.img.url, kind: 'svc', accounts }) });
@@ -766,11 +770,12 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     const taxOn = !!(org.taxCfg || {}).enabled;
     const blank = (f.lines || []).every(l => !String(l.desc || '').trim() && !String(l.net || '').trim() && !l.accCode);
     let lines = null;
-    if (F.lines.length && (blank || window.confirm('استبدال البنود المدخلة بالبنود المقروءة؟'))) lines = F.lines.map(l => {
+    const pos = F.lines.filter(l => !l.neg);   // بند الخصم لا يُطبَّق (تحذير ظاهر في اللوحة والنموذج)
+    if (pos.length && (blank || window.confirm('استبدال البنود المدخلة بالبنود المقروءة؟'))) lines = pos.map(l => {
       const x = { desc: l.desc || '', accCode: l.accCode || '', net: l.amount != null && l.amount > 0 ? String(l.amount) : '', taxable: taxOn && (l.taxable != null ? l.taxable : (F.vat != null ? F.vat > 0.004 : true)) };
       return { ...x, ai: { ...x, from: l.accCode ? l.accFrom : '' } }; });
     const applied = [...Object.keys(vals), ...(lines ? ['lines'] : [])];
-    setSvc(x => ({ ...x, ...vals, ...(lines ? { lines } : {}), vatOk: false, aiP: null, ai: { at: nowISO(), by: me.name, applied, vals: { ...vals, ...(lines ? { lines: lines.map(({ ai, ...l }) => l) } : {}) }, total: F.total } })); };
+    setSvc(x => ({ ...x, ...vals, ...(lines ? { lines } : {}), vatOk: false, aiP: null, ai: { at: nowISO(), by: me.name, applied, vals: { ...vals, ...(lines ? { lines: lines.map(({ ai, ...l }) => l) } : {}) }, total: F.total, neg: F.lines.filter(l => l.neg).map(l => l.amount) } })); };
   const aiSvcEdited = (f) => { const A = (f.ai && f.ai.applied) || []; return [...aiInvEdited(A.filter(k => k !== 'lines'), f.ai.vals, f), ...(A.includes('lines') && aiSvcLinesEdited(f.ai.vals.lines, f.lines) ? ['lines'] : [])]; };
   const aiLineSug = (l) => !!(l && l.ai && l.desc === l.ai.desc && l.accCode === l.ai.accCode && l.net === l.ai.net && !!l.taxable === !!l.ai.taxable);
   // تغيير المورد بعد التطبيق: يُمسح الرقم الضريبي المقروء (v56.55)، وحساب «من آخر استخدام» للمورد السابق ما لم يُعدَّل
@@ -792,8 +797,8 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
         : <span className="hint">لا مورد مطابق ولا مرشّح — اختر المورد من القائمة يدويًا (لا يُنشأ مورد تلقائيًا)</span>}</div>
       {F.lines.length > 0 && <div className="tw" style={{ margin: '6px 0' }}><table className="tb" data-aisvclines style={{ fontSize: 12 }}>
         <thead><tr><th>البند المقروء</th><th style={{ textAlign: 'end' }}>قبل الضريبة</th><th style={{ textAlign: 'end' }}>الضريبة</th><th>الحساب المقترح</th></tr></thead>
-        <tbody>{F.lines.map((l, i) => <tr key={i} data-aisvcline={i}><td>{show(l.desc)}</td><td className="num" style={{ textAlign: 'end' }}>{l.amount != null ? money(l.amount) : '—'}</td><td className="num" style={{ textAlign: 'end' }}>{l.vat != null ? money(l.vat) : '—'}</td>
-          <td>{l.accCode ? <>{l.accCode} · {l.accName}{l.accFrom === 'last' && <span className="badge b-dim" data-aiaccfrom="last" style={{ marginInlineStart: 4 }}>من آخر استخدام</span>}</> : <span style={{ color: 'var(--amber)' }}>— اختر الحساب —</span>}</td></tr>)}</tbody></table></div>}
+        <tbody>{F.lines.map((l, i) => <tr key={i} data-aisvcline={i} style={l.neg ? { color: 'var(--amber)' } : null}><td>{show(l.desc)}{l.neg && <span className="badge b-amber" data-aineg style={{ marginInlineStart: 4 }}>خصم — لا يُطبَّق</span>}</td><td className="num" style={{ textAlign: 'end' }}>{l.amount != null ? money(l.amount) : '—'}</td><td className="num" style={{ textAlign: 'end' }}>{l.vat != null ? money(l.vat) : '—'}</td>
+          <td>{l.neg ? '—' : l.accCode ? <>{l.accCode} · {l.accName}{l.accFrom === 'last' && <span className="badge b-dim" data-aiaccfrom="last" style={{ marginInlineStart: 4 }}>من آخر استخدام</span>}</> : <span style={{ color: 'var(--amber)' }}>— اختر الحساب —</span>}</td></tr>)}</tbody></table></div>}
       {nonRes(P.pick || f.supplierId) && <div className="hint" data-ainonres style={{ color: 'var(--amber)' }}>المورد مصنّف غير مقيم — الاحتساب العكسي واستقطاع الضريبة وطريقة الدفع لا تُملأ من القراءة: اخترها في النموذج كالمعتاد</div>}
       {!nonRes(P.pick || f.supplierId) && <div className="hint" style={{ fontSize: 11 }}>الاحتساب العكسي واستقطاع الضريبة وطريقة الدفع لا تُملأ من القراءة — تختارها أنت كالمعتاد</div>}
       {F.notes && <div className="hint" data-ainotes style={{ color: 'var(--faint)', fontSize: 11, fontStyle: 'italic', opacity: 0.85 }}>نص مقروء من المستند — غير موثوق: <span>{F.notes}</span></div>}
@@ -1465,6 +1470,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
           {needVat(svc.supplierId, k.vat) && aiVatPending(svc) && <label className="row" style={{ gap: 6, fontSize: 12.5, margin: '4px 0' }} data-aivatok>
             <input type="checkbox" aria-label="تأكيد الرقم الضريبي المقروء" checked={!!svc.vatOk} onChange={e => setSvc(f => ({ ...f, vatOk: e.target.checked }))} />أؤكد أن هذا الرقم الضريبي يخص هذا المورد</label>}
           {svc.ai && svc.ai.total != null && !isFx(svc.cur) && Math.abs(k.gross - svc.ai.total) > 0.05 && <div className="hint" style={{ color: 'var(--amber)' }} data-aitotal>إجمالي الفاتورة المقروء <span className="num">{money(svc.ai.total)}</span> لا يساوي إجمالي البنود المدخلة <span className="num">{money(k.gross)}</span> — راجع البنود</div>}
+          {svc.ai && (svc.ai.neg || []).length > 0 && <div className="hint" style={{ color: 'var(--amber)' }} data-aineghint>{svc.ai.neg.map(a => 'بند خصم مقروء (−' + money(Math.abs(a)) + ') لم يُطبَّق — أدخله يدويًا إن لزم').join(' · ')}</div>}
           {svc.ai && nonRes(svc.supplierId) && <div className="hint" data-ainonres style={{ color: 'var(--amber)' }}>المورد مصنّف غير مقيم — الاحتساب العكسي والاستقطاع لا يُملآن من القراءة: راجعهما كالمعتاد</div>}
           {ImgField({ img: svc.img, onImg: (img) => setSvc(f => ({ ...f, img })) })}
           {aiInvShow(svc) && <div className="row" style={{ gap: 6, margin: '4px 0' }}><button type="button" className="btn sm" data-airead disabled={!!svc.aiBusy} onClick={aiSvcRead}><Sparkles size={13} />{svc.aiBusy ? 'جارٍ قراءة الفاتورة…' : 'قراءة الفاتورة بالذكاء الاصطناعي'}</button><span className="hint">مقترح فقط — لا يُحفظ شيء تلقائيًا</span></div>}
