@@ -166,6 +166,8 @@ const isoD = (dt) => dt.getFullYear() + '-' + pad2(dt.getMonth() + 1) + '-' + pa
 const today = () => isoD(new Date());
 // يوم العمل للإغلاق: ما قبل 6 صباحًا يخص وردية اليوم السابق (المطاعم تغلق بعد منتصف الليل)
 const businessDay = () => { const d = new Date(); if (d.getHours() < 6) d.setDate(d.getDate() - 1); return isoD(d); };
+// v56.57: يوم العمل لوقت معيّن (قبل 6 صباحًا = اليوم السابق) — كما businessDay(); تقرير أوقات التحضير كان يقارن تاريخ التقويم بيوم العمل فيُسقط تذاكر ما بعد منتصف الليل
+const bizDayOf = (at) => { const d = new Date(at); if (isNaN(d.getTime())) return ''; if (d.getHours() < 6) d.setDate(d.getDate() - 1); return isoD(d); };
 const nowISO = () => new Date().toISOString();
 // v52.3: الوقت المخزّن بتوقيت UTC (…Z) كان يُعرض مقصوصًا فيظهر متأخرًا 3 ساعات عن توقيت الرياض — يُحوَّل الآن للتوقيت المحلي «YYYY-MM-DD HH:MM»
 const dtLocal = (x) => { if (x == null || x === '') return ''; try { const str = String(x); if (!(x instanceof Date) && !/(Z|[+-]\d\d:?\d\d)$/.test(str)) return str.slice(0, 16).replace('T', ' ');
@@ -12923,7 +12925,7 @@ function kdsSplit(org, brId, x, products) {
 /** تقرير أوقات التحضير: من وصول التذكرة (at) حتى «جاهز» (readyAt) — لكل محطة ولكل صنف؛ المتأخر = أكبر من الهدف بالدقائق (بلا هدف: null) */
 function kdsPrepReport(tickets, opt = {}) {
   const tgt = Number(opt.target) || 0, r1 = (v) => Math.round(v * 10) / 10;
-  const L = (tickets || []).filter(k => k && k.at && k.readyAt && (!opt.branchId || k.branchId === opt.branchId)).filter(k => { const d = k.date || isoD(new Date(k.at)); return (!opt.from || d >= opt.from) && (!opt.to || d <= opt.to); })
+  const L = (tickets || []).filter(k => k && k.at && k.readyAt && (!opt.branchId || k.branchId === opt.branchId)).filter(k => { const d = k.date || bizDayOf(k.at); return (!opt.from || d >= opt.from) && (!opt.to || d <= opt.to); })
     .map(k => ({ k, m: (Date.parse(k.readyAt) - Date.parse(k.at)) / 60000 })).filter(x => x.m >= 0);
   const agg = (m, key, name, mins, qty) => { const x = m.get(key) || { key, name, n: 0, qty: 0, sum: 0, max: 0, late: 0 }; x.n++; x.qty += qty; x.sum += mins; x.max = Math.max(x.max, mins); if (tgt && mins > tgt) x.late++; m.set(key, x); };
   const S = new Map(), I = new Map();

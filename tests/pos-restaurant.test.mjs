@@ -256,6 +256,11 @@ test('تقرير أوقات التحضير: من الوصول حتى «جاهز�
   // بلا هدف: لا نسبة تأخر (لا افتراض لهدف)
   const R0 = E.kdsPrepReport(K, { branchId: 'b1', from: '2026-11-20', to: '2026-11-20' });
   assert.deepEqual([R0.late, R0.latePct, R0.stations[0].latePct], [0, null, null]);
+  // v56.57: التذكرة بعد منتصف الليل وقبل 6 صباحًا (بالتوقيت المحلي) تتبع يوم العمل السابق — كما يوم التقرير businessDay()
+  const late2 = new Date(2026, 10, 21, 2, 30).toISOString(), ready2 = new Date(2026, 10, 21, 2, 40).toISOString();
+  const KN = [{ ...K[0], id: 'n1', at: late2, readyAt: ready2 }];
+  assert.equal(E.kdsPrepReport(KN, { branchId: 'b1', from: '2026-11-20', to: '2026-11-20' }).n, 1, 'تُحسب على يوم العمل 20');
+  assert.equal(E.kdsPrepReport(KN, { branchId: 'b1', from: '2026-11-21', to: '2026-11-21' }).n, 0, 'لا تُحسب على تقويم 21');
   // تذاكر بلا محطات (الشاشة الواحدة) ⇒ «المطبخ»
   assert.deepEqual(E.kdsPrepReport([{ ...K[0], station: undefined, stationName: undefined }]).stations.map(x => x.name), ['المطبخ']);
   const X = E.kdsPrepSheets(R);
