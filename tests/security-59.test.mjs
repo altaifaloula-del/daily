@@ -12,6 +12,8 @@ import { mountLedger } from '../server-ledger.js';
 import { mountAiRoutes, AI_CENTRAL_ROLES } from '../server-ai.js';
 import { healthAdmin, healthRedact } from '../server-health.js';
 import { loadTenants } from '../tenants.js';
+import { createRateLimiter } from '../server-ratelimit.js';
+import fs from 'node:fs';
 
 let E;
 before(async () => { E = await buildEngine(); });
@@ -136,4 +138,37 @@ test('فحص الإعدادات: deep لمدير المنصة الموثّق ف�
   assert.deepEqual(healthRedact(out, false).serviceAccount, { set: true, readsData: true });
   assert.equal(healthRedact(out, true).serviceAccount.project, 'demo-prod');
   assert.equal(out.serviceAccount.project, 'demo-prod', 'لا يُعدَّل الأصل');
+});
+
+test('مراجعة الأمان: رفض غير المركزي (403) يسبق حد المنشأة فلا يستهلك حصتها', async () => {
+  const H = aiHarness({ env: { AI_TENANT_PER_HOUR: '2' } });
+  for (let i = 0; i < 5; i++) { assert.equal((await H.call('/api/ai/analyze', 'tok-reg', DIG)).status, 403); assert.equal((await H.call('/api/ai/growth', 'tok-bm', DIG)).status, 403); }
+  assert.equal((await H.call('/api/ai/analyze', 'tok-acc', DIG)).status, 200);
+  assert.equal((await H.call('/api/ai/growth', 'tok-admin', DIG)).status, 200, 'الحصة كاملة للمركزي');
+  assert.equal((await H.call('/api/ai/analyze', 'tok-acc', DIG)).status, 429);
+});
+
+test('مراجعة الأمان: لكل محدِّد عدّاد مستقل — محدِّد الدقيقة على العنوان نفسه لا يعيد ضبط حد الساعة (30 رفعًا ثم قراءة بعد >60ث ثم الرفع 31 ⇒ 429)', async () => {
+  let clock = 1_000_000; const RL = createRateLimiter({ now: () => clock });
+  const routes = {}; const reg = (m) => (p, ...h) => { routes[m + ' ' + p] = h; }; const app = { get: reg('GET'), post: reg('POST') };
+  mountRefs(app, { express: { json: () => (q, r, n) => n() }, requireMember: (req, res, next) => { req.user = USERS['tok-admin']; next(); }, rateLimit: RL.rateLimit, T,
+    fetchImpl: async () => ({ ok: false, status: 500, json: async () => ({}) }), aiClient: null, log: { log() {}, error() {} } });
+  const call = async (key, body) => { const req = { ip: '10.0.0.9', headers: {}, body, params: {} }; const o = { status: 200 };
+    const res = { status(c) { o.status = c; return this; }, json(j) { o.json = j; return this; }, setHeader() {} };
+    for (const h of routes[key]) { let go = false; await h(req, res, () => { go = true; }); if (!go) break; } return o; };
+  const up = () => call('POST /api/refs/upload', { meta: null });   // بلا حساب خدمة ⇒ 409 بعد المحدِّدات (لا عمل في الخلفية)
+  for (let i = 0; i < 30; i++) { assert.equal((await up()).status, 409, 'رفع ' + (i + 1)); clock += 31_000; }   // 31ث بين الرفعات: حد العنوان (20/10د) لا يُبلغ
+  clock += 61_000; await call('GET /api/refs');   // محدِّد الدقيقة (lim) على العنوان نفسه بعد >60ث
+  assert.equal((await up()).status, 429, 'الرفع 31 خلال الساعة مرفوض');
+  // والمحدِّدات بلا keyFn لا تتشارك: محدِّدان على العنوان نفسه بحدود مختلفة
+  const a = RL.rateLimit({ windowMs: 1000, max: 1 }), b = RL.rateLimit({ windowMs: 1000, max: 1 }); const R = { status(c) { this.s = c; return this; }, json() { return this; }, setHeader() {} };
+  let n = 0; a({ ip: 'x' }, R, () => n++); b({ ip: 'x' }, R, () => n++); assert.equal(n, 2, 'عدّادان مستقلان');
+  RL.sweep(); clock += 3_700_000; RL.sweep(); assert.equal(RL.buckets.size, 0, 'التنظيف');
+});
+
+test('مراجعة الأمان: الهوية قبل محلّل الجسم في zatca/onboard وmcp/proposals/review|decide، وخادم server.js يستعمل المحدِّد المستقل', () => {
+  const srv = fs.readFileSync(new URL('../server.js', import.meta.url), 'utf8'), mcp = fs.readFileSync(new URL('../server-mcp.js', import.meta.url), 'utf8');
+  assert.match(srv, /app\.post\('\/api\/zatca\/onboard', requireMember, [^\n]*zJson, async/);
+  for (const r of ['review', 'decide']) assert.match(mcp, new RegExp("app\\.post\\('/api/mcp/proposals/" + r + "', requireMember, lim, express\\.json\\("));
+  assert.match(srv, /createRateLimiter\(\)/); assert.doesNotMatch(srv, /function rateLimit\(/);
 });

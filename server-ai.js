@@ -5,7 +5,7 @@
  *  • حد للمنشأة مجتمعة لكل ساعة (AI_TENANT_PER_HOUR، افتراضيًا 120) مشترك بين المسارات الثلاثة — كحد limT في قراءة الفواتير —
  *    فوق حد المستخدم (AI_RATE_LIMIT_PER_HOUR، افتراضيًا 30) — لا تستنزف منشأة واحدة رصيد المزوّد مهما تعدد مستخدموها.
  *  • التحليل المالي ومساعد النمو للأدوار المركزية وحدها (النطاق «all» في ROLES — مثل centralOf في القواعد — عدا دور العرض فقط) أو مدير المنصة (platform/admins)؛
- *    تحليل التعليقات كما كان (أي عضو).
+ *    تحليل التعليقات كما كان (أي عضو). فحص الدور قبل حد المنشأة: رفض غير المركزي لا يستهلك حصة المنشأة.
  * ai({ system, user, maxTokens }) ⇒ كائن JSON (callClaude في server.js) — يُحقن فتُختبر الحراسات بلا نداء Anthropic.
  */
 const ISSUES = ['وقت الخدمة', 'جودة الطعام', 'الأسعار', 'النظافة', 'الخدمة', 'المكان'];
@@ -25,7 +25,7 @@ export function mountAiRoutes(app, { express, requireMember, requireFeature, rat
   };
   const aiErr = (res, e) => res.status(e.status || 500).json({ error: e.status ? e.message : 'تعذّر إتمام التحليل', ...(e.code ? { code: e.code } : {}) });
 
-app.post('/api/ai/analyze', ipLim, requireMember, requireFeature('ai'), aiLimit, limT, central, aiJson, async (req, res) => {
+app.post('/api/ai/analyze', ipLim, requireMember, requireFeature('ai'), aiLimit, central, limT, aiJson, async (req, res) => {
   const digest = req.body?.digest;
   if (!digest || typeof digest !== 'object') return res.status(400).json({ error: 'لا توجد بيانات للتحليل' });
   const data = JSON.stringify(digest);
@@ -68,7 +68,7 @@ app.post('/api/ai/feedback', ipLim, requireMember, requireFeature('ai'), aiLimit
 });
 
 /* v52.5 — المرحلة J: المساعد الذكي للنمو — ملخص مجمّع بلا بيانات شخصية + سؤال؛ إجابة واقتراحات للمراجعة فقط */
-app.post('/api/ai/growth', ipLim, requireMember, requireFeature('ai'), aiLimit, limT, central, aiJson, async (req, res) => {
+app.post('/api/ai/growth', ipLim, requireMember, requireFeature('ai'), aiLimit, central, limT, aiJson, async (req, res) => {
   const digest = req.body?.digest; const question = String(req.body?.question || '').trim().slice(0, 500);
   if (!digest || typeof digest !== 'object') return res.status(400).json({ error: 'لا توجد بيانات للتحليل' });
   if (question.length < 3) return res.status(400).json({ error: 'اكتب سؤالك' });

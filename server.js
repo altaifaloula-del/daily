@@ -28,8 +28,9 @@ import { mountComms } from './server-comms.js';   // v56.50 إرسال الرس�
 import { mountPosCredit } from './server-poscredit.js';   // v56.46 تفويض البيع الآجل من نقطة البيع   // v56.15 D5 الترحيل إلى الدفتر المخزّن من الخادم
 import { mountPosDevices } from './server-posdev.js';   // v56.54 سجل أجهزة نقطة البيع بأرقام فريدة
 import { mountAiInvoice } from './server-aiinv.js';   // v56.55 قراءة فاتورة المورد بالذكاء الاصطناعي كمقترح
-import { mountAiRoutes } from './server-ai.js';
-import { healthAdmin, healthRedact } from './server-health.js';   // v56.59 deep لمدير المنصة وحده، وبلا معرّف المشروع للعامة   // v56.59 مسارات التحليل والتعليقات والنمو
+import { mountAiRoutes } from './server-ai.js';   // v56.59 مسارات التحليل والتعليقات والنمو
+import { healthAdmin, healthRedact } from './server-health.js';   // v56.59 deep لمدير المنصة وحده، وبلا معرّف المشروع للعامة
+import { createRateLimiter } from './server-ratelimit.js';   // v56.59 مفتاح مستقل لكل محدِّد
 import { mountMcp } from './server-mcp.js';
 import { mountRefs } from './server-refs.js';   // v54.4 مكتبة المراجع
 import { mountAiLog } from './server-ailog.js';   // v54.6 سجل الذكاء الاصطناعي
@@ -97,26 +98,9 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-/* ---- حد معدل بسيط في الذاكرة ---- */
-const buckets = new Map();
-function rateLimit({ windowMs, max, keyFn }) {
-  return (req, res, next) => {
-    const now = Date.now();
-    const key = (keyFn ? keyFn(req) : '') || req.ip || 'anon';
-    let b = buckets.get(key);
-    if (!b || now - b.start > windowMs) { b = { start: now, n: 0 }; buckets.set(key, b); }
-    b.n++;
-    if (b.n > max) {
-      res.setHeader('Retry-After', String(Math.ceil((b.start + windowMs - now) / 1000)));
-      return res.status(429).json({ error: 'طلبات كثيرة — أعد المحاولة بعد قليل' });
-    }
-    next();
-  };
-}
-setInterval(() => {
-  const now = Date.now();
-  for (const [k, b] of buckets) if (now - b.start > 3600000) buckets.delete(k);
-}, 600000).unref();
+/* ---- حد معدل بسيط في الذاكرة (server-ratelimit.js) — v56.59: عدّاد مستقل لكل محدِّد ---- */
+const { rateLimit, sweep: rlSweep } = createRateLimiter();
+setInterval(rlSweep, 600000).unref();
 
 app.get('/api/health', (_req, res) => res.json({ ok: true, at: new Date().toISOString() }));
 
@@ -235,7 +219,7 @@ const zatcaAllowed = (req, res) => {
   if (!vc.ok) console.error('[zatca] مفتاح تشفير أسرار الأجهزة: ' + ({ missing: 'غير مضبوط (ZATCA_ENC_KEY)', short: 'أقصر من 32 حرفًا', mismatch: 'تغيّر! البصمة ' + vc.kid + ' ≠ المثبّتة ' + vc.expected + ' — الأجهزة المسجّلة لن تُفك؛ أعد المفتاح الأصلي من النسخة الاحتياطية' })[vc.why]);
   else if (vc.kid) console.log('[zatca] بصمة مفتاح الخزنة ' + vc.kid + (vc.expected ? ' (مطابقة)' : ' — ثبّتها في ZATCA_KEY_ID لاكتشاف أي تغيّر')); }
 app.get('/api/zatca/config', requireMember, (req, res) => res.json({ vault: vaultReady(tenantVault(req)), keyId: keyId(tenantVault(req)), envs: ['sandbox', 'simulation'], canOnboard: (!FB_READY || ZATCA_ROLES.has(req.user.role)) && planAllows(tenantOf(req).plan, 'zatca') }));
-app.post('/api/zatca/onboard', zJson, requireMember, requireFeature('zatca'), rateLimit({ windowMs: 3600000, max: 12, keyFn: (r) => 'z:' + tenantOf(r).id + ':' + ((r.user && r.user.email) || r.ip) }), async (req, res) => {
+app.post('/api/zatca/onboard', requireMember, requireFeature('zatca'), rateLimit({ windowMs: 3600000, max: 12, keyFn: (r) => 'z:' + tenantOf(r).id + ':' + ((r.user && r.user.email) || r.ip) }), zJson, async (req, res) => {
   if (!zatcaAllowed(req, res)) return;
   const vault = tenantVault(req);
   if (!vaultReady(vault)) return res.status(503).json({ error: 'مفتاح تشفير الفوترة غير مضبوط على الخادم (ZATCA_ENC_KEY) — أضفه من إعدادات الخادم ثم أعد المحاولة' });
