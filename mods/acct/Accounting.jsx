@@ -32,8 +32,8 @@ import { ACCT_GROUPS, DocLink, RowGrip, moveIdx, RECUR_AR, recurNext, recurDue, 
 
 export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }) {
   // v56.56 (قرار المجلس F): حسم تعارضات نقطة البيع من السجل المحمي لبند مهام الإقفال (يُحمَّل فقط إن وُجدت تعارضات)
-  const [pcrL, setPcrL] = useState(null); const [pcfL, setPcfL] = useState(null); const hasPConf = !!((org.posCfg || {}).offline) || (ops.posTabs || []).some(t => (t.conflicts || []).length);
-  useEffect(() => { if (!hasPConf) return; let on = true; pcrLoad(null, true).then(L => { if (on) setPcrL(L); }); pcfLoad(null, true).then(L => { if (on) setPcfL(L); }); return () => { on = false; }; }, [hasPConf]);
+  const [pcrL, setPcrL] = useState(null); const [pcfL, setPcfL] = useState(null); const hasPConf = !!((org.posCfg || {}).offline) || (ops.posTabs || []).some(t => (t.conflicts || []).length);   // v56.58: السجلات المحمية تُحمَّل دائمًا لبند «تعارضات نقطة البيع» في مهام الإقفال
+  useEffect(() => { let on = true; pcrLoad(null, true).then(L => { if (on) setPcrL(L); }); pcfLoad(null, true).then(L => { if (on) setPcfL(L); }); return () => { on = false; }; }, [hasPConf]);
   const [view, setView] = useState('jr'); const [prjF, setPrjF] = useState({ name: '', branchId: '', budget: '' }); const [prjOpen, setPrjOpen] = useState(null);   // v47.4           // jr قيود · coa دليل · tb ميزان · fs قوائم
   const [vatTab, setVatTab] = useState('form');      // v35.8: أقسام تفاصيل الإقرار
   const [vpay, setVpay] = useState(null);            // v36.1: نموذج سداد الضريبة

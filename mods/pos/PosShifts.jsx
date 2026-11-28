@@ -43,8 +43,8 @@ export function PosShifts({ org, ops, me, brs, commit, say }) {
   const [resList, setResList] = useState(null); const [resVer, setResVer] = useState(0);
   // m1: قائمة التعارضات من السجل المحمي pos_conflicts (مع تعارضات الحساب) — وما لم يُكتب بعد يُكتب هنا (مصالحة)؛ تعذّر القراءة ⇒ تنبيه
   const offOn = posOffOn(org); const [pcf, setPcf] = useState(undefined);   // undefined = لم يُحمَّل بعد، null = تعذّرت القراءة
-  const anyConf = offOn || (ops.posTabs || []).some(t => (t.conflicts || []).length);
-  useEffect(() => { if (!anyConf) return; let on = true; const cen = brs.length > 1 && (me || {}).role === 'system_admin';
+  const anyConf = offOn || (ops.posTabs || []).some(t => (t.conflicts || []).length);   // v56.58: التحميل دائمًا (تعارض محمي يظهر ولو أُطفئ المفتاح وحُذفت tab.conflicts)؛ anyConf لتنبيه تعذّر القراءة فقط كما كان
+  useEffect(() => { let on = true; const cen = brs.length > 1 && (me || {}).role === 'system_admin';
     pcrLoad(ids, cen).then(L => { if (on) setResList(L); });
     pcfLoad(ids, cen).then(async L => { if (!on) return; setPcf(L); if (L) { const miss = pcfMissing(ops, L, ids); if (miss.length) { for (const r of miss) await pcfWrite(r); const L2 = await pcfLoad(ids, cen); if (on && L2) setPcf(L2); } } }); return () => { on = false; }; }, [anyConf, resVer, ids.join(',')]);   // eslint-disable-line react-hooks/exhaustive-deps
   const pcfErr = anyConf && pcf === null;

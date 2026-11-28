@@ -5,13 +5,12 @@ import { Check, ChevronDown, ClipboardCheck, FileText, Send, Banknote, CreditCar
 import { APPS, CameraModal, DENOMS, EXP_CATS, Field, LOCK_MSG, Modal, MoneyField, Num, OutputDialog, PT_TYPE, PhotoField, ROLES, SignaturePad, arDate, buildPartners, businessDay, countDenoms, countedClosing, deficitCfg, deficitPatterns, emptyDenoms, isoD, money, nextPartnerCode, normalizeSupPays, nowISO, payCashPart, paySplits, payTotal, periodLocked, posR2, salesDaySource, sum, uid, signoff, sigFailMsg } from '../../App.jsx';
 
 import { whtPayBlock } from '../../App.jsx';   // v56.47 (E7)
-import { posChainGapsDay, posConflictBlock, pcrLoad, pcfLoad, posOffOn } from '../../App.jsx';   // v56.56 قرارا المالك: فحص فجوات السلسلة دائمًا (تنبيه)، وتعارضات دون اتصال تمنع الإغلاق حتى يحسمها مدير الفرع
+import { posChainGapsDay, posConflictBlock, pcrLoad, pcfLoad, posOffOn, pcfGate, pcfNeedRes } from '../../App.jsx';   // v56.56 قرارا المالك: فحص فجوات السلسلة دائمًا (تنبيه)، وتعارضات دون اتصال تمنع الإغلاق حتى يحسمها مدير الفرع
 export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say, onClose, onStartNew, existing = [], invoices = [], branchPartners = [], posOrders = [], posImports = [], posTabs = [] }) {
   // v56.56 (قرار المجلس E): حسم التعارضات من السجل المحمي pos_conflict_res وحده — لا يُحمَّل إلا إن وُجدت تعارضات؛ تعذّر القراءة ⇒ تبقى غير محسومة (فشل مغلق)
   // m1: والتعارضات نفسها من السجل المحمي pos_conflicts (مع العمل دون اتصال أو بوجود تعارضات) — لم يُحمَّل أو تعذّر ⇒ فشل مغلق
-  const [pcr, setPcr] = useState(null); const [pcf, setPcf] = useState(null); const hasConf = posOffOn(org) || posTabs.some(t => (t.conflicts || []).length);
-  useEffect(() => { if (!hasConf) return; let on = true; const ids = (branches || []).map(b => b.id); pcrLoad(ids, false).then(L => { if (on) setPcr(L); }); pcfLoad(ids, false).then(L => { if (on) setPcf(L); }); return () => { on = false; }; }, [hasConf]);   // eslint-disable-line react-hooks/exhaustive-deps
-  const pcfArg = hasConf ? pcf : [];
+  // v56.58 (المراجعة الأمنية «منخفضة أ»): السجل المحمي pos_conflicts يُحمَّل دائمًا للفرع واليوم (استعلام رخيص) — تعارض محمي غير محسوم يمنع الترحيل ولو أُطفئ المفتاح وحُذفت tab.conflicts
+  const [pcr, setPcr] = useState(null); const [pcf, setPcf] = useState(undefined); const hasConf = posOffOn(org) || posTabs.some(t => (t.conflicts || []).length);
   const [f, setF] = useState(() => {
     const blank = {
       date: businessDay(), branchId: branches[0]?.id || '',
@@ -30,6 +29,10 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
       denominationDetails: { ...emptyDenoms(), ...(initial.denominationDetails || {}) },
       supplierPayments: normalizeSupPays(initial.supplierPayments) };
   });
+  useEffect(() => { if (!f.branchId) return; let on = true; setPcf(undefined); pcfLoad([f.branchId], false, null, f.date).then(L => { if (on) setPcf(L); }); return () => { on = false; }; }, [f.branchId, f.date]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const needRes = pcfNeedRes(pcf, hasConf);
+  useEffect(() => { if (!needRes) return; let on = true; const ids = (branches || []).map(b => b.id); pcrLoad(ids, false).then(L => { if (on) setPcr(L); }); return () => { on = false; }; }, [needRes]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const pcfArg = pcfGate(pcf, hasConf);   // المقروء كما هو؛ تعذّر أو لم يكتمل ⇒ فشل مغلق مع العمل دون اتصال أو تعارض على الحساب (كما كان)
   const [secs, setSecs] = useState(() => {
     const d = initial || {};
     return {

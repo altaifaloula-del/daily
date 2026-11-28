@@ -15,6 +15,7 @@ import { posVoidBlock, posNextNo, posTabCuts, escH, POS_VOID_ROLES } from '../..
 import { posCreditList, posCreditAuthApi, posArRefundMax } from '../../App.jsx';   // v56.46 البيع الآجل
 import { restCfg, coversOf, posWaiters, salesByWaiter, tabRemain, tabSplitItems, tabSplitSet, tabPartPriced, tabSplitReset, tabPayPart, tabMerge, kdsStations, kdsSplit, kdsPrepReport, kdsPrepSheets } from '../../App.jsx';   // v56.52 المطعم (مُطفأة افتراضيًا)
 import { pcfPut, pcfRec } from '../../App.jsx';   // v56.56 (m1)
+import { tabPartVoid } from '../../App.jsx';   // v56.58 إلغاء جزء التقسيم بالأصناف يعيد أصنافه للطاولة المفتوحة
 import { tabSplitEqual, tabPartTotals, tabPayWhole, tabCouponMove, EQ_CP_USE, tabEqCpRelease, tabEqCpAllVoid, tabEqCpMark, posRetEqItems } from '../../App.jsx';   // v56.56 التقسيم بالتساوي، تعارض دفع الحساب كاملًا، نقل الكوبون من الجزء الملغى
 import { posDevRegOn, posDevNoGet, posDevNoSet, posDevSrvTag, posDevKey, posDevTagPick, posDevRegApi, posShellOn, posSwSync, POS_SW_FLAG } from '../../App.jsx';   // v56.54 سجل الأجهزة وفتح التطبيق دون إنترنت (مُطفآن افتراضيًا)
 import { posOffOn, POS_OB_USED, posObItem, posObSort, posStoreOpen, posLegacyQ, posObMigrate, posObRestore, posSyncRun, posSyncLogList, posSyncDelay, posSyncErr, posOffRetCheck, posOffRetPending, posOffRetReview, posLockRun, posOnMark, posOnFresh, posOnClear, posRetHashSrc, posOffRetAudit, posChainGaps } from '../../App.jsx';   // v56.53 العمل دون اتصال (مُطفأ افتراضيًا)
@@ -421,9 +422,11 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const at = nowISO();
     const vn = { no: 'م' + bi + '-' + yy + '-' + devTag + '-' + String(seq).padStart(4, '0'), dev: devTag, date: today, at, by: me.name, total: -C.total, vat: -C.vat, net: -C.net, icv: (prev.icv || 0) + 1, pih: prev.hash || '0' };
     vn.hash = sha256Hex(JSON.stringify([vn.no, vn.at, C.lines, vn.total, vn.vat, vn.icv, vn.pih, o.id]));
-    let blocked = '', eqCp = null;
-    const ok = await commit(d => { blocked = ''; eqCp = null; const cur = (d.posOrders || []).find(x => x.id === o.id); const why = posVoidBlock(d, cur); if (why) { blocked = why; return d; }
-      const d2 = { ...d, posOrders: (d.posOrders || []).map(x => x.id === o.id ? { ...x, status: 'void', voidBy: me.name, voidAt: at, voidReason: reason.trim(), voidNote: vn } : x) }; eqCp = o.tabId ? tabEqCpAllVoid((d2.posTabs || []).find(t => t.id === o.tabId), d2) : null; return d2; },
+    let blocked = '', eqCp = null, pv = null;
+    const ok = await commit(d => { blocked = ''; eqCp = null; pv = null; const cur = (d.posOrders || []).find(x => x.id === o.id); const why = posVoidBlock(d, cur); if (why) { blocked = why; return d; }
+      // v56.58 (قرار المجلس): جزء التقسيم بالأصناف — الحساب مفتوح ⇒ يُوسم الجزء ملغى وتعود أصنافه لمتبقي الطاولة (في الحفظ نفسه على أحدث حالة)؛ مغلق ⇒ لا يُعاد فتح شيء
+      const tabs = o.tabId && o.tabPartId ? (d.posTabs || []).map(t => { if (t.id !== o.tabId) return t; const V = tabPartVoid(t, o.id, { at, by: me.name, note: vn.no }); pv = V; return V.tab; }) : d.posTabs;
+      const d2 = { ...d, ...(tabs !== d.posTabs ? { posTabs: tabs } : {}), posOrders: (d.posOrders || []).map(x => x.id === o.id ? { ...x, status: 'void', voidBy: me.name, voidAt: at, voidReason: reason.trim(), voidNote: vn } : x) }; eqCp = o.tabId ? tabEqCpAllVoid((d2.posTabs || []).find(t => t.id === o.tabId), d2) : null; return d2; },
       () => blocked ? null : { actionType: 'update', targetType: 'pos_order', targetId: o.id, branchName: br.name, title: 'ألغى فاتورة نقطة بيع', details: o.no + ' · ' + money(o.total) + ' · إشعار ' + vn.no + ' · ' + reason.trim() });   // v56.6: لا سجل تدقيق لإلغاء رُفض
     if (blocked) return say(blocked, 'no');
     if (!ok) return say('تعذّر حفظ الإلغاء — أعد المحاولة', 'no');
@@ -438,7 +441,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
         () => to ? { actionType: 'update', targetType: 'pos_tab', targetId: o.tabId, branchName: br.name, title: 'نقل كوبون الجزء الملغى ' + o.no + ' إلى جزء آخر', details: o.coupon } : null)
         .then(ok => { if (ok && to) say('الكوبون ' + o.coupon + ' صار صالحًا لجزء آخر من الطاولة'); else if (o.couponLtd) cpnRelease(o.coupon, useId, 'إلغاء الفاتورة'); }).catch(() => { });
     } else if (o.coupon && o.couponLtd) cpnRelease(o.coupon, useId, 'إلغاء الفاتورة');
-    say('أُلغيت الفاتورة ' + o.no + ' — إشعار دائن ' + vn.no); flush();
+    say('أُلغيت الفاتورة ' + o.no + ' — إشعار دائن ' + vn.no + (pv && pv.st === 'open' ? ' · أُعيدت أصناف الجزء ' + pv.no + ' إلى متبقي الطاولة' : pv && pv.st === 'closed' ? ' · الطاولة مغلقة — لم تُعد الأصناف إليها' : '')); flush();
     posPrint(posReturnHtml(org, { ...vn, cancel: true, refNo: o.no, retLines: C.lines, payments: (o.payments || []).map(p => ({ ...p, amount: -p.amount })), reason: 'other', note: reason.trim() }, br));
   };
 
@@ -851,7 +854,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
             {parts.length > 0 && <div className="note" data-parts style={{ marginTop: 10 }}><b>أجزاء الفاتورة</b>
               {parts.map(pt => <div key={pt.id} className="row" data-part={pt.no} style={{ justifyContent: 'space-between', alignItems: 'center', gap: 6, padding: '4px 0', borderBottom: '1px dashed var(--line)' }}>
                 <span style={{ fontSize: 12.5 }}>الجزء <b className="num">{pt.no}</b> · {pt.eq ? <span data-parteq>بالتساوي {pt.eq.k}/{pt.eq.n}</span> : pt.lines.map(l => l.name + ' ×' + l.qty).join('، ')}{pt.coupon ? ' · كوبون ' + (pt.coupon.code || '') : ''} · <b className="num">{money(pt.total)}</b></span>
-                {pt.orderId ? <span className="badge b-mint">مدفوع <span className="num">{pt.orderNo}</span></span> : <button className="btn sm pri" onClick={() => startPayTab(tl, pt)}>دفع الجزء {pt.no}</button>}</div>)}
+                {pt.voided ? <span className="badge b-rose" data-partvoid={pt.no}>ملغى <span className="num">{pt.orderNo}</span> — أصنافه في المتبقي</span> : pt.orderId ? <span className="badge b-mint">مدفوع <span className="num">{pt.orderNo}</span></span> : <button className="btn sm pri" onClick={() => startPayTab(tl, pt)}>دفع الجزء {pt.no}</button>}</div>)}
             </div>}
             {(tl.conflicts || []).length > 0 && <div className="note" data-conflicts style={{ marginTop: 8, borderColor: 'var(--rose)' }}><b style={{ color: 'var(--rose)' }}>فواتير لم تُختم على الحساب (تعارض) — يراجعها مدير الفرع</b>{tl.conflicts.map((c, i) => <div key={i} style={{ fontSize: 12 }}><span className="num">{c.orderNo}</span> · {money(c.total)} · {c.why}</div>)}</div>}
             {(tl.mergeLog || []).length > 0 && <div style={{ fontSize: 11.5, color: 'var(--faint)', marginTop: 6 }} data-mergelog>{tl.mergeLog.map((m, i) => <div key={i}>دُمجت الطاولة <span className="num">{m.from}</span> ({money(m.total)}) — {m.by} · <span className="num">{String(m.at || '').slice(11, 16)}</span></div>)}</div>}
