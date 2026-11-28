@@ -1,6 +1,6 @@
 {
   "name": "mithqal",
-  "version": "56.61.0",
+  "version": "56.62.0",
   "private": true,
   "type": "module",
   "description": "منصة سحابية متكاملة لإدارة وإغلاق فروع المطاعم",
@@ -13,7 +13,7 @@
     "build": "vite build",
     "start": "NODE_ENV=production node server.js",
     "preview": "vite preview",
-    "test:rules": "node scripts/tenant-rules.mjs --check && firebase emulators:exec --only firestore \"node --test tests/rules.test.mjs tests/security.rules.test.mjs tests/restore.emu.test.mjs tests/tenant.rules.test.mjs tests/v56.rules.test.mjs tests/pos.rules.test.mjs tests/ledger.rules.test.mjs tests/growth-records.rules.test.mjs tests/mkt-merges.rules.test.mjs tests/concurrency.emu.test.mjs && RULES_FILE=firestore.tenant.rules node --test tests/rules.test.mjs tests/security.rules.test.mjs tests/v56.rules.test.mjs tests/pos.rules.test.mjs tests/ledger.rules.test.mjs tests/growth-records.rules.test.mjs tests/mkt-merges.rules.test.mjs tests/concurrency.emu.test.mjs\"",
+    "test:rules": "node scripts/tenant-rules.mjs --check && firebase emulators:exec --only firestore \"node --test tests/rules.test.mjs tests/security.rules.test.mjs tests/restore.emu.test.mjs tests/tenant.rules.test.mjs tests/v56.rules.test.mjs tests/pos.rules.test.mjs tests/ledger.rules.test.mjs tests/growth-records.rules.test.mjs tests/mkt-merges.rules.test.mjs tests/sec-m1m2.rules.test.mjs tests/concurrency.emu.test.mjs && RULES_FILE=firestore.tenant.rules node --test tests/rules.test.mjs tests/security.rules.test.mjs tests/v56.rules.test.mjs tests/pos.rules.test.mjs tests/ledger.rules.test.mjs tests/growth-records.rules.test.mjs tests/mkt-merges.rules.test.mjs tests/sec-m1m2.rules.test.mjs tests/concurrency.emu.test.mjs\"",
     "test:acct": "node --test tests/accounting.test.mjs",
     "test:ui": "node --test tests/ui/ui.test.mjs",
     "test:zatca": "node --test tests/zatca.test.mjs",

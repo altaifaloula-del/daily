@@ -93,7 +93,8 @@ service cloud.firestore {
       // وغيابها (resource == null) يُقرأ لأي موثّق كي يعمل تمهيد أول مالك.
       allow read: if realUser() && (resource == null || isMember() || isAdmin());
       allow create: if realUser() && request.resource.data.emails == [userEmail()];
-      allow update, delete: if isAdmin();
+      // v56.62 (م-1): تعديل قائمة المدراء أو حذفها بجلسة تجتاز سياسة الخطوتين (mfaOk) — كلمة سر مسروقة وحدها لا تضيف مديرًا
+      allow update, delete: if isAdmin() && mfaOk();
     }
 
     // السياسة يقرؤها كل عضو (لتعرض الواجهة ما يلزمه)، ويكتبها المدير فقط — ولا يُفعّلها على نفسه دون جلسة بخطوتين (منع قفل نفسه)
@@ -102,13 +103,17 @@ service cloud.firestore {
       allow create, update: if isAdmin()
         && request.resource.data.keys().hasOnly(['roles', 'admins', 'at'])
         && request.resource.data.roles is list && request.resource.data.admins is bool
-        && (twoFactor() || !(request.resource.data.admins == true || myRoleIn(request.resource.data.roles)));
+        && (twoFactor() || !(request.resource.data.admins == true || myRoleIn(request.resource.data.roles)))
+        // v56.62 (م-1): سياسة قائمة تُلزم المدراء أو أي دور ⇒ لا تُعدَّل ولا تُضعَف ولا تُطفأ إلا بجلسة بخطوتين.
+        //   بلا سياسة (أول تفعيل) أو بسياسة فارغة {admins:false, roles:[]} ⇒ كما كان تمامًا
+        && (twoFactor() || resource == null || !(resource.data.get('admins', false) == true || resource.data.get('roles', []).size() > 0));
       allow delete: if isAdmin() && twoFactor();
     }
 
     match /members/{memberEmail} {
       allow read: if isAdmin() || (realUser() && userEmail() == memberEmail);
-      allow write: if isAdmin();
+      // v56.62 (م-1): العضويات (الدور والفرع والنطاق والتفعيل) يكتبها المدير بجلسة تجتاز سياسة الخطوتين (mfaOk)
+      allow write: if isAdmin() && mfaOk();
     }
 
     // v45.9: رموز إشعارات الأجهزة (ملخصات الإغلاق والمنصة مغلقة) — كل عضو يدير رموز بريده فقط.
@@ -792,7 +797,10 @@ service cloud.firestore {
         && (d.paid is int || d.paid is float) && d.paid >= 0
         && d.by is string && cvOk(d);
     }
-    function fdWriter(m, adm) { return okUser(m, adm) && roleOf(m) != 'accountant_view'; }
+    /* v56.62 (م-2): الكاتب = صلاحية مصدر الحقيقة نفسه (platform/rms8_core: المركزي غير «العرض فقط» أو المدير).
+       الفواتير والسندات في CORE_COLS فلا يحفظها جهاز الفرع أصلًا (المستند المركزي لا يُكتب على مسار الفرع)،
+       فأي سجل محمي يكتبه عضو فرع (كاشير/مدير فرع/إقليمي) بلا مصدر معتمد ⇒ مرفوض إنشاءً وسدادًا وحذفًا. */
+    function fdWriter(m, adm) { return okUser(m, adm) && (adm || (centralOf(m) && roleOf(m) != 'accountant_view')); }
     function fdCreate(id, d) {
       let m = memOf();
       let adm = admOf(m);
