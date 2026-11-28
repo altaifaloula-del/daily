@@ -273,6 +273,59 @@ test('v41.3 التسوية التلقائية للوسيط: تُرحَّل قي�
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v56.61 BANK-H-08 مطابقة الشبكة: سطر تسوية مكرر يمنع الترحيل ويُظهر الفرق والسطر؛ الاستبعاد يجعله جاهزًا ويُسجَّل مع القيد، والتأكيد بعد المراجعة يُسجَّل باسم المؤكد ووقته؛ والسطر الهجري يُرفض برقمه', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1300, height: 1400 } }); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'live/Hub/admin/finhub:cardrec'); await p.reload(); await p.waitForTimeout(600); await settle(p);
+  await p.evaluate(() => {
+    window.setOrg(g => ({ ...g, taxCfg: { enabled: true, rate: 15 }, cardTerminals: [{ tid: '4274', branchId: 'b1' }], profitCfg: { cardRates: { mada: 0.8 } }, posClearing: { enabled: true, from: '2026-09' } }));
+    window.setOps(o => ({ ...o, journalManual: [], closings: [...(o.closings || []).filter(c => !String(c.date || '').startsWith('2026-10')),
+      { id: 'cr1', branchId: 'b1', branchName: 'طيبة', date: '2026-10-01', status: 'approved', cardSales: 1000, totalRevenue: 1000 }, { id: 'cr2', branchId: 'b1', branchName: 'طيبة', date: '2026-10-02', status: 'approved', cardSales: 500, totalRevenue: 500 }] }));
+  }); await p.waitForTimeout(300);
+  const csv = ['التاريخ,الوقت,البيان,الجهاز,نوع البطاقة,دائن,مدين',
+    '2026-10-02,01:00:00,نقاط بيع - دائنة التاجر,1552164702164274,مدى,1000,0', '2026-10-02,01:00:00,نقاط بيع - دائنة التاجر,1552164702164274,مدى,1000,0',
+    '2026-10-03,01:00:00,نقاط بيع - دائنة التاجر,1552164702164274,مدى,500,0', '1447/04/10,01:00:00,نقاط بيع - دائنة التاجر,1552164702164274,مدى,70,0'].join('\n');
+  await p.locator('input[type="month"]').fill('2026-10');
+  await p.setInputFiles('input[type="file"]', { name: 'stmt.csv', mimeType: 'text/csv', buffer: Buffer.from('﻿' + csv) }); await p.waitForTimeout(500);
+  const notes = await p.locator('[data-st-notes]').innerText();
+  assert.match(notes, /السطر 5 \(«1447\/04\/10»\)/); assert.match(notes, /التاريخ غير صالح أو هجري — الكشوف بالتاريخ الميلادي فقط/);
+  const card = p.locator('.card:has-text("التسوية التلقائية للوسيط")');
+  let txt = await card.innerText();
+  assert.match(txt, /يتجاوز مبيعات الإغلاق — يحتاج مراجعة/); assert.match(txt, /يمنع الترحيل حتى تُراجع/); assert.match(txt, /بفرق\s*1,000\.00|بفرق\s*1٬000/);
+  assert.match(txt, /stmt\.csv · السطر 3/, 'السطر المكرر برقمه');
+  assert.match(txt, /ترحيل القيود الجاهزة \(1\)/, 'اليوم المتطابق وحده جاهز');
+  await card.locator('button:has-text("استبعاد السطر 3 المكرر")').click(); await p.waitForTimeout(300);
+  txt = await card.innerText(); assert.doesNotMatch(txt, /يمنع الترحيل حتى تُراجع/); assert.match(txt, /ترحيل القيود الجاهزة \(2\)/);
+  await card.locator('button:has-text("ترحيل القيود الجاهزة (2)")').click(); await p.waitForTimeout(400);
+  const j = await p.evaluate(() => window.cur.journalManual.map(x => [x.ref, x.lines.find(l => l.code === '1801').credit, (x.stmtExcluded || []).map(e => [e.src, e.row]), !!x.overReview]).sort());
+  assert.deepEqual(j, [['crs|b1|2026-10-02', 1000, [['stmt.csv', 3]], false], ['crs|b1|2026-10-03', 500, [], false]], 'الوسيط يُقفل بمبيعات الإغلاق، والمستبعد مسجّل مع قيده');
+  // البديل: التأكيد بعد المراجعة (الاستبعاد يُصفَّر بعد الترحيل) — يُرحَّل بالإجمالي كما هو ويحمل القيد من أكّد ومتى
+  await p.evaluate(() => window.setOps(o => ({ ...o, journalManual: [] }))); await p.waitForTimeout(300);
+  txt = await card.innerText(); assert.match(txt, /يمنع الترحيل حتى تُراجع/); assert.match(txt, /ترحيل القيود الجاهزة \(1\)/);
+  await card.locator('button:has-text("أؤكد الترحيل بهذا الإجمالي")').click(); await p.waitForTimeout(300);
+  txt = await card.innerText(); assert.match(txt, /أُكّد بعد المراجعة/); assert.doesNotMatch(txt, /يمنع الترحيل حتى تُراجع/); assert.match(txt, /ترحيل القيود الجاهزة \(2\)/);
+  await card.locator('button:has-text("ترحيل القيود الجاهزة (2)")').click(); await p.waitForTimeout(400);
+  const rv = await p.evaluate(() => window.cur.journalManual.filter(x => x.overReview).map(x => [x.ref, x.overReview.gross, x.overReview.sales, x.overReview.over, !!x.overReview.by, !!x.overReview.at]));
+  assert.deepEqual(rv, [['crs|b1|2026-10-02', 2000, 1000, 1000, true, true]]);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v56.61 التسوية البنكية (BANK-H-04/07): كشف بترتيب شهر/يوم يُحسم من سطوره مع تنبيه، والسطر الهجري يُرفض برقمه، والمطابقة الشاملة ومذكرة التسوية من المحرك', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1400 } }, 'live/Accounting/admin/bank');
+  await p.evaluate(() => window.setOps(o => ({ ...o, closings: [...(o.closings || []).filter(c => !String(c.date || '').startsWith('2026-10')),
+    { id: 'bk1', branchId: 'b1', branchName: 'طيبة', date: '2026-10-05', status: 'approved', cardSales: 1234.5, totalRevenue: 1234.5 }, { id: 'bk2', branchId: 'b1', branchName: 'طيبة', date: '2026-10-20', status: 'approved', cardSales: 800, totalRevenue: 800 }] }))); await p.waitForTimeout(400);
+  const csv = ['Date,Description,Debit,Credit', '10/06/2026,POS settlement,,"1,234.50"', '10/21/2026,POS settlement,,800.00', '10/22/2026,Bank charges,25.00 DR,', '1447/04/10,Old row,,70'].join('\n');
+  const month = p.locator('.card:has(#stfile) input[type="month"]'); await month.fill('2026-10');
+  await p.setInputFiles('#stfile', { name: 'mdy.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) }); await p.waitForTimeout(500);
+  const notes = await p.locator('[data-st-notes]').innerText();
+  assert.match(notes, /السطر 5 \(«1447\/04\/10»\)/); assert.match(notes, /الكشوف بالتاريخ الميلادي فقط/); assert.match(notes, /شهر\/يوم\/سنة/);
+  await p.click('button:has-text("مطابقة الشبكة")'); await p.waitForTimeout(400);
+  const body = await p.locator('#r').innerText();
+  assert.match(body, /تطابق تلقائيًا\s*2,034\.50|تطابق تلقائيًا\s*2٬034/, body.slice(0, 0));
+  await p.click('button:has-text("مطابقة شاملة لكل الحركات")'); await p.waitForTimeout(400);
+  assert.match(await p.locator('#r').innerText(), /مذكرة التسوية البنكية — 2026-10/);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('v41.3 تصدير أي تقرير مطبوع: Excel وCSV من جداول التقرير نفسه في العارض', async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Inventory/admin/recipes');
   await p.click('button:has-text("بطاقة السعرات")'); await p.waitForTimeout(600);
@@ -4772,8 +4825,11 @@ test('v56.54 سجل الأجهزة: بلا تفعيل لا طلب للخادم �
 
 test('v56.54 فتح التطبيق دون إنترنت: بلا تفعيل لا عامل خدمة؛ مع التفعيل يُسجَّل pos-sw وتُفتح الصفحة دون شبكة من المخزّن؛ والإيقاف يلغيه ويمسح كاشه', async () => {
   fs.copyFileSync(path.join(cache, 'ui', 'pos-sw.js'), path.join(cache, 'ui', 'tests', 'ui', 'pos-sw.js'));   // النطاق نسبي لمسار الصفحة (كما في الإنتاج: الجذر)
-  const V = /const APP_VER = '(v[\d.]+)'/.exec(fs.readFileSync(new URL('../../App.jsx', import.meta.url), 'utf8'))[1];   // v56.56: اسم الكاش ورابط العامل يتبعان رقم الإصدار (لا تعديل يدوي لكل إصدار)
   const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/bm');
+  // v56.56: اسم الكاش ورابط العامل يتبعان رقم الإصدار. v56.61 (ملاحظة المرحلة H): الرقم من النسخة المبنية التي تعمل فعلًا (لا من App.jsx وقت التشغيل —
+  // رفع الإصدار أثناء تشغيل المجموعة كان يُفشل الاختبار بلا خطأ في النظام)
+  const V = await p.evaluate(() => window.__M && window.__M.APP_VER);
+  assert.match(String(V), /^v\d+\.\d+/, 'رقم الإصدار من الحزمة المبنية');
   const regs = () => p.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).map(r => (r.active || r.waiting || r.installing || {}).scriptURL || ''));
   const ck = () => p.evaluate(async () => (await caches.keys()).filter(k => k.startsWith('muktasab-pos-shell-')));
   await p.evaluate(() => window.setOrg(g => ({ ...g, posCfg: { branches: ['b1'], autoPrint: false, offline: true } }))); await p.waitForTimeout(500);

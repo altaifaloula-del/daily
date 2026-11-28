@@ -29,6 +29,7 @@ import { assetBrSave } from '../../App.jsx';   // v56.48 سجل مركز تكل�
 import { pcrLoad, pcfLoad } from '../../App.jsx';   // v56.56 (F/m1)
 import { equityStatement, EQS_ROWS, closeListOn, closeAutoChecks, closeManualState, closeLockBlock, fxRevalOn, fxRevalRows } from '../../App.jsx';   // v56.20 (E2) + v56.21 (E3)   // v56.19 (FINANCE E1)
 import { ACCT_GROUPS, DocLink, RowGrip, moveIdx, RECUR_AR, recurNext, recurDue, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, projList, projectPL, projNextCode, ACCT_SECTIONS, ACC_KIND, Field, Kpi, LOCK_MSG, MizanMerge, Modal, NUM_FACE, Num, ROLES, _xe, acctSecKey, arDate, bankOfBranch, branchBanks, bsLayout, bsRowsOf, buildAccounting, buildPartners, capOK, countedClosing, customerAging, detectStmtMap, entityById, entityList, gosiRatesFor, isLayout, isRowsOf, isoD, lockedThru, makeXlsx, money, monthEnd, monthLedger, multiEntityOn, naMissing, nowISO, openDocWin, parseCsvGrid, parseMt940, parseXlsxGrid, payTotal, periodLocked, posClrOf, printA4, qrSvg, roleEdit, rolePost, snapMonths, stAddDays, stDate, stNum, sum, supplierAging, today, uid, useSecNav, zatcaTLV } from '../../App.jsx';
+import { stDateScan, stDateNotes, stNetMatch, stLinesOf, stBookAt, stFullMatch, stRecMemo } from '../../App.jsx';   // v56.61 (BANK-H-04/07) المطابقة البنكية في المحرك
 
 export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }) {
   // v56.56 (قرار المجلس F): حسم تعارضات نقطة البيع من السجل المحمي لبند مهام الإقفال (يُحمَّل فقط إن وُجدت تعارضات)
@@ -654,11 +655,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
   // ===== م5: التسوية البنكية — v15.20: لكل بنك (التجميعي أو بنك فرع) تسويته المستقلة =====
   const brBanks = branchBanks(org);
   const bankLabel = (code) => code === '1201' || !code ? 'البنك التجميعي' : ((brBanks.find(x => x.code === code) || {}).name || ('حساب ' + code));
-  const bankBookAt = (d) => {
-    let v = 0;
-    A.entries.forEach(e => { if (!d || (e.date || '') <= d) e.lines.forEach(l => { if (l.code === brAcc) v += l.debit - l.credit; }); });
-    return Math.round(v * 100) / 100;
-  };
+  const bankBookAt = (d) => stBookAt(A.entries, brAcc, d);   // v56.61 (BANK-H-07) في المحرك بالحساب نفسه
   const bankMoves = A.entries
     .filter(e => e.lines.some(l => l.code === brAcc))
     .slice(0, 60)
@@ -696,6 +693,9 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
   const [stF, setStF] = useState(null);        // {name, grid, map} — الكشف المرفوع وخريطته
   const [stMonth, setStMonth] = useState(() => isoD(new Date()).slice(0, 7));
   const [stMatch, setStMatch] = useState(null); // نتيجة المطابقة
+  // v56.61 (BANK-H-04): فحص تواريخ الكشف كله — ترتيب يوم/شهر أو شهر/يوم من كل السطور، والسطور بتاريخ غير صالح أو هجري تُذكر بأرقامها
+  const stScan = useMemo(() => (stF ? stDateScan(stF.grid, stF.map) : null), [stF]);
+  const stMapO = stF ? { ...stF.map, order: stScan ? stScan.order : 'dmy' } : null;
   const stPick = async (e) => {
     const f = e.target.files?.[0]; e.target.value = '';
     if (!f) return;
@@ -715,49 +715,15 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
       const map = detectStmtMap(grid);
       setStMatch(null);
       setStF({ name: f.name, grid, map: map || { date: 0, credit: -1, debit: -1, amount: 1, desc: -1, start: 1 }, auto: !!map });
-      say(map ? 'قُرئ الكشف (' + (grid.length - map.start) + ' سطراً) وتعرّفت على أعمدته تلقائياً ✓' : 'قُرئ الكشف — حدّد الأعمدة يدوياً ثم اضغط «طابق»');
+      const bad = map ? stDateScan(grid, map).bad.length : 0;
+      say(map ? 'قُرئ الكشف (' + (grid.length - map.start) + ' سطراً) وتعرّفت على أعمدته تلقائياً ✓' + (bad ? ' — ' + bad + ' سطر بتاريخ غير صالح أو هجري لم يُقرأ (التفاصيل تحت الملف)' : '') : 'قُرئ الكشف — حدّد الأعمدة يدوياً ثم اضغط «طابق»', bad ? 'no' : undefined);
     } catch (err) {
       say('تعذّرت قراءة الملف — إن كان Excel قديماً (.xls) فاحفظه بصيغة CSV أو xlsx وأعد رفعه', 'no');
     }
   };
   const stRun = () => {
     if (!stF) return say('ارفع ملف كشف البنك أولاً', 'no');
-    const { grid, map } = stF;
-    const deposits = [];
-    for (let r = map.start; r < grid.length; r++) {
-      const g = grid[r] || [];
-      const d = stDate(g[map.date]);
-      let credit = 0;
-      if (map.credit >= 0) credit = stNum(g[map.credit]);
-      else if (map.amount >= 0) credit = Math.max(0, stNum(g[map.amount]));
-      if (!d || !(credit > 0)) continue;
-      deposits.push({ date: d, amount: Math.round(credit * 100) / 100, desc: String(g[map.desc] ?? '').slice(0, 70), used: false });
-    }
-    const mStart = stMonth + '-01';
-    const nm = new Date(mStart + 'T12:00:00Z'); nm.setUTCMonth(nm.getUTCMonth() + 1);
-    const mEnd = stAddDays(nm.toISOString().slice(0, 10), 6);   // حتى نهاية الشهر + 6 أيام (تسوية آخر الشهر تصل أول التالي)
-    const dep = deposits.filter(x => x.date >= mStart && x.date <= mEnd).sort((a, b) => a.date.localeCompare(b.date));
-    const sysMap = {};
-    (ops.closings || []).forEach(c => {
-      if (!(c.status === 'submitted' || c.status === 'approved')) return;
-      if ((c.date || '').slice(0, 7) !== stMonth) return;
-      if (bankOfBranch(org, c.branchId) !== brAcc) return;
-      const amt = Math.round((c.cardSales || 0) * 100) / 100;
-      if (amt > 0) sysMap[c.date] = Math.round(((sysMap[c.date] || 0) + amt) * 100) / 100;
-    });
-    const sys = Object.entries(sysMap).map(([date, amount]) => ({ date, amount, used: false })).sort((a, b) => a.date.localeCompare(b.date));
-    const matched = [];
-    sys.forEach(s => {
-      const hit = dep.find(dp => !dp.used && Math.abs(dp.amount - s.amount) < 0.01 && dp.date >= s.date && dp.date <= stAddDays(s.date, 4));
-      if (hit) { hit.used = true; s.used = true; matched.push({ sDate: s.date, bDate: hit.date, amount: s.amount }); }
-    });
-    const r2s = (arr) => Math.round(sum(arr, x => x.amount) * 100) / 100;
-    const res = {
-      month: stMonth, bank: brAcc, depCount: dep.length,
-      sysTotal: r2s(sys), bankTotal: r2s(dep), matchedTotal: r2s(matched),
-      matched, sysUn: sys.filter(s => !s.used), bankUn: dep.filter(x => !x.used)
-    };
-    res.diff = Math.round((res.sysTotal - res.bankTotal) * 100) / 100;
+    const res = stNetMatch(org, ops, stF.grid, stMapO, stMonth, brAcc);   // v56.61 (BANK-H-07) المنطق نفسه في المحرك
     setStMatch(res);
     setClsAmt(String(res.matchedTotal || ''));
   };
@@ -765,13 +731,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
   const [fullM, setFullM] = useState(null);
   const [stmtEnd, setStmtEnd] = useState('');   // v39.1 رصيد الكشف آخر الشهر (يُملأ تلقائيًا من MT940)
   // v39.1 — مذكرة التسوية البنكية بالصيغة المعيارية: الكشف ± البنود المعلقة = الدفتر ± غير المقيد
-  const recStmt = (M) => { if (!M) return null; const r2x = (n) => Math.round(n * 100) / 100;
-    const mt = stF && stF.mt940 && stF.mt940.close && stF.mt940.close.date.slice(0, 7) === M.month ? stF.mt940.close.amount : null;
-    const bank = stmtEnd !== '' ? Number(stmtEnd) || 0 : mt;
-    const dit = r2x(sum(M.bookUn.filter(b => b.amount > 0), b => b.amount)), oc = r2x(-sum(M.bookUn.filter(b => b.amount < 0), b => b.amount));
-    const bin = r2x(sum(M.bankUn.filter(x => x.amount > 0), x => x.amount)), bout = r2x(-sum(M.bankUn.filter(x => x.amount < 0), x => x.amount));
-    const adjBank = bank == null ? null : r2x(bank + dit - oc), adjBook = r2x(M.bookEnd + bin - bout);
-    return { bank, src: stmtEnd !== '' ? 'مُدخل' : mt != null ? 'MT940' : '', dit, oc, bin, bout, adjBank, adjBook, diff: adjBank == null ? null : r2x(adjBank - adjBook) }; };
+  const recStmt = (M) => stRecMemo(M, stmtEnd, stF && stF.mt940);   // v56.61 (BANK-H-07) في المحرك
   const printRec = () => { const R = recStmt(fullM); if (!R) return; const tr = (a, b, c) => `<tr${c ? ' class="tot"' : ''}><td>${a}</td><td class="n">${b == null ? '—' : money(b)}</td></tr>`;
     printA4(org, 'مذكرة التسوية البنكية — ' + bankLabel(brAcc), 'شهر ' + fullM.month + ' · حتى ' + monthEnd(fullM.month),
       `<table><thead><tr><th>البيان</th><th>المبلغ</th></tr></thead><tbody>${tr('الرصيد حسب كشف البنك', R.bank)}${tr('يضاف: إيداعات مقيدة لم تظهر في الكشف (في الطريق)', R.dit)}${tr('يطرح: مدفوعات/شيكات مقيدة لم تُصرف بعد', R.oc)}${tr('الرصيد المعدّل حسب البنك', R.adjBank, 1)}
@@ -785,33 +745,12 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
     const ok = await commit(d => ({ ...d, bankRecs: [rec, ...(d.bankRecs || [])] }), { actionType: 'create', targetType: 'bank_rec', targetId: rec.id, need: 'post', title: 'اعتمد مذكرة تسوية بنكية', details: bankLabel(brAcc) + ' · ' + fullM.month + ' · فرق ' + money(R.diff) });
     if (ok !== false) say('حُفظت مذكرة التسوية لشهر ' + fullM.month + ' ✓'); };
   const [fixAcc, setFixAcc] = useState({});
-  const stLines = () => {
-    const { grid, map } = stF; const out = [];
-    for (let r = map.start; r < grid.length; r++) { const g = grid[r] || []; const d = stDate(g[map.date]); if (!d) continue;
-      let a = 0; const cr = map.credit >= 0 ? stNum(g[map.credit]) : 0, dr = map.debit >= 0 ? stNum(g[map.debit]) : 0;
-      if (cr > 0) a = cr; else if (dr > 0) a = -dr; else if (map.amount >= 0) a = stNum(g[map.amount]);
-      if (!a) continue; out.push({ i: r, date: d, amount: Math.round(a * 100) / 100, desc: String(g[map.desc] ?? '').slice(0, 80) }); }
-    return out;
-  };
+  const stLines = () => stLinesOf(stF.grid, stMapO);   // v56.61 (BANK-H-07)
   const stFull = () => {
     if (!stF) return say('ارفع ملف كشف البنك أولاً', 'no');
-    const mStart = stMonth + '-01', mEnd = monthEnd(stMonth);
-    const bank = stLines().filter(x => x.date >= mStart && x.date <= mEnd).map(x => ({ ...x, used: false }));
-    const lo = stAddDays(mStart, -5), hi = stAddDays(mEnd, 5);
-    const book = A.entries.filter(e => (e.date || '') >= lo && (e.date || '') <= hi && e.lines.some(l => l.code === brAcc))
-      .map(e => ({ id: e.id, date: e.date, title: e.title, amount: Math.round(sum(e.lines.filter(l => l.code === brAcc), l => l.debit - l.credit) * 100) / 100, used: false }))
-      .filter(b => Math.abs(b.amount) > 0.004);
-    const dd = (a, b) => Math.abs((Date.parse(a + 'T12:00:00Z') - Date.parse(b + 'T12:00:00Z')) / 86400000);
-    const matched = [];
-    bank.forEach(x => { let best = null; book.forEach(b => { if (b.used || Math.abs(b.amount - x.amount) > 0.009 || dd(b.date, x.date) > 5) return; if (!best || dd(b.date, x.date) < dd(best.date, x.date)) best = b; });
-      if (best) { best.used = true; x.used = true; matched.push({ bank: x, book: best }); } });
-    const bankUn = bank.filter(x => !x.used), bookUn = book.filter(b => !b.used && b.date >= mStart && b.date <= mEnd);
-    const bookEnd = bankBookAt(mEnd);
-    const r2x = (n) => Math.round(n * 100) / 100;
-    // رصيد الكشف المتوقع = رصيد الدفتر + ما في الكشف ولم يُقيَّد − ما قُيِّد ولم يظهر في الكشف
-    const expStmt = r2x(bookEnd + sum(bankUn, x => x.amount) - sum(bookUn, b => b.amount));
-    setFullM({ month: stMonth, bank: bank.length, matched, bankUn, bookUn, bookEnd, expStmt });
-    const sug = {}; bankUn.forEach(x => { sug[x.i] = suggestAcc(x); }); setFixAcc(sug);
+    const M = stFullMatch(A.entries, stLines(), stMonth, brAcc);   // v56.61 (BANK-H-07) المنطق نفسه في المحرك
+    setFullM(M);
+    const sug = {}; M.bankUn.forEach(x => { sug[x.i] = suggestAcc(x); }); setFixAcc(sug);
   };
   const accOpts = A.accounts.filter(a => a.code !== brAcc && !a.cash && a.kind !== 'equity');
   const suggestAcc = (x) => { const t = String(x.desc || ''); const find = (re) => (A.accounts.find(a => re.test(a.name || '')) || {}).code;
@@ -3686,6 +3625,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                 {stF && <button className="btn pri" onClick={stRun}><Scale size={14} />مطابقة الشبكة</button>}
                 {stF && <button className="btn" onClick={stFull}><Scale size={14} />مطابقة شاملة لكل الحركات</button>}
               </div>
+              {stScan && stDateNotes(stScan).length > 0 && <div className="cf-notes" style={{ marginTop: 8 }} data-st-notes="1">{stDateNotes(stScan).map((n, i) => <div key={i} className="cf-note warn"><span className={'badge ' + (n.kind === 'bad' ? 'b-rose' : 'b-amber')}>{n.kind === 'bad' ? 'سطور مرفوضة' : 'تنبيه'}</span><span>{n.msg}</span></div>)}</div>}
               {stF && !stF.auto && (
                 <div style={{ marginTop: 10, padding: 10, borderRadius: 10, border: '1px dashed var(--line-g)' }}>
                   <div className="lbl">لم أتعرّف على أعمدة الكشف تلقائيًا — حدّدها يدويًا (رقم العمود يبدأ من 1 يمينًا في الملف):</div>

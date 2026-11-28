@@ -109,3 +109,13 @@ test('فحوص الإصدار فقط لا تُشغَّل في بوابة الت�
   const r = runCheck(CHECKS.find(c => c.id === 'human-approval'), 'change', false);
   assert.equal(r.status, 'n/a');
 });
+
+test('v56.61: مسار متصفحات Playwright يتبع PLAYWRIGHT_BROWSERS_PATH (كما يقرؤه Playwright) وإلا المسار الافتراضي', async () => {
+  const { pwBrowsersDir } = await import('../../scripts/quality-gate.mjs');
+  assert.equal(pwBrowsersDir({ PLAYWRIGHT_BROWSERS_PATH: '/opt/pw-test', HOME: '/home/x' }), path.resolve('/opt/pw-test'));
+  assert.match(pwBrowsersDir({ PLAYWRIGHT_BROWSERS_PATH: '0', HOME: '/home/x' }), /node_modules[\\/]playwright-core[\\/]\.local-browsers$/);
+  if (process.platform === 'linux') {
+    assert.equal(pwBrowsersDir({ HOME: '/home/x' }), '/home/x/.cache/ms-playwright', 'الافتراضي كما كان');
+    assert.equal(pwBrowsersDir({ HOME: '/home/x', XDG_CACHE_HOME: '/c' }), '/c/ms-playwright');
+  }
+});

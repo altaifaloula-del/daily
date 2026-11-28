@@ -3,21 +3,24 @@
 import React, { useMemo, useState } from 'react';
 import { CreditCard, Upload, Info, Download, Check, Lock, ChevronDown, AlertTriangle } from 'lucide-react';
 import { CRS_ST, capOK, cardSettlePlan, jeAutoSt, dtLocal } from '../../App.jsx';   // v41.3
+import { stDateScan, stDateNotes, crLineKey } from '../../App.jsx';   // v56.61 (BANK-H-04/08)
 import { Kpi, ROLES, CR_TYPE, cardRecon, cardStmtLines, detectStmtMap, makeXlsx, money, nowISO, parseCsvGrid, parseMt940, parseXlsxGrid, roleEdit, today, uid } from '../../App.jsx';
 
 const addD = (d, k) => { const x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() + k); return x.toISOString().slice(0, 10); };
 const mEnd = (ym) => { const [y, m] = ym.split('-').map(Number); return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); };
 const pc = (v) => (v == null ? '—' : v + '%');
 
+// v56.61 (BANK-H-04): ترتيب التاريخ يُحسم من كل سطور الورقة، والسطور بتاريخ غير صالح أو هجري تُذكر بأرقامها (notes)
+const linesOf = (grid, m) => { const sc = stDateScan(grid, m); return { L: cardStmtLines(grid, { ...m, order: sc.order }), notes: stDateNotes(sc) }; };
 async function readStmt(f) {
   if (/\.xlsx$/i.test(f.name)) {
     const sheets = await parseXlsxGrid(await f.arrayBuffer(), { all: true }); let best = null;
-    sheets.forEach(sh => { const m = detectStmtMap(sh.grid); if (!m) return; const L = cardStmtLines(sh.grid, m); if (!best || L.length > best.L.length) best = { sheet: sh.name, L }; });
-    return best || { sheet: '', L: [] };
+    sheets.forEach(sh => { const m = detectStmtMap(sh.grid); if (!m) return; const r = linesOf(sh.grid, m); if (!best || r.L.length > best.L.length) best = { sheet: sh.name, ...r }; });
+    return best || { sheet: '', L: [], notes: [] };
   }
   const txt = await f.text(); const mt = parseMt940(txt);
   const grid = mt ? [['التاريخ', 'البيان', 'مدين', 'دائن', 'المرجع'], ...mt.lines.map(l => [l.date, l.desc, l.amount < 0 ? -l.amount : '', l.amount > 0 ? l.amount : '', l.ref])] : parseCsvGrid(txt);
-  const m = detectStmtMap(grid); return { sheet: mt ? 'MT940' : 'CSV', L: m ? cardStmtLines(grid, m) : [] };
+  const m = detectStmtMap(grid); return { sheet: mt ? 'MT940' : 'CSV', ...(m ? linesOf(grid, m) : { L: [], notes: [] }) };
 }
 
 export function CardRecon({ org, ops, me, commit, commitOrg, say }) {
@@ -28,7 +31,10 @@ export function CardRecon({ org, ops, me, commit, commitOrg, say }) {
   const [tol, setTol] = useState('0.5');
   const [open, setOpen] = useState(null);
   const [busy, setBusy] = useState(false);
-  const lines = useMemo(() => files.flatMap(f => f.L), [files]);
+  const lines = useMemo(() => files.flatMap(f => f.L.map(l => ({ ...l, src: f.name }))), [files]);   // v56.61: src + row ⇒ مفتاح السطر (crLineKey)
+  // v56.61 (BANK-H-08، قرار المالك «يمنع الترحيل حتى تُراجع»): السطور المستبعدة والتأكيد بعد المراجعة — حالة الشاشة، ويُسجَّلان مع القيد وفي سجل التدقيق عند الترحيل
+  const [excl, setExcl] = useState([]);
+  const [cfm, setCfm] = useState({});
   const M = useMemo(() => lines.length ? cardRecon(org, ops, lines, { from: month + '-01', to: mEnd(month), tol: Number(tol) }) : null, [org, ops, lines, month, tol]);
   if (!central) return <div className="card"><div className="empty"><Lock size={16} /> مطابقة الشبكة للإدارة المالية المركزية — تجمع إغلاقات كل الفروع.</div></div>;
   const canEdit = roleEdit(me?.role);
@@ -53,12 +59,21 @@ export function CardRecon({ org, ops, me, commit, commitOrg, say }) {
     const blob = makeXlsx([{ name: 'المطابقة', rows: s1 }, { name: 'يوميًا', rows: s2 }, { name: 'الأجهزة', rows: s3 }]); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'مطابقة_الشبكة_' + month + '.xlsx'; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 1500); } catch { say('تعذّر توليد Excel', 'no'); } };
   const brOpts = (org.branches || []);
   // v41.3 — التسوية التلقائية لوسيط الشبكة (الأيام المعتمد إغلاقها فقط)
-  const SP = M ? cardSettlePlan(org, ops, lines, { lags: Object.fromEntries(M.branches.map(b => [b.id, b.lag])) }) : null;
+  const SP = M ? cardSettlePlan(org, ops, lines, { lags: Object.fromEntries(M.branches.map(b => [b.id, b.lag])), exclude: excl, confirm: cfm }) : null;
+  const lineOf = (k) => lines.find((l, i) => crLineKey(l, i) === k);
+  const togExcl = (k) => setExcl(x => x.includes(k) ? x.filter(y => y !== k) : [...x, k]);
+  const confirmOver = (r) => setCfm(c => ({ ...c, [r.ref]: { by: me?.name || '', at: nowISO(), gross: r.gross } }));
   const canPost = capOK(me?.role, 'post') && !!commit;
   const postSettle = async () => { if (!SP || !SP.ready.length) return; const now = nowISO();
-    const recs = SP.ready.map(r => ({ id: uid('jm'), date: r.date, ref: r.ref, src: 'cardSettle', title: 'تسوية وسيط الشبكة آليًا — ' + r.branch + ' — إيداع ' + r.date + ' (مبيعات ' + r.biz + ')', opening: false, by: me?.name || '', createdAt: now, ...jeAutoSt(me), lines: r.lines }));
+    const exAt = (r) => excl.map(k => lineOf(k)).filter(l => l && l.date === r.date && r.branchId === ((org.cardTerminals || []).find(x => String(x.tid) === l.tid) || {}).branchId).map(l => ({ src: l.src, row: l.row, time: l.time, tid: l.tid, type: l.type, credit: l.credit, debit: l.debit }));
+    const recs = SP.ready.map(r => { const ex = exAt(r); return { id: uid('jm'), date: r.date, ref: r.ref, src: 'cardSettle', title: 'تسوية وسيط الشبكة آليًا — ' + r.branch + ' — إيداع ' + r.date + ' (مبيعات ' + r.biz + ')', opening: false, by: me?.name || '', createdAt: now, ...jeAutoSt(me), lines: r.lines,
+      ...(r.confirmed ? { overReview: r.confirmed } : {}), ...(ex.length ? { stmtExcluded: ex } : {}) }; });   // v56.61 (BANK-H-08): من أكّد ومتى، والسطور المستبعدة
+    const rv = recs.filter(x => x.overReview), xn = recs.reduce((a, x) => a + (x.stmtExcluded || []).length, 0);
     const ok = await commit(d => { const have = new Set((d.journalManual || []).filter(j => j.status !== 'rejected').map(j => j.ref).filter(Boolean)); const add = recs.filter(x => !have.has(x.ref)); return add.length ? { ...d, journalManual: [...add, ...(d.journalManual || [])] } : d; },
-      { actionType: 'create', targetType: 'journal_entry', targetId: 'cardSettle', need: 'post', title: 'رحّل التسوية التلقائية لوسيط الشبكة', details: recs.length + ' قيد · ' + money(recs.reduce((a, r) => a + r.lines.reduce((x, l) => x + l.debit, 0), 0)) });
+      { actionType: 'create', targetType: 'journal_entry', targetId: 'cardSettle', need: 'post', title: 'رحّل التسوية التلقائية لوسيط الشبكة', details: recs.length + ' قيد · ' + money(recs.reduce((a, r) => a + r.lines.reduce((x, l) => x + l.debit, 0), 0))
+        + (rv.length ? ' · تأكيد بعد المراجعة لتجاوز مبيعات الإغلاق: ' + rv.map(x => x.ref + ' (فرق ' + money(x.overReview.over) + '، أكّده ' + x.overReview.by + ' في ' + x.overReview.at + ')').join('؛ ') : '')
+        + (xn ? ' · سطور كشف مستبعدة: ' + xn : '') });
+    if (ok !== false) { setCfm({}); setExcl([]); }
     if (ok !== false) say(jeAutoSt(me).status === 'posted' ? 'رُحّل ' + recs.length + ' قيد تسوية ✓ — الوسيط يُقفل بما أودعه البنك، والعمولات وضريبتها في حساباتها' : 'أُرسل ' + recs.length + ' قيد تسوية للاعتماد ✓ — لا تدخل الدفاتر قبل اعتمادها'); };
   const saved = (ops.cardRecons || []).slice(0, 6);
   return (
@@ -72,7 +87,8 @@ export function CardRecon({ org, ops, me, commit, commitOrg, say }) {
         <input className="inp" type="month" style={{ flex: '0 0 auto', width: 150 }} value={month} onChange={e => e.target.value && setMonth(e.target.value)} aria-label="الشهر" />
         <label className="pp-lead">حد التطابق <input className="inp n" inputMode="decimal" value={tol} onChange={e => setTol(e.target.value.replace(/[^\d.]/g, '').slice(0, 4))} />%</label>
         {files.map(f => <span key={f.name} className="badge b-dim" title={f.sheet}>{f.name} · {f.L.length} <button type="button" className="cr-x" aria-label={'إزالة ' + f.name} onClick={() => setFiles(x => x.filter(a => a.name !== f.name))}>×</button></span>)}
-      </div><div style={{ fontSize: 11.5, color: 'var(--dim)', marginTop: 6 }}>ارفع كشوف كل الحسابات التي تودَع فيها الشبكة معًا (Excel أو CSV أو MT940). الكشف يُقرأ على جهازك ولا يُرفع للسحابة — يُحفظ ملخص المطابقة فقط عند اعتمادها.</div></div>
+      </div>{files.some(f => (f.notes || []).length) && <div className="cf-notes" style={{ marginTop: 8 }} data-st-notes="1">{files.flatMap(f => (f.notes || []).map((n, i) => <div key={f.name + i} className="cf-note warn"><span className={'badge ' + (n.kind === 'bad' ? 'b-rose' : 'b-amber')}>{n.kind === 'bad' ? 'سطور مرفوضة' : 'تنبيه'}</span><span><b>{f.name}:</b> {n.msg}</span></div>))}</div>}
+      <div style={{ fontSize: 11.5, color: 'var(--dim)', marginTop: 6 }}>ارفع كشوف كل الحسابات التي تودَع فيها الشبكة معًا (Excel أو CSV أو MT940). الكشف يُقرأ على جهازك ولا يُرفع للسحابة — يُحفظ ملخص المطابقة فقط عند اعتمادها.</div></div>
       {!M ? <div className="card"><div className="empty">ارفع كشف الحساب للشهر لتبدأ المطابقة.{saved.length ? '' : ''}</div></div> : <>
         {M.notes.length > 0 && <div className="cf-notes">{M.notes.map((n, i) => <div key={i} className="cf-note warn"><span className="badge b-amber">تنبيه</span><span>{n}</span></div>)}</div>}
         <div className="grid g4">
@@ -102,7 +118,20 @@ export function CardRecon({ org, ops, me, commit, commitOrg, say }) {
             {canPost && SP.ready.length > 0 && <button className="btn sm pri" onClick={postSettle}><Check size={13} />ترحيل القيود الجاهزة ({SP.ready.length})</button>}</div>
           <div className="tbl-wrap"><table className="tb tb-fp"><thead><tr><th>الفرع</th><th>الإيداع</th><th>المبيعات</th><th>الإجمالي المُسوّى</th><th>العمولة</th><th>الضريبة</th><th>للبنك</th><th>الحالة</th></tr></thead>
             <tbody>{SP.rows.map(r => <tr key={r.ref}><td>{r.branch}</td><td className="num">{r.date}</td><td className="num">{r.biz}</td><td className="num">{r.clrOn ? money(r.gross) : '—'}</td><td className="num">{money(r.feeEx + r.devEx)}</td><td className="num">{money(r.vat)}</td><td className="num">{r.clrOn ? money(r.net) : '−' + money(r.fee + r.dev)}</td>
-              <td><span className={'badge ' + CRS_ST[r.status][0]}>{CRS_ST[r.status][1]}</span>{r.noRate.length ? <small style={{ display: 'block', color: 'var(--amber)' }}>بلا نسبة: {r.noRate.map(k => CR_TYPE[k]).join('، ')}</small> : null}</td></tr>)}</tbody></table></div>
+              <td><span className={'badge ' + CRS_ST[r.status][0]}>{CRS_ST[r.status][1]}</span>{r.noRate.length ? <small style={{ display: 'block', color: 'var(--amber)' }}>بلا نسبة: {r.noRate.map(k => CR_TYPE[k]).join('، ')}</small> : null}
+                {r.confirmed ? <small style={{ display: 'block', color: 'var(--amber)' }}>أُكّد بعد المراجعة: {r.confirmed.by} · {dtLocal(r.confirmed.at)}</small> : null}
+                {r.overSmall ? <small style={{ display: 'block', color: 'var(--amber)' }}>يتجاوز مبيعات الإغلاق بـ {money(r.overSmall)} (ضمن حد 1.00 ر.س) — يبقى ظاهرًا في الوسيط</small> : null}</td></tr>)}</tbody></table></div>
+          {SP.rows.filter(r => r.over && r.status !== 'done').map(r => <div key={'ov' + r.ref} className="cf-note warn" style={{ marginTop: 8, display: 'block' }} data-crs-over={r.ref}>
+            <div>{r.confirmed ? <span className="badge b-amber">رُوجع وأُكّد — يُرحَّل بهذا الإجمالي</span> : <span className="badge b-rose">يمنع الترحيل حتى تُراجع</span>} <b>{r.branch}</b> — إيداع <bdi className="num" style={{ whiteSpace: 'nowrap' }}>{r.date}</bdi>: الإجمالي المُسوّى <b className="num">{money(r.gross)}</b> يتجاوز مبيعات الشبكة في إغلاق <bdi className="num" style={{ whiteSpace: 'nowrap' }}>{r.biz}</bdi> (<b className="num">{money(r.sales)}</b>) بفرق <b className="num">{money(r.over)}</b>.</div>
+            <div style={{ fontSize: 12, marginTop: 4 }}>{r.suspects.length ? 'سطور مكررة حرفيًا في الكشف (التاريخ والوقت والجهاز والنوع والمبلغ) — استبعد المكرر إن كان خطأ في الكشف:' : 'لا سطر مكرر حرفيًا — راجع سطور التسوية لهذا اليوم:'}</div>
+            <div className="me-list" style={{ marginTop: 4 }}>{(r.suspects.length ? r.suspects : r.stmtLines).map(l => <div key={l.key} className="me-row"><span className="me-a"><b className="num">{money(l.credit)}</b><small>{l.src ? l.src + ' · ' : ''}السطر {l.row ?? '—'} · {l.time || '—'} · …{l.tid} · {CR_TYPE[l.type] || l.type}{l.dupOf ? ' · مكرر' : ''}</small></span></div>)}</div>
+            {excl.length > 0 && <div style={{ fontSize: 12, marginTop: 4 }}>المستبعد: {excl.map(k => lineOf(k)).filter(l => l && l.date === r.date).map(l => (l.src ? l.src + ' ' : '') + 'السطر ' + l.row).join('، ') || '—'}</div>}
+            {canPost && <div className="row" style={{ gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+              {r.suspects.map(l => <button key={'x' + l.key} type="button" className="btn sm" onClick={() => togExcl(l.key)}>استبعاد السطر {l.row} المكرر</button>)}
+              {r.confirmed ? <button type="button" className="btn sm gh" onClick={() => setCfm(c => { const n = { ...c }; delete n[r.ref]; return n; })}>إلغاء التأكيد</button>
+                : <button type="button" className="btn sm" onClick={() => confirmOver(r)} data-crs-confirm={r.ref}><Check size={13} />راجعت السطور — أؤكد الترحيل بهذا الإجمالي</button>}</div>}
+          </div>)}
+          {excl.length > 0 && <div className="cf-note" style={{ marginTop: 8 }}><span className="badge b-dim">مستبعد</span><span>{excl.length} سطر مستبعد من التسوية — <button type="button" className="btn sm gh" onClick={() => setExcl([])}>إلغاء الاستبعاد</button></span></div>}
           <div className="note" style={{ marginTop: 8 }}>لكل فرع ويوم إيداع قيد واحد: {(org.posClearing || {}).enabled ? <>من حـ/البنك (ما أُودع فعلًا) + حـ/عمولات الشبكة (بلا ضريبة) + حـ/رسوم الأجهزة + حـ/ضريبة المدخلات ⇐ إلى حـ/وسيط الشبكة (الإجمالي المُسوّى)</> : <>«وسيط الشبكة» غير مفعّل — الشبكة قُيّدت في البنك بإجماليها، فيُقيَّد من حـ/العمولات وضريبتها ⇐ إلى حـ/البنك</>}.
             لا يُرحَّل يوم إغلاقه غير معتمد أو غير موجود أو فترته مقفلة، ولا يتكرر المُرحّل. ضريبة العمولة مدخلات قابلة للاسترداد بفاتورة البنك الضريبية. ما يبقى في الوسيط بعدها = مبيعات شبكة لم يُودعها البنك بعد أو فرق يستحق المراجعة.</div>
         </div>}
