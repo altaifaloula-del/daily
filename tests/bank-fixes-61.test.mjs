@@ -130,13 +130,19 @@ test('BANK-H-08: استبعاد السطر المكرر ⇒ جاهز بالإج�
   assert.equal(E.cardSettlePlan(ORG, OPS, L, { ...LAGS, confirm: cf }).rows.find(r => r.branchId === 'b1').confirmed, undefined, 'لا تأكيد على يوم غير متجاوز');
 });
 
-test('BANK-H-08: التجاوز بلا تكرار حرفي (مبيعات شبكة مسجّلة أقل) يمنع الترحيل أيضًا ويعرض سطور اليوم للمراجعة؛ والهللة الواحدة تقريب لا تجاوز؛ وبلا وسيط كذلك', () => {
+test('BANK-H-08: التجاوز بلا تكرار حرفي (مبيعات شبكة مسجّلة أقل) يمنع الترحيل أيضًا ويعرض سطور اليوم للمراجعة؛ وحد السماح 1.00 ر.س (1.00 يُرحَّل و1.01 يُمنع)؛ وبلا وسيط كذلك', () => {
   const L = E.cardStmtLines(ENG, E.detectStmtMap(ENG));
   const low = { closings: OPS.closings.map(c => c.id === 'c1' ? { ...c, cardSales: 2900 } : c) };
   const r = E.cardSettlePlan(ORG, low, L, LAGS).rows.find(x => x.branchId === 'b1');
   assert.deepEqual([r.status, r.over, r.suspects.length, r.stmtLines.map(s => s.row)], ['over', 100, 0, [3, 5]]);
-  const cent = { closings: OPS.closings.map(c => c.id === 'c1' ? { ...c, cardSales: 2999.99 } : c) };
-  assert.equal(E.cardSettlePlan(ORG, cent, L, LAGS).rows.find(x => x.branchId === 'b1').status, 'over', 'هللة كاملة تجاوز');
+  // قرار المالك: حد السماح 1.00 ر.س لكل إغلاق (ثابت) — 1.00 يُرحَّل وفرقه ظاهر، و1.01 يمنع الترحيل
+  assert.equal(E.CRS_OVER_TOL, 1);
+  const at = (v) => E.cardSettlePlan(ORG, { closings: OPS.closings.map(c => c.id === 'c1' ? { ...c, cardSales: v } : c) }, L, LAGS).rows.find(x => x.branchId === 'b1');
+  const t100 = at(2999), t101 = at(2998.99), t001 = at(2999.99), t0 = at(3000);
+  assert.deepEqual([t100.status, t100.over, t100.overSmall, t100.suspects.length], ['ready', 0, 1, 0], 'تجاوز 1.00 يُرحَّل وفرقه ظاهر');
+  assert.deepEqual([t101.status, t101.over, t101.overSmall], ['over', 1.01, 0], 'تجاوز 1.01 يمنع الترحيل');
+  assert.deepEqual([t001.status, t001.overSmall, t0.status, t0.overSmall], ['ready', 0.01, 'ready', 0]);
+  assert.equal(t100.lines.find(l => l.code === '1801').credit, 3000, 'الوسيط يُقفل بالمُسوّى فيبقى فرق 1.00 ظاهرًا فيه');
   const two = { closings: [...OPS.closings, { id: 'c3', branchId: 'b2', date: '2026-11-05', status: 'approved', cardSales: 500, totalRevenue: 500 }] };
   assert.equal(E.cardSettlePlan(ORG, two, L, LAGS).rows.find(x => x.branchId === 'b2').status, 'ready', 'إغلاقان في اليوم نفسه ⇒ المبيعات مجموعهما');
   assert.equal(E.cardSettlePlan({ ...ORG, posClearing: {} }, low, L, LAGS).rows.find(x => x.branchId === 'b1').status, 'over', 'بلا وسيط: قيد العمولة لا يُرحَّل أيضًا حتى المراجعة');

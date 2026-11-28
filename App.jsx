@@ -14697,6 +14697,9 @@ function fsStatus(org, ops, opts = {}) {
    ⇒ الحالة 'over' (لا يُرحَّل) مع الفرق (over) والسطور المشتبهة (suspects: المكرر حرفيًا بالتاريخ والوقت والجهاز والنوع والمبلغ).
    يعود جاهزًا إن استبعد المحاسب السطور المكررة (opts.exclude: مفاتيح crLineKey) أو أكّد بعد المراجعة (opts.confirm[ref] = {by, at, gross} — يسري
    ما دام الإجمالي هو نفسه الذي أُكّد). */
+// قرار المالك (v56.61): حد السماح 1.00 ر.س لكل إغلاق — التجاوز حتى 1.00 يُرحَّل عاديًا ويبقى فرقه ظاهرًا في حساب الوسيط (overSmall)، وما فوقه يمنع الترحيل حتى المراجعة.
+// ثابت غير قابل للتعديل من الإعدادات حاليًا. التأكيد والاستبعاد المعلّقان قبل الترحيل لا يُحفظان (قرار المجلس: لا مجموعة بيانات جديدة) — يُسجَّلان مع القيد عند ترحيله فقط.
+const CRS_OVER_TOL = 1;
 const crLineKey = (l, i) => (l.src || '') + '#' + (l.row != null ? l.row : 'i' + i);
 function cardSettlePlan(org, ops, lines, opts = {}) {
   const tax = org.taxCfg || {}, vat = Number(tax.rate) || 15, vatOn = !!tax.enabled, R = ((org.profitCfg || {}).cardRates) || {};
@@ -14712,7 +14715,7 @@ function cardSettlePlan(org, ops, lines, opts = {}) {
   const rows = Object.values(G).sort((a, c) => (a.date + a.b).localeCompare(c.date + c.b)).map(g => {
     const biz = anDay(g.date, -(lags[g.b] || 0)), ref = 'crs|' + g.b + '|' + g.date, bank = bankOfBranch(org, g.b);
     const cl = (ops.closings || []).filter(c => c.branchId === g.b && c.date === biz);
-    const sales = r2(sum(cl, c => Number(c.cardSales) || 0)), over0 = r2(r2(g.mg + g.vg) - sales), over = cl.length && over0 > 0.009 ? over0 : 0;
+    const sales = r2(sum(cl, c => Number(c.cardSales) || 0)), over0 = r2(r2(g.mg + g.vg) - sales), over = cl.length && over0 > CRS_OVER_TOL + 0.0001 ? over0 : 0, overSmall = cl.length && !over && over0 > 0.0001 ? over0 : 0;
     const cf = confirm[ref], confirmed = !!(over && cf && cf.by && Math.abs((Number(cf.gross) || 0) - r2(g.mg + g.vg)) < 0.005);
     const status = done.has(ref) ? 'done' : periodLocked(org, g.date) ? 'locked' : !cl.length ? 'noclose' : cl.some(c => c.status !== 'approved') ? 'pending' : over && !confirmed ? 'over' : 'ready';
     const seen = new Map(), suspects = [];
@@ -14725,7 +14728,7 @@ function cardSettlePlan(org, ops, lines, opts = {}) {
     const dr = r2(sum(L, x => x.debit)), cr = r2(sum(L, x => x.credit)); if (L.length && Math.abs(dr - cr) >= 0.005) L[0] = { ...L[0], debit: r2(L[0].debit + (cr - dr)) };   // فرق التقريب على السطر الأول
     const nm = ((org.branches || []).find(x => x.id === g.b) || {}).name || g.b;
     return { ref, branchId: g.b, branch: nm, date: g.date, biz, status, clrOn, gross, net, fee, feeEx, dev: r2(g.dev), devEx, vat: vatAmt, noRate: [...g.noRate], lines: L.filter(x => x.debit || x.credit),
-      sales, over, suspects, stmtLines: over ? g.L.filter(l => l.kind === 'settle') : [], ...(confirmed ? { confirmed: { by: cf.by, at: cf.at || '', gross: r2(g.mg + g.vg), sales, over } } : {}) };
+      sales, over, overSmall, suspects, stmtLines: over ? g.L.filter(l => l.kind === 'settle') : [], ...(confirmed ? { confirmed: { by: cf.by, at: cf.at || '', gross: r2(g.mg + g.vg), sales, over } } : {}) };
   }).filter(r => r.lines.length);
   return { rows, ready: rows.filter(r => r.status === 'ready'), vatOn };
 }
@@ -17723,4 +17726,4 @@ export { piHour, piCutoff, posRecon, salesDays, importDraftClosing };
 // v40.0 — أساس الرقابة
 export { PROFIT_OPTS, profitMissing, profitDays, menuEngineering, MENU_CLS, SAV_KIND, savingsMeasure, savingsOpps, savingsTrack, CR_TYPE, cardStmtLines, cardRecon, cardSettlePlan, CRS_ST, FS_KIND, fsInRange, fsStatus, CC_KIND, CC_SRC, ccOpenShifts, cashCountStatus, MT_TYPE, maintStatus, archKey, archivePlan, recipeRaw, recipeCost, prepUnitCost, dataFootprint, kcalUnitFactor, kcalPerUnit, recipeKcal, productKcal, prepMix, prepPlan, ibanNorm, ibanMask, IBAN_APPROVERS, IBAN_ST, loadIbanSigs, ibanPayees, ibanStatus, requestIban, ibanApply };
 export { UpdateGate, APP_CV, auditWrite, logAudit, auditFetch, sigDigest, signoff, signDecision, sigFailMsg, loadSignoffs, loadRelease, raiseRelease, sigVerify, SIG_BADGE, SIG_NAME };
-export { ST_DATE_BAD, stDateScan, stDateNotes, stNetMatch, stLinesOf, stBookAt, stFullMatch, stRecMemo, crLineKey, csvDelim, stHdrWords, bpIndex, posArCustMap, cvPosSplit, cvPosAllocOk, eclR2, partnerCode, acctCloseDate, acctSafeOps };   // v56.61 كشوف البنوك (BANK-H) وفهرس كشوف الجهات (PERF-H-02)
+export { ST_DATE_BAD, stDateScan, stDateNotes, stNetMatch, stLinesOf, stBookAt, stFullMatch, stRecMemo, crLineKey, CRS_OVER_TOL, csvDelim, stHdrWords, bpIndex, posArCustMap, cvPosSplit, cvPosAllocOk, eclR2, partnerCode, acctCloseDate, acctSafeOps };   // v56.61 كشوف البنوك (BANK-H) وفهرس كشوف الجهات (PERF-H-02)
