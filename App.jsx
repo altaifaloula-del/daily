@@ -12017,7 +12017,9 @@ function aiSvcCheck(read, ctx) {
   const raw = (Array.isArray(r.lines) ? r.lines : []).slice(0, 100).filter(l => l && typeof l === 'object' && !Array.isArray(l));
   // الرأس بفحوص aiInvCheck كما هي (البنود بالمبلغ وحده لفحص مجموعها مقابل الصافي)
   const base = aiInvCheck({ ...r, lines: raw.map(l => ({ desc: l.desc, amount: l.amount })) }, c);
-  const W = base.warnings.slice(); const w = (code, text) => W.push({ code, text });
+  // الخضوع لكل بند: إن قُرئت ضريبة كل البنود يُكتفى بفحصها بندًا بندًا (البند المعفى أو الصفري يجعل ضريبة الرأس أقل من النسبة × الصافي دون خطأ)
+  const lineVatAll = raw.length > 0 && raw.every(l => aiInvNum(l.amount) != null && aiInvNum(l.vat) != null);
+  const W = base.warnings.filter(x => !(lineVatAll && x.code === 'vat_rate')); const w = (code, text) => W.push({ code, text });
   const accs = (Array.isArray(c.accounts) ? c.accounts : []).filter(a => a && a.code != null).map(a => ({ code: String(a.code), name: String(a.name || '') }));
   const allowed = new Set(accs.map(a => a.code)); const nameOf = Object.fromEntries(accs.map(a => [a.code, a.name]));
   const sups = (Array.isArray(c.suppliers) ? c.suppliers : []).filter(s => s && s.id && s.active !== false);

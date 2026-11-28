@@ -794,8 +794,8 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
         <thead><tr><th>البند المقروء</th><th style={{ textAlign: 'end' }}>قبل الضريبة</th><th style={{ textAlign: 'end' }}>الضريبة</th><th>الحساب المقترح</th></tr></thead>
         <tbody>{F.lines.map((l, i) => <tr key={i} data-aisvcline={i}><td>{show(l.desc)}</td><td className="num" style={{ textAlign: 'end' }}>{l.amount != null ? money(l.amount) : '—'}</td><td className="num" style={{ textAlign: 'end' }}>{l.vat != null ? money(l.vat) : '—'}</td>
           <td>{l.accCode ? <>{l.accCode} · {l.accName}{l.accFrom === 'last' && <span className="badge b-dim" data-aiaccfrom="last" style={{ marginInlineStart: 4 }}>من آخر استخدام</span>}</> : <span style={{ color: 'var(--amber)' }}>— اختر الحساب —</span>}</td></tr>)}</tbody></table></div>}
-      {nonRes(P.pick || f.supplierId) && <div className="hint" data-ainonres style={{ color: 'var(--amber)' }}>المورد مصنّف غير مقيم — الاحتساب العكسي والاستقطاع لا يُملآن من القراءة: راجعهما في النموذج كالمعتاد</div>}
-      <div className="hint" style={{ fontSize: 11 }}>الاحتساب العكسي واستقطاع الضريبة وطريقة الدفع لا تُملأ من القراءة — تختارها أنت كالمعتاد</div>
+      {nonRes(P.pick || f.supplierId) && <div className="hint" data-ainonres style={{ color: 'var(--amber)' }}>المورد مصنّف غير مقيم — الاحتساب العكسي واستقطاع الضريبة وطريقة الدفع لا تُملأ من القراءة: اخترها في النموذج كالمعتاد</div>}
+      {!nonRes(P.pick || f.supplierId) && <div className="hint" style={{ fontSize: 11 }}>الاحتساب العكسي واستقطاع الضريبة وطريقة الدفع لا تُملأ من القراءة — تختارها أنت كالمعتاد</div>}
       {F.notes && <div className="hint" data-ainotes style={{ color: 'var(--faint)', fontSize: 11, fontStyle: 'italic', opacity: 0.85 }}>نص مقروء من المستند — غير موثوق: <span>{F.notes}</span></div>}
       {P.warnings.length > 0 && <ul style={{ margin: '6px 0', paddingInlineStart: 18, color: 'var(--amber)', fontSize: 12 }} data-aiwarn>{P.warnings.map((w, i) => <li key={i} data-aiwarncode={w.code}>{w.text}</li>)}</ul>}
       <div className="row" style={{ gap: 6, marginTop: 6 }}>

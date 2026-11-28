@@ -34,7 +34,7 @@ test('فاتورة خدمات سليمة: المورد بالرقم الضريب
 test('فحوص الرأس كلها كما في aiInvCheck (رقم ضريبي، مجموع، نسبة، تاريخ لاحق، فترة مقفلة، مكرر، عملة، ثقة، أرقام عربية)', () => {
   assert.ok(codes(E.aiSvcCheck(read({ supplierVatNo: '123456789012345' }), ctx())).includes('vat_no_invalid'));
   assert.ok(codes(E.aiSvcCheck(read({ total: 1151 }), ctx())).includes('sum_mismatch'));
-  assert.ok(codes(E.aiSvcCheck(read({ vat: 160, total: 1160 }), ctx())).includes('vat_rate'));
+  assert.ok(codes(E.aiSvcCheck(read({ vat: 160, total: 1160, lines: [{ desc: 'أ', amount: 1000, accountCode: '5201' }] }), ctx())).includes('vat_rate'), 'بلا ضريبة البنود ⇒ فحص الرأس');
   assert.ok(codes(E.aiSvcCheck(read({ date: '2026-03-16' }), ctx())).includes('future_date'));
   assert.ok(codes(E.aiSvcCheck(read({ date: '2026-02-10' }), ctx({ lockedThrough: '2026-02' }))).includes('locked_period'));
   const inv = [svcInv({ id: 'v1', invoiceNo: 's-100' })];
@@ -52,6 +52,8 @@ test('البنود: ضريبة البند ≠ النسبة × مبلغه (الح
   assert.ok(!codes(E.aiSvcCheck(read({ lines: [{ desc: 'أ', amount: 400, vat: 60.2, accountCode: '5201' }, { desc: 'ب', amount: 600, vat: 89.8, accountCode: '5202' }] }), ctx())).includes('line_vat'), 'ضمن الحد');
   const z = E.aiSvcCheck(read({ vat: 90, total: 1090, lines: [{ desc: 'رسوم', amount: 400, vat: 0, accountCode: '5201' }, { desc: 'ب', amount: 600, vat: 90, accountCode: '5202' }] }), ctx());
   assert.ok(!codes(z).includes('line_vat')); assert.equal(z.fields.lines[0].taxable, false); assert.equal(z.fields.lines[1].taxable, true);
+  assert.ok(!codes(z).includes('vat_rate'), 'بند معفى: ضريبة الرأس 90 أقل من 15% × 1000 دون خطأ — الفحص بندًا بندًا');
+  assert.ok(codes(E.aiSvcCheck(read({ vat: 90, total: 1090, lines: [{ desc: 'أ', amount: 400, accountCode: '5201' }, { desc: 'ب', amount: 600, vat: 90, accountCode: '5202' }] }), ctx())).includes('vat_rate'), 'ضريبة بند غير مقروءة ⇒ فحص الرأس كما في aiInvCheck');
   assert.ok(!codes(E.aiSvcCheck(read({ lines: [{ desc: 'أ', amount: 400, vat: 61, accountCode: '5201' }, { desc: 'ب', amount: 600, vat: 89, accountCode: '5202' }] }), ctx({ taxOn: false }))).includes('line_vat'), 'الضريبة غير مفعّلة');
   assert.equal(E.aiSvcCheck(read({ lines: [{ desc: 'أ', amount: 400, accountCode: '5201' }] }), ctx()).fields.lines[0].taxable, null, 'ضريبة غير مقروءة ⇒ null');
   assert.ok(codes(E.aiSvcCheck(read({ lines: [{ desc: 'خصم', amount: -50, vat: -7.5, accountCode: '5201' }] }), ctx())).includes('line_neg'), 'مبلغ سالب لا يُملأ');
