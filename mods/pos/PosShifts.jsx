@@ -43,11 +43,11 @@ export function PosShifts({ org, ops, me, brs, commit, say }) {
   const [resList, setResList] = useState(null); const [resVer, setResVer] = useState(0);
   // m1: قائمة التعارضات من السجل المحمي pos_conflicts (مع تعارضات الحساب) — وما لم يُكتب بعد يُكتب هنا (مصالحة)؛ تعذّر القراءة ⇒ تنبيه
   const offOn = posOffOn(org); const [pcf, setPcf] = useState(undefined);   // undefined = لم يُحمَّل بعد، null = تعذّرت القراءة
-  const anyConf = offOn || (ops.posTabs || []).some(t => (t.conflicts || []).length);
-  useEffect(() => { if (!anyConf) return; let on = true; const cen = brs.length > 1 && (me || {}).role === 'system_admin';
+  const anyConf = offOn || (ops.posTabs || []).some(t => (t.conflicts || []).length);   // v56.58: التحميل دائمًا (تعارض محمي يظهر ولو أُطفئ المفتاح وحُذفت tab.conflicts)؛ anyConf لتنبيه تعذّر القراءة فقط كما كان
+  useEffect(() => { let on = true; const cen = brs.length > 1 && (me || {}).role === 'system_admin';
     pcrLoad(ids, cen).then(L => { if (on) setResList(L); });
     pcfLoad(ids, cen).then(async L => { if (!on) return; setPcf(L); if (L) { const miss = pcfMissing(ops, L, ids); if (miss.length) { for (const r of miss) await pcfWrite(r); const L2 = await pcfLoad(ids, cen); if (on && L2) setPcf(L2); } } }); return () => { on = false; }; }, [anyConf, resVer, ids.join(',')]);   // eslint-disable-line react-hooks/exhaustive-deps
-  const pcfErr = anyConf && pcf === null;
+  const pcfErr = pcf === null || (anyConf && pcf === false);   // v56.58 (المجلس): تعذّر القراءة بهوية Firestore ينبَّه دائمًا؛ والمحلي كما كان
   const confl = posConflicts(ops, null, null, resList, pcf || []).filter(c => posConflictOn(org, c) && ids.includes(c.branchId) && (bid === 'all' || c.branchId === bid) && (!c.res || c.date === d));
   const canRes = POS_CONFLICT_ROLES.includes((me || {}).role);
   const resolve = async (c, act) => {
@@ -62,7 +62,7 @@ export function PosShifts({ org, ops, me, brs, commit, say }) {
     <div className="grid" style={{ gap: 12 }}>
       {gaps.length > 0 && <div className="note" role="alert" data-chaingaps style={{ borderColor: 'var(--rose)' }}><b>تنبيه: {gaps.length} خلل في سلسلة فواتير نقطة البيع</b> — قد يدل على فاتورة لم تصل أو مسح لبيانات جهاز. راجعه قبل اعتماد الإغلاق.
         {gaps.slice(0, 20).map((g, i) => <div key={i} style={{ fontSize: 12, marginTop: 4 }} data-chaingap={g.kind}>{bOf(g.branchId).name} · جهاز {g.dev} · {KIND[g.kind]}: <span className="num">{g.prevNo} (#{g.prevIcv}) ← {g.no} (#{g.icv})</span></div>)}</div>}
-      {pcfErr && <div className="note" data-pcferr style={{ borderColor: 'var(--rose)' }}>تعذّر قراءة سجل تعارضات نقطة البيع المحمي — لا يُرحَّل إغلاق يوم فيه العمل دون اتصال حتى تُقرأ (تحقق من الاتصال).</div>}
+      {pcfErr && <div className="note" data-pcferr style={{ borderColor: 'var(--rose)' }}>تعذّر قراءة سجل تعارضات نقطة البيع المحمي — لا يُرحَّل الإغلاق اليومي حتى تُقرأ (تحقق من الاتصال ثم أعد المحاولة).</div>}
       {confl.length > 0 && <div className="note" data-conflictlist style={{ borderColor: 'var(--rose)' }}><b>تعارضات فواتير بعد عودة الاتصال — يحسمها مدير الفرع قبل الإغلاق اليومي</b>
         <div className="hint">فاتورة صدرت لحساب طاولة لم تُختم عليه (دُفع الحساب أو الجزء من جهاز آخر، أو أُعيد التقسيم). «إبقاء»: الفاتورتان صحيحتان. «إلغاء بمرتجع»: بعد إصدار مرتجع كامل للفاتورة (أو إلغائها بإشعار دائن) من «المبيعات» — لا تُحذف فاتورة. لا يحسمه من أصدر الفاتورة.</div>
         {confl.map(c => <div key={c.tabId + c.orderId} className="row" data-conflict={c.orderNo} style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap', fontSize: 12.5, marginTop: 6 }}>

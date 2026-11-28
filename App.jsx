@@ -3826,7 +3826,8 @@ function closeAutoChecks(A, ops, month, org) {
     ...(ppp.length || (org && ppOn(org)) ? [{ k: 'ppd', ar: 'المصروفات المدفوعة مقدمًا: لا مستند بانتظار الاعتماد (الإطفاء الشهري آلي بعد الاعتماد)', n: ppp.length }] : []),
     ...(pimp.length || impYear ? [{ k: 'impair', ar: 'هبوط قيمة الأصول: سُجّل اختبار مؤشرات السنة ولا مستند هبوط بانتظار الاعتماد', n: pimp.length + (impYear ? 1 : 0) }] : []),
     ...(offUnrev.length ? [{ k: 'posoffret', ar: 'كل مرتجعات نقطة البيع دون اتصال حتى نهاية الشهر رُوجعت واعتُمدت من المدير (نقطة البيع ← مرتجعات دون اتصال للمراجعة)', n: offUnrev.length, amt: posR2(offUnrev.reduce((a, o) => a + Math.abs(Number(o.total) || 0), 0)) }] : []),
-    ...(pconf.length ? [{ k: 'posconf', ar: 'كل تعارضات فواتير نقطة البيع بعد عودة الاتصال حُسمت من مدير الفرع (نقطة البيع ← الورديات والتقارير)', n: pconf.length }] : []),
+    ...(ops.posConflictRecs === null ? [{ k: 'posconf', ar: 'تعارضات فواتير نقطة البيع: السجل المحمي غير مقروء — أعد المحاولة قبل الإقفال', n: 1, unread: true }] : []),   // v56.58 (المجلس): لا «سليم» بلا قراءة
+    ...(pconf.length && ops.posConflictRecs !== null ? [{ k: 'posconf', ar: 'كل تعارضات فواتير نقطة البيع بعد عودة الاتصال حُسمت من مدير الفرع (نقطة البيع ← الورديات والتقارير)', n: pconf.length }] : []),
     ...(pdp.length ? [{ k: 'deptpick', ar: 'كل مصروفات الوردية التي يحدد المحاسب قسمها (الصيانة والكهرباء) محدَّدة القسم', n: pdp.length }] : []),
     ...(arChk ? [{ k: 'arsub', ar: 'ذمم العملاء 1380 في الأستاذ (' + arChk.gl + ') = مجموع أرصدة العملاء في السجل الفرعي (' + arChk.sub + ')', n: Math.abs(arChk.d) > 0.004 ? 1 : 0, amt: arChk.d }] : []),
     ...(org && whtDueDay(org) ? (() => { const pm = t4PrevYm(month), u = whtUnpaidAt(A, pm + '-31', end);   // v56.51 (2-أ): بموعد يُدخله المالك ويؤكّده المختص فقط
@@ -4067,7 +4068,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.57';
+const APP_VER = 'v56.58';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -12631,14 +12632,38 @@ function salesByWaiter(ops, brId, from, to, shiftId) {
 const tabKey = (l) => l.productId + '|' + l.price + '|' + (l.note || '');
 const tabHal = (lines) => (lines || []).reduce((a, l) => a + Math.round((Number(l.qty) || 0) * (Number(l.price) || 0) * 100), 0);
 /** المتبقي من حساب الطاولة بعد الأجزاء المدفوعة — بلا تقسيم مدفوع = tabSum نفسه */
+/** الأجزاء المدفوعة القائمة: لها فاتورة ولم تُلغَ (v56.58: جزء التقسيم بالأصناف الملغاة فاتورته يبقى في السجل بوسم voided ولا يُعد مدفوعًا) */
+const tabPaidParts = (tab) => (((tab && tab.split) || {}).parts || []).filter(p => p.orderId && !p.voided);
 function tabRemain(tab) {
-  const S = tabSum(tab), paid = (((tab && tab.split) || {}).parts || []).filter(p => p.orderId);
+  const S = tabSum(tab), paid = tabPaidParts(tab);
   if (!paid.length) return S;
   const used = {}; paid.forEach(p => (p.eqItems || p.lines || []).forEach(l => { used[tabKey(l)] = (used[tabKey(l)] || 0) + (Number(l.qty) || 0); }));   // v56.56: الجزء المتساوي بتفصيل أصنافه
   // v56.56: أجزاء التقسيم بالتساوي كسرية (بالألف) — التقريب لستة أرقام يمنع بقايا الفاصلة العائمة (الأعداد الصحيحة كما كانت حرفيًا)
   const lines = S.lines.map(l => ({ ...l, qty: Math.max(0, Math.round((l.qty - (used[tabKey(l)] || 0)) * 1e6) / 1e6) })).filter(l => l.qty > 0);
   return { lines, total: tabHal(lines) / 100, rounds: S.rounds, paidParts: paid.length };
 }
+/** v56.58 (قرار المالك): جزء «إعادة» غير مدفوع (re) يحمل أصناف جزء ملغى بتسعيره المجمّد — يُحفظ عند إعادة التقسيم والجولة الجديدة ولا يُعاد تقسيمه */
+const tabReOpen = (tab) => (((tab && tab.split) || {}).parts || []).filter(p => p.re && !p.orderId);
+/** الأجزاء الباقية عند إعادة التقسيم: المدفوعة (والملغاة بسجلها) وأجزاء الإعادة غير المدفوعة */
+const tabKeptParts = (tab) => (((tab && tab.split) || {}).parts || []).filter(p => p.orderId || p.re);
+/** ترقيم الأجزاء الجديدة بعد الباقية: بلا جزء إعادة كما كان (عدد المدفوعة)، ومعه بعد أكبر رقم */
+const tabPartOff = (tab) => { const K = tabKeptParts(tab); return K.some(p => p.re) ? K.reduce((a, p) => Math.max(a, Number(p.no) || 0), 0) : K.length; };
+/** المتبقي الحر للتقسيم والدفع بالتسعير الجاري: المتبقي ناقص أصناف أجزاء الإعادة غير المدفوعة — بلاها = tabRemain نفسه */
+function tabRemainFree(tab) {
+  const R = tabRemain(tab), RE = tabReOpen(tab); if (!RE.length) return R;
+  const used = {}; RE.forEach(p => (p.lines || []).forEach(l => { used[tabKey(l)] = (used[tabKey(l)] || 0) + (Number(l.qty) || 0); }));
+  const lines = R.lines.map(l => ({ ...l, qty: Math.max(0, Math.round((l.qty - (used[tabKey(l)] || 0)) * 1e6) / 1e6) })).filter(l => l.qty > 0);
+  return { ...R, lines, total: tabHal(lines) / 100 };
+}
+/** «دفع المتبقي» مع جزء إعادة غير مدفوع: لا متبقي حر ⇒ يُدفع جزء الإعادة بتسعيره المجمّد { part }؛ وإلا { block: [أرقام الأجزاء غير المدفوعة الفعلية], part }
+    (تُدفع أولًا ثم المتبقي). بلا جزء إعادة ⇒ null (كما كان) */
+function tabRemainPay(tab) {
+  const rp = tabReOpen(tab)[0]; if (!rp) return null;
+  if (!tabRemainFree(tab).lines.length) return { part: rp };
+  return { block: (((tab.split || {}).parts) || []).filter(p => !p.orderId).map(p => p.no).sort((a, b) => a - b), part: rp };
+}
+/** هل يحمل الجزء حصة من خصم الكوبون (خصم الفاتورة بعرضه، أو خصم سطر بعرضه) — الجزء الملغى لا يُعد */
+const tabPartHasCp = (p, cpId) => !!p && !p.voided && !!cpId && ((((p.orderPromo || {}).id === cpId) && toHal(p.orderDisc) > 0) || (p.lines || []).some(l => l.promoId === cpId && toHal(l.disc) > 0));
 // توزيع مبلغ (هللات) على أوزان بالتناسب، والفرق على آخر وزن غير صفري
 function halShare(H, w) {
   const tot = w.reduce((a, x) => a + x, 0), last = w.reduce((a, x, k) => x > 0 ? k : a, -1); let left = H;
@@ -12649,7 +12674,7 @@ function halShare(H, w) {
     خصم كل سطر يُوزَّع على الأجزاء بكمياتها، وخصم الفاتورة بنسبة صافي كل جزء، والفرق بالهللة على الأخير؛ والكوبون على الجزء الأول.
     يعيد { parts:[{ id, no, lines, gross, orderDisc?, total, coupon? }], total, gross } أو { err } — ومجموع الأجزاء = الطاولة بعروضها بالهللة */
 function tabSplitItems(tab, alloc, n, priced) {
-  const R = tabRemain(tab), N = Math.floor(Number(n) || 0);
+  const R = tabRemainFree(tab), N = Math.floor(Number(n) || 0);   // v56.58: بلا أصناف أجزاء الإعادة (مجمّدة التسعير)
   if (!(N >= 2 && N <= 10)) return { err: 'عدد الأجزاء من 2 إلى 10' };
   if (!R.lines.length) return { err: 'لا أصناف متبقية للتقسيم' };
   const PL = priced ? priced.lines || [] : null;
@@ -12663,7 +12688,7 @@ function tabSplitItems(tab, alloc, n, priced) {
   if (parts.some(p => !p.length)) return { err: 'كل جزء يحتاج صنفًا واحدًا على الأقل' };
   const net = parts.map(L => tabHal(L) - L.reduce((a, l) => a + toHal(l.disc), 0));
   const OD = halShare(priced ? toHal(priced.orderDisc) : 0, net);
-  const off = (((tab && tab.split) || {}).parts || []).filter(p => p.orderId).length;
+  const off = tabPartOff(tab);
   const out = parts.map((lines, k) => ({ id: uid('sp'), no: off + k + 1, lines, gross: tabHal(lines) / 100, ...(OD[k] ? { orderDisc: OD[k] / 100, ...(priced.orderPromo ? { orderPromo: priced.orderPromo } : {}) } : {}), total: (net[k] - OD[k]) / 100,
     ...(k === 0 && priced && priced.coupon ? { coupon: priced.coupon } : {}) }));
   const whole = priced ? toHal(priced.sub) - toHal(priced.orderDisc) : toHal(R.total);
@@ -12673,14 +12698,14 @@ function tabSplitItems(tab, alloc, n, priced) {
 /** حفظ خطة التقسيم على الحساب (الأجزاء المدفوعة تبقى، وغير المدفوعة تُستبدل) — ver يتغير مع كل تقسيم (حارس التزامن) */
 const tabSplitSet = (tab, parts, meta = {}) => { const sp0 = ((tab || {}).split) || {}, paid = (sp0.parts || []).filter(p => p.orderId);
   const cp = meta.cp || (paid.length && sp0.cp ? sp0.cp : null);   // v56.56 (D): حجز كوبون التقسيم بالتساوي يبقى ما دام جزء مدفوع يحمل حصته
-  return { ...tab, split: { ver: meta.ver || uid('sv'), at: meta.at || nowISO(), by: meta.by || '', ...(cp ? { cp } : {}), parts: [...paid, ...parts] } }; };
+  return { ...tab, split: { ver: meta.ver || uid('sv'), at: meta.at || nowISO(), by: meta.by || '', ...(cp ? { cp } : {}), parts: [...tabKeptParts(tab), ...parts] } }; };   // v56.58: وأجزاء الإعادة غير المدفوعة
 /** تسعير الجزء المجمّد (لشاشة الدفع): كما خرج من تسعير الطاولة كاملة — بديل posPriceCart للجزء */
 const tabPartPriced = (pt) => ({ lines: (pt.lines || []).map(l => ({ ...l, disc: Number(l.disc) || 0 })), sub: Math.round(tabHal(pt.lines) - (pt.lines || []).reduce((a, l) => a + toHal(l.disc), 0)) / 100,
   orderDisc: Number(pt.orderDisc) || 0, orderPromo: pt.orderPromo || null, codeOk: !!pt.coupon, coupon: pt.coupon || null });
 /** جولة جديدة بعد التقسيم: تسقط الأجزاء غير المدفوعة (تُعاد القسمة على المتبقي)، وبلا تقسيم: الحساب كما هو */
 function tabSplitReset(tab) {
   if (!tab || !tab.split) return tab;
-  const paid = (tab.split.parts || []).filter(p => p.orderId);
+  const paid = tabKeptParts(tab);   // v56.58: وأجزاء الإعادة غير المدفوعة
   if (paid.length) return { ...tab, split: { ...tab.split, ver: uid('sv'), parts: paid } };
   const { split, ...rest } = tab; return rest;
 }
@@ -12695,6 +12720,46 @@ function tabPayPart(tab, partId, o, by, off) {
   if (why) return { err: why, tab: tab ? { ...tab, conflicts: [...(tab.conflicts || []), { orderId: o.id, orderNo: o.no, at: o.at, total: o.total, partId, why, ...(off ? { off: true } : {}) }] } : tab };   // v56.56: off = سُجّل مع العمل دون اتصال
   const t2 = { ...tab, split: { ...sp, parts: sp.parts.map(p => p.id === partId ? { ...p, orderId: o.id, orderNo: o.no, paidAt: o.at } : p) } };
   return { tab: tabRemain(t2).lines.length ? t2 : { ...t2, status: 'paid', orderId: o.id, orderNo: o.no, closedAt: o.at, closedBy: by || '' } };
+}
+/** v56.58 (قرار المجلس): إلغاء فاتورة جزء مدفوع من تقسيم بالأصناف (إشعار دائن قبل Z) — يُطبَّق على أحدث حالة داخل حفظ الإلغاء نفسه (كنمط tabPayPart).
+    الحساب مفتوح ⇒ يُوسم الجزء «ملغى» (voided — يبقى في السجل بفاتورته، لا حذف) فتعود أصنافه إلى متبقي الطاولة غير المدفوع؛
+    الحساب مغلق/مدفوع ⇒ لا يُعاد فتح شيء (الإلغاء قائم كما كان) ويعيد st:'closed' لتنبيه الكاشير.
+    جزء التقسيم بالتساوي (eq) لا يُمس — سلوكه كما في v56.56 (قواعد الكوبون). يعيد { tab, st: ''|'open'|'closed', no } — مكرر التنفيذ لا يغيّر شيئًا */
+function tabPartVoid(tab, orderId, meta = {}) {
+  const sp = (tab && tab.split) || null, pt = sp && orderId ? (sp.parts || []).find(p => p.orderId === orderId) : null;
+  if (!pt || pt.eq || pt.voided) return { tab, st: '', no: pt ? pt.no : 0 };
+  if (tab.status !== 'open') return { tab, st: 'closed', no: pt.no };
+  // قرار المالك: يحتفظ العميل بحصة الجزء من خصم الطاولة وكوبونها ⇒ أصنافه تعود في «جزء إعادة» بتسعيره المجمّد نفسه (الأسطر بخصمها، وخصم الفاتورة، والإجمالي) —
+  // بلا كوبون عليه (الكوبون يُنقل بحجزه نفسه بقواعد v56.56)، ويُضم إلى جزء إعادة غير مدفوع قائم إن وُجد (جزء إعادة واحد)
+  const at = meta.at || nowISO(), ex0 = sp.parts.find(p => p.re && !p.orderId), reId = ex0 ? ex0.id : uid('sp');
+  // v56.58 (التحقق المحاسبي): الجزء الملغى يحمل الكوبون ⇒ ينتقل الرمز وحجزه الحي نفسه (cpHeld) إلى جزء الإعادة الذي يحمل حصته من الخصم — لا تحرير ولا حجز جديد
+  const cpm = pt.coupon ? { coupon: pt.coupon, cpHeld: String(pt.cpHeld || orderId) } : null;
+  const marked = sp.parts.map(p => p === pt ? (({ coupon: _c, cpHeld: _h, ...y }) => ({ ...y, voided: { at, by: String(meta.by || '').slice(0, 120), ...(meta.note ? { note: String(meta.note).slice(0, 60) } : {}) }, ...(cpm ? { cpMoved: { to: reId, at } } : {}) }))(p) : p);
+  const ex = marked.find(p => p.re && !p.orderId), H = (v) => toHal(v);
+  const od = (x) => H(x.orderDisc), fresh = { lines: (pt.lines || []).map(l => ({ ...l })), gross: Number(pt.gross) || 0, ...(od(pt) ? { orderDisc: od(pt) / 100, ...(pt.orderPromo ? { orderPromo: pt.orderPromo } : {}) } : {}), total: Number(pt.total) || 0, re: [pt.id] };
+  const parts = ex ? marked.map(p => p !== ex ? p : { ...ex, lines: [...(ex.lines || []), ...fresh.lines], gross: (H(ex.gross) + H(fresh.gross)) / 100, total: (H(ex.total) + H(fresh.total)) / 100,
+      ...((od(ex) + od(pt)) ? { orderDisc: (od(ex) + od(pt)) / 100, ...((ex.orderPromo || pt.orderPromo) ? { orderPromo: ex.orderPromo || pt.orderPromo } : {}) } : {}), re: [...(ex.re || []), pt.id], ...(cpm || {}) })
+    : [...marked, { id: reId, no: marked.reduce((a, p) => Math.max(a, Number(p.no) || 0), 0) + 1, ...fresh, ...(cpm || {}) }];
+  return { st: 'open', no: pt.no, ...(cpm ? { cpTo: reId } : {}), tab: { ...tab, split: { ...sp, parts } } };
+}
+/** v56.58 (2): إعادة التقسيم أو جولة جديدة تُسقط جزءًا غير مدفوع يحمل حجز كوبون منقولًا (cpHeld) ⇒ يُنقل الحجز نفسه إلى جزء جديد غير مدفوع بالرمز نفسه،
+    وإلا يُعاد للمستدعي ليحرّره — فلا يبقى كوبون محدود محجوزًا بلا فاتورة. يعيد { tab, rel: [{ code, use, limited }] } */
+function tabCpHeldCarry(prev, next) {
+  const keep = new Set((((next && next.split) || {}).parts || []).map(p => p.id));
+  const lost = ((((prev && prev.split) || {}).parts) || []).filter(p => !p.orderId && p.cpHeld && p.coupon && !keep.has(p.id));
+  if (!lost.length || !next) return { tab: next, rel: [] };
+  let parts = (((next.split || {}).parts) || []).slice(); const rel = [];
+  lost.forEach(lp => { const code = String((lp.coupon || {}).code || ''), cid = (lp.coupon || {}).id;
+    // (أ) جزء جديد غير مدفوع بالرمز نفسه ⇒ الحجز نفسه
+    let i = parts.findIndex(p => !p.orderId && !p.cpHeld && p.coupon && String(p.coupon.code || '') === code && code);
+    if (i >= 0) { parts[i] = { ...parts[i], cpHeld: lp.cpHeld }; return; }
+    // (ب) جزء غير مدفوع باقٍ (جزء الإعادة) يحمل حصة من خصم الكوبون ⇒ يحمل الرمز والحجز
+    i = parts.findIndex(p => !p.orderId && !p.cpHeld && !p.coupon && tabPartHasCp(p, cid));
+    if (i >= 0) { parts[i] = { ...parts[i], coupon: lp.coupon, cpHeld: lp.cpHeld }; return; }
+    // (ج) فاتورة صادرة قائمة تحمل حصته ⇒ يبقى الحجز مستهلكًا (لا تحرير)؛ (د) لا جزء يحمله ⇒ يُحرَّر
+    if (parts.some(p => p.orderId && tabPartHasCp(p, cid))) return;
+    rel.push({ code, use: String(lp.cpHeld), limited: !!(lp.coupon || {}).limited }); });
+  return { tab: next.split ? { ...next, split: { ...next.split, parts } } : next, rel };
 }
 /** دمج حساب طاولة (src) في حساب طاولة أخرى (dst): الجولات تنتقل كما هي (وتذاكر المطبخ المرسلة لا تُمس)، وسجل تدقيق على الحساب */
 function tabMerge(src, dst, meta = {}) {
@@ -12723,7 +12788,7 @@ function tabMerge(src, dst, meta = {}) {
     الكوبون لا يُوضع على جزء: يُعاد في cp ويُحجز مرة واحدة عند حفظ التقسيم (tabSplitSet ‹cp›). يعيد { parts, total, cp } أو { err } */
 const EQ_LINE_NAME = (k, n, ref) => 'حصة ' + k + ' من ' + n + ' — فاتورة الطاولة ' + ref;
 function tabSplitEqual(tab, n, priced, rate) {
-  const R = tabRemain(tab), N = Math.floor(Number(n) || 0);
+  const R = tabRemainFree(tab), N = Math.floor(Number(n) || 0);
   if (!(N >= 2 && N <= 20) || Number(n) !== N) return { err: 'عدد الأجزاء من 2 إلى 20' };
   if (!R.lines.length) return { err: 'لا أصناف متبقية للتقسيم' };
   if (R.lines.some(l => !Number.isInteger(l.qty))) return { err: 'المتبقي من تقسيم سابق بالتساوي — ادفعه كاملًا' };
@@ -12734,7 +12799,7 @@ function tabSplitEqual(tab, n, priced, rate) {
   if (Math.floor(W / N) < 1) return { err: 'المبلغ أصغر من أن يُقسَّم على هذا العدد' };
   const eqH = (H) => { const a = Math.floor(H / N); return Array.from({ length: N }, (_, k) => k === N - 1 ? H - a * (N - 1) : a); };   // بالتساوي والباقي على الأخير
   const A = eqH(W), LQ = PL.map(l => eqH(Math.round((Number(l.qty) || 0) * 1000))), LD = PL.map(l => eqH(toHal(l.disc))), ODk = eqH(OD);
-  const off = (((tab && tab.split) || {}).parts || []).filter(p => p.orderId).length, ref = String((tab && tab.table) || '');
+  const off = tabPartOff(tab), ref = String((tab && tab.table) || '');
   const parts = A.map((a, k) => { const lines = [{ productId: '', name: EQ_LINE_NAME(k + 1, N, ref), qty: 1, price: a / 100 }];
     const P = posTotals(lines, 0, rate);
     const eqItems = PL.map((l, i) => ({ productId: l.productId, name: l.name, price: Number(l.price) || 0, qty: LQ[i][k] / 1000, ...(l.note ? { note: l.note } : {}),
@@ -12871,15 +12936,22 @@ async function pcfWrite(rec, cIn) {
 }
 /** بعد رصد التعارض: محاولات متباعدة (سجل الفاتورة المحمي قد يصل بعد لحظات) — موجود سلفًا ⇒ نجاح */
 async function pcfPut(rec, cIn, waits) { for (const w of (waits || [0, 5000, 30000, 120000])) { if (w) await new Promise(r => setTimeout(r, w)); const R = await pcfWrite(rec, cIn); if (R.ok) return R; } return { err: 'pending' }; }
-async function pcfLoad(branchIds, central, cIn) {
-  const c = cIn || await ctlIdentity(); if (!c) return null;
-  try { const col = c.f.collection(c.f.db, 'pos_conflicts');
-    const qs = central ? [col] : (branchIds || []).filter(Boolean).slice(0, 30).map(b => c.f.query(col, c.f.where('branchId', '==', b)));
+async function pcfLoad(branchIds, central, cIn, date) {   // v56.58: date (اختياري) ⇒ استعلام الفرع واليوم فقط (رخيص) لمانع الإغلاق اليومي
+  const c = cIn === false ? null : (cIn || await ctlIdentity()); if (!c) return false;   // v56.58 (المجلس): false = لا هوية Firestore (محلي)، null = تعذّرت القراءة
+  try { const col = c.f.collection(c.f.db, 'pos_conflicts'), dd = /^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) ? String(date) : '';
+    const qs = central ? [col] : (branchIds || []).filter(Boolean).slice(0, 30).map(b => dd ? c.f.query(col, c.f.where('branchId', '==', b), c.f.where('date', '==', dd)) : c.f.query(col, c.f.where('branchId', '==', b)));
     const snaps = await ctlTimeout(Promise.all(qs.map(q => c.f.getDocs(q))), 60000);
     const list = snaps.flatMap(s => s.docs.map(d => ({ id: d.id, ...(d.data() || {}) }))).map(r => ({ ...r, orderId: r.orderId || r.id, at: r.at && r.at.toDate ? r.at.toDate().toISOString() : r.at }));
     _pcfCache = { list, at: Date.now() }; return list;
   } catch (e) { return null; }
 }
+/** v56.58 (المراجعة الأمنية v56.56 «منخفضة أ»): السجل المحمي pos_conflicts يُحمَّل دائمًا — فتعارض محمي غير محسوم يمنع الترحيل ولو أُطفئ العمل دون اتصال وحُذفت tab.conflicts.
+    القائمة التي تُمرَّر لمانع الإغلاق (قرار المجلس بعد المراجعة الأمنية): المقروءة كما هي؛ وقيد التحميل (undefined) أو تعذّر القراءة (null) ⇒ فشل مغلق (null) دائمًا؛
+    وبلا هوية Firestore (false — الوضع المحلي) ⇒ [] كما كان، إلا مع العمل دون اتصال أو تعارض على الحساب ⇒ null كما كان */
+const pcfGate = (pcf, hasConf) => Array.isArray(pcf) ? pcf : (pcf === false && !hasConf) ? [] : null;   // v56.58 (المجلس): فشل مغلق متى وُجدت هوية Firestore — قيد التحميل أو تعذّر ⇒ null
+/** هل يُحتاج سجل الحسم: تعارض على الحساب أو العمل دون اتصال أو سجل تعارض محمي مقروء */
+const pcfNeedRes = (pcf, hasConf) => !!hasConf || (Array.isArray(pcf) && pcf.length > 0);
+const PCF_READ_MSG = 'سجل التعارضات قيد التحميل أو غير مقروء — أعد المحاولة';
 /** مصالحة: تعارضات الحساب الموسومة دون اتصال وليس لها سجل محمي بعد ⇒ تُكتب (أي عضو للفرع) */
 function pcfMissing(ops, pcfList, brIds) {
   const have = new Set((pcfList || []).map(r => r.orderId)); const O = new Map((((ops || {}).posOrders) || []).map(o => [o.id, o])), out = [];
@@ -17423,7 +17495,7 @@ export { mktUnmergeBlock, splitOps, composeOps, outOfScopeRecords, MKT_RW_KEY, r
 export { moveIdx, RowGrip, RECUR_AR, recurNext, recurDue };
 export { peekDoc, DocLink, DocPeekHost, VoiceSearchHost, voiceNorm };
 export { fefoPick, lotsFor, projList, projectPL, projNextCode };
-export { finPicture, fxRevalOn, fxRevalRows, CLOSE_TASKS_DEF, closeListOn, closeAutoChecks, closeManualState, closeLockBlock, equityStatement, EQS_ROWS, posGlOpen, posGlAt, posGlRanges, posGlFrom, posGlPv, posGlOn, posGlDay, posGlLines, posGlCheck, lvReturnPlan, lvTrack, leaveSignDoc, appOfTab, appTaskBadges, homeKpis, isLateWork, HUB_BASE, hubTabs, HR_TABS, refsApi, docxPages, textPages, xlsxPages, cfoDash, REC_PRI, REC_DEPT, finRecs, recRealized, CTL_SEV, CTL_ST, CTL_OPEN, CTL_CAT, CTL_FLOW, ctlScan, caseSync, caseMove, FA_RATIOS, faSnap, faQuality, finAnalyze, MCP_KINDS, mcpPlanJournal, mcpPlanReclass, mcpApplyReclass, mcpPlanExp, MCP_XI_HEAD, mcpApi, invPayments, INV_CLS, XI_CLS, accClsOf, invCls, PJ_PRE, IMP_PRE, pjNumber, pjStamp, pjBackfill, pjMissing, XI_KW, XI_AR, XI_TEMPLATE, xiDetect, xiPlan, xiRecords, xiNum, CAT_FOR, catListOf, catsFor, catOf, recDomains, DOMAIN_DEF, domCfgOf, domOk, domFilter, userBrIds, DomainChips, usersApi, closingImgs, closingArchiveOne, closingStripImgs, posKey, posYmOf, posSplitOn, posSplitDoc, posJoin, brRead, brWrite, posSplitBranch, posUnsplitBranch, LOY_AUDIT_WHY, loyAudit, AI_GROWTH_PRESETS, growthDigest, aiGrowthClean, aiGrowthAsk, COMMS_PROVIDERS, COMMS_CH, COMMS_VARS, COMMS_DEF, commsCfgOf, commsRender, smsParts, commsQuiet, commsTplErr, BRR_CH, brReport, dtLocal, REC_DEF, recCfgOf, recIndex, recFor, recStats, CAMP_ST, campNextNo, campStatusOf, campStats, campSpend, AUTO_DEFAULTS, autoCfgOf, payrollAccrualApply, poSuggestions, autoAlerts, prevMonthOf, SecPager, recurApply, EDIT_KINDS, editPermOf, canEditRec, BrandSymbol, BrandLockup, ACCT_GROUPS, MYWORK_CATS, myWorkGroups, MyWork, rptShell, RPT_TEMPLATES, rptFmt, rptFlat, rptTotals, rptHtml, printReport, rptXlsxRows, makeRptXlsx, rptCsv, rptDownload, DEP_METHODS, depMethod, deprSchedule, glLedger, acctActivity, COST_METHODS, costMethod, stockCostingAvg, stockCostingFifo, costCompare, itemBin, binSort, binOrder, pmPeriod, profitMatrix, RFQ_ST, rfqNextNo, rfqCompare, rfqToPOs, DLV_ST, DLV_NEXT, posDrivers, dlvNeeded, dlvRecord, dlvMove, dlvSummary, posAreas, tableArea, areasErr, salesByArea, computeSmartAlerts, stockShortages, CV_KIND, cvNextNo, partyOpenDocs, applyCashVoucher, cashVoucherHtml, VCH_T, VCH_TRF, vchTypeOf, assignVouchers, voucherList, voucherHtml, saleDeductFrom, saleDeductOn, saleUse, saleRecipeItems, saleDayUse, syncSaleMoves, itemLedger, UOM_LIST, UOM_GROUPS, uomOf, uomConv, uomOk, uomNeeded, lineUnits, lineFac, UomSelect, Notifications, closeAlertsCfg, closeAlertEvents, closeAlertFor, shiftSumText, waShare, CLOSE_ALERT_ROLES, posDocView, printScreen, cutoutPixels, productThumb, prepWasteStats, normDigits, normScan, posPaper, posPaperDev, setPosPaperDev, prepShelfH, prepBatchState, PREP_ST, canBrPurchase, brSigCheck, BR_PURCHASERS, poWhOf, syncPoInbox, INV_BILLERS, ITEM_NEW_TYPES, itemsSeq, nextItemCode, vatNoOk, supVatOf, ItemPick, A4_CSS, posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim, restCfg, coversOf, posWaiters, coversEff, salesByWaiter, tabRemain, tabSplitItems, tabSplitSet, tabPartPriced, tabSplitReset, tabPayPart, tabMerge, tabSplitEqual, tabPartTotals, tabPayWhole, posConflicts, POS_CONFLICT_ROLES, posConflictResolve, tabConflictMark, posConflictBlock, tabCouponMove, EQ_LINE_NAME, posDiscOf, posItemLines, posRetEqItems, posRetItemLines, EQ_CP_USE, tabEqCpRelease, tabEqCpAllVoid, tabEqCpMark, posConflictOn, posConflictLate, pcrWrite, pcrLoad, pcrCached, pcfRec, pcfWrite, pcfPut, pcfLoad, pcfCached, pcfMissing, kdsStations, kdsStationOf, kdsStationsErr, kdsSplit, kdsPrepReport, kdsPrepSheets, prepItemId, prepItemOf, prodNeeds, prodCheck, prodMoves, clrMerge, clrRead, clrViewStats, ppvReport, invTurnover, dirOf, isMzbk, mzbkDecrypt, clrData, clrRecord, clrSigRef, clrDiff, clrCompare, clrOn, clrState, clrMirror, clrLoad, clrSeed, fjData, fjStatus, fjRecord, fjDiff, fjCompare, fjOn, fjState, fjMirror, fjLoad, fpLockedTo, fpOn, fpLoad, fmLoad, fmSet, fjSeed, fjLegacyRecord, dedupeSameId, findRecentDups, negStockChanges, negStockMsg, FD_KINDS, fdDate, fdData, fdProg, fdPaid, fdRecord, fdDiff, fdCompare, fdLoad, fdSeed, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
+export { finPicture, fxRevalOn, fxRevalRows, CLOSE_TASKS_DEF, closeListOn, closeAutoChecks, closeManualState, closeLockBlock, equityStatement, EQS_ROWS, posGlOpen, posGlAt, posGlRanges, posGlFrom, posGlPv, posGlOn, posGlDay, posGlLines, posGlCheck, lvReturnPlan, lvTrack, leaveSignDoc, appOfTab, appTaskBadges, homeKpis, isLateWork, HUB_BASE, hubTabs, HR_TABS, refsApi, docxPages, textPages, xlsxPages, cfoDash, REC_PRI, REC_DEPT, finRecs, recRealized, CTL_SEV, CTL_ST, CTL_OPEN, CTL_CAT, CTL_FLOW, ctlScan, caseSync, caseMove, FA_RATIOS, faSnap, faQuality, finAnalyze, MCP_KINDS, mcpPlanJournal, mcpPlanReclass, mcpApplyReclass, mcpPlanExp, MCP_XI_HEAD, mcpApi, invPayments, INV_CLS, XI_CLS, accClsOf, invCls, PJ_PRE, IMP_PRE, pjNumber, pjStamp, pjBackfill, pjMissing, XI_KW, XI_AR, XI_TEMPLATE, xiDetect, xiPlan, xiRecords, xiNum, CAT_FOR, catListOf, catsFor, catOf, recDomains, DOMAIN_DEF, domCfgOf, domOk, domFilter, userBrIds, DomainChips, usersApi, closingImgs, closingArchiveOne, closingStripImgs, posKey, posYmOf, posSplitOn, posSplitDoc, posJoin, brRead, brWrite, posSplitBranch, posUnsplitBranch, LOY_AUDIT_WHY, loyAudit, AI_GROWTH_PRESETS, growthDigest, aiGrowthClean, aiGrowthAsk, COMMS_PROVIDERS, COMMS_CH, COMMS_VARS, COMMS_DEF, commsCfgOf, commsRender, smsParts, commsQuiet, commsTplErr, BRR_CH, brReport, dtLocal, REC_DEF, recCfgOf, recIndex, recFor, recStats, CAMP_ST, campNextNo, campStatusOf, campStats, campSpend, AUTO_DEFAULTS, autoCfgOf, payrollAccrualApply, poSuggestions, autoAlerts, prevMonthOf, SecPager, recurApply, EDIT_KINDS, editPermOf, canEditRec, BrandSymbol, BrandLockup, ACCT_GROUPS, MYWORK_CATS, myWorkGroups, MyWork, rptShell, RPT_TEMPLATES, rptFmt, rptFlat, rptTotals, rptHtml, printReport, rptXlsxRows, makeRptXlsx, rptCsv, rptDownload, DEP_METHODS, depMethod, deprSchedule, glLedger, acctActivity, COST_METHODS, costMethod, stockCostingAvg, stockCostingFifo, costCompare, itemBin, binSort, binOrder, pmPeriod, profitMatrix, RFQ_ST, rfqNextNo, rfqCompare, rfqToPOs, DLV_ST, DLV_NEXT, posDrivers, dlvNeeded, dlvRecord, dlvMove, dlvSummary, posAreas, tableArea, areasErr, salesByArea, computeSmartAlerts, stockShortages, CV_KIND, cvNextNo, partyOpenDocs, applyCashVoucher, cashVoucherHtml, VCH_T, VCH_TRF, vchTypeOf, assignVouchers, voucherList, voucherHtml, saleDeductFrom, saleDeductOn, saleUse, saleRecipeItems, saleDayUse, syncSaleMoves, itemLedger, UOM_LIST, UOM_GROUPS, uomOf, uomConv, uomOk, uomNeeded, lineUnits, lineFac, UomSelect, Notifications, closeAlertsCfg, closeAlertEvents, closeAlertFor, shiftSumText, waShare, CLOSE_ALERT_ROLES, posDocView, printScreen, cutoutPixels, productThumb, prepWasteStats, normDigits, normScan, posPaper, posPaperDev, setPosPaperDev, prepShelfH, prepBatchState, PREP_ST, canBrPurchase, brSigCheck, BR_PURCHASERS, poWhOf, syncPoInbox, INV_BILLERS, ITEM_NEW_TYPES, itemsSeq, nextItemCode, vatNoOk, supVatOf, ItemPick, A4_CSS, posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim, restCfg, coversOf, posWaiters, coversEff, salesByWaiter, tabRemain, tabSplitItems, tabSplitSet, tabPartPriced, tabSplitReset, tabPayPart, tabMerge, tabSplitEqual, tabPartTotals, tabPayWhole, posConflicts, POS_CONFLICT_ROLES, posConflictResolve, tabConflictMark, posConflictBlock, tabCouponMove, EQ_LINE_NAME, posDiscOf, posItemLines, posRetEqItems, posRetItemLines, EQ_CP_USE, tabEqCpRelease, tabEqCpAllVoid, tabEqCpMark, posConflictOn, posConflictLate, pcrWrite, pcrLoad, pcrCached, pcfRec, pcfWrite, pcfPut, pcfLoad, pcfCached, pcfMissing, pcfGate, pcfNeedRes, PCF_READ_MSG, tabPartVoid, tabPaidParts, tabReOpen, tabRemainFree, tabRemainPay, tabCpHeldCarry, tabPartHasCp, kdsStations, kdsStationOf, kdsStationsErr, kdsSplit, kdsPrepReport, kdsPrepSheets, prepItemId, prepItemOf, prodNeeds, prodCheck, prodMoves, clrMerge, clrRead, clrViewStats, ppvReport, invTurnover, dirOf, isMzbk, mzbkDecrypt, clrData, clrRecord, clrSigRef, clrDiff, clrCompare, clrOn, clrState, clrMirror, clrLoad, clrSeed, fjData, fjStatus, fjRecord, fjDiff, fjCompare, fjOn, fjState, fjMirror, fjLoad, fpLockedTo, fpOn, fpLoad, fmLoad, fmSet, fjSeed, fjLegacyRecord, dedupeSameId, findRecentDups, negStockChanges, negStockMsg, FD_KINDS, fdDate, fdData, fdProg, fdPaid, fdRecord, fdDiff, fdCompare, fdLoad, fdSeed, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
 export { ClosingForm };
 // v38.3 — للاختبارات الآلية (tests/): دوال المحرك والشاشات تُستورد من النواة مباشرة
 export { stockCosting, eosEntitledAmt, eosFullAmt, findDupInvoices, invNoNorm, promoLineDisc, tafqeet, MktGrowth, Hub, Launcher, PosApp, Inventory, Partners, SalesHub, QrFeedback, AppsCenter, BranchWarehouse, Admin, AuditView, Accounting, emptyOrg, emptyOps, HUBS };

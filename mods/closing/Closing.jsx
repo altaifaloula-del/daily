@@ -19,9 +19,9 @@ export function Closing({ org, ops, me, myBranches, scoped, commit, commitOrg, s
   const [limit, setLimit] = useState(15);
   // v56.56 (قرار المجلس F): تعارض فواتير وصل بعد ترحيل إغلاق يومه يوسم ذلك الإغلاق للمدقق (الحسم من السجل المحمي)
   const [pcr, setPcr] = useState(null); const [pcf, setPcf] = useState(null); const hasConf = !!((org.posCfg || {}).offline) || (ops.posTabs || []).some(t => (t.conflicts || []).length);
-  useEffect(() => { if (!hasConf) return; let on = true; const ids = (myBranches || []).map(b => b.id), cen = ids.length > 1 && !!ROLES[me.role]?.admin;
+  useEffect(() => { let on = true; const ids = (myBranches || []).map(b => b.id), cen = ids.length > 1 && !!ROLES[me.role]?.admin;
     pcrLoad(ids, cen).then(L => { if (on) setPcr(L); }); pcfLoad(ids, cen).then(L => { if (on) setPcf(L); }); return () => { on = false; }; }, [hasConf]);   // eslint-disable-line react-hooks/exhaustive-deps
-  const late = hasConf ? posConflictLate(org, ops, pcr, pcf || []) : [];
+  const late = posConflictLate(org, ops, pcr, pcf || []);   // v56.58: السجل المحمي يُحمَّل دائمًا (لا يتوقف على المفتاح أو tab.conflicts)
 
   const filtered = [...scoped.closings]
     // v15.26/v15.27: قيْد «اليوم فقط» (الكاشير) لا يحجب ما ينتظر عمله — المسودات غير المكتملة

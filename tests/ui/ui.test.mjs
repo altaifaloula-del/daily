@@ -5042,3 +5042,46 @@ test('v56.56 قرارات المالك والمجلس: فحص الفجوات ب�
   assert.equal(await p.locator('[data-conflictres]').count(), 0);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.58 إلغاء فاتورة جزء من تقسيم بالأصناف: الطاولة مفتوحة ⇒ تعود أصنافه للمتبقي ويُوسم ملغى؛ مغلقة ⇒ لا يُعاد فتح شيء مع تنبيه', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/PosApp/bm');
+  const d = await p.evaluate(() => new Date().toISOString().slice(0, 10)), AT = d + 'T10:00:00Z';
+  const split = (id, table) => ({ id, branchId: 'b1', table, status: 'open', openedAt: AT, rounds: [{ at: AT, by: 'خالد', lines: [{ productId: 'k', name: 'كبسة', qty: 2, price: 57.5 }, { productId: 'h', name: 'حمص', qty: 1, price: 18.4 }] }],
+    split: { ver: 'sv-' + id, at: AT, by: 'خالد', parts: [{ id: id + 'p1', no: 1, lines: [{ productId: 'k', name: 'كبسة', price: 57.5, qty: 2 }], gross: 115, total: 115 }, { id: id + 'p2', no: 2, lines: [{ productId: 'h', name: 'حمص', price: 18.4, qty: 1 }], gross: 18.4, total: 18.4 }] } });
+  await p.evaluate(({ a, b }) => { window.setOrg(g => ({ ...g, posCfg: { branches: ['b1'], autoPrint: false, tables: { b1: 6 }, rest: { split: true } }, posPromos: [],
+    products: [{ id: 'k', name: 'كبسة', sellPrice: 57.5, cat: 'رئيسي' }, { id: 'h', name: 'حمص', sellPrice: 18.4, cat: 'مقبلات' }] }));
+    window.setOps(o => ({ ...o, posTabs: [a, b], posOrders: [], closings: o.closings.filter(c => c.branchId !== 'b1') })); }, { a: split('ta', '2'), b: split('tb', '3') }); await p.waitForTimeout(300);
+  const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); }
+  p.removeAllListeners('dialog'); p.on('dialog', d => d.accept(d.type() === 'prompt' ? 'خطأ في الطلب' : undefined).catch(() => {}));
+  const payPart = async (tbl, n) => { await p.click('.pos-tabs button:has-text("الطاولات")'); await p.waitForTimeout(200); await p.click('[aria-label="طاولة ' + tbl + '"]'); await p.waitForTimeout(150);
+    await p.click('[data-part="' + n + '"] button'); await p.waitForTimeout(200); await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200); await p.click('.modal button:has-text("تأكيد")'); await p.waitForTimeout(500); };
+  const voidOf = async (tabId, part) => { const no = await p.evaluate(({ tabId, part }) => window.cur.posOrders.find(o => o.tabId === tabId && o.tabPart === part).no, { tabId, part });
+    await p.click('.pos-tabs button:has-text("الفواتير")'); await p.waitForTimeout(300); await p.locator('tr:has-text("' + no + '") button:has-text("إلغاء")').first().click(); await p.waitForTimeout(600); return no; };
+  // الطاولة 2 مفتوحة: دُفع الجزء 1 ثم أُلغيت فاتورته ⇒ يعود الكبسة ×2 للمتبقي ويبقى الجزء في السجل موسومًا
+  await payPart('2', 1);
+  const n1 = await voidOf('ta', 1);
+  assert.match(await say(p), /إشعار دائن[\s\S]*أُعيدت أصناف الجزء 1 إلى متبقي الطاولة/);
+  let r = await p.evaluate(() => { const t = window.cur.posTabs.find(x => x.id === 'ta'); return { st: t.status, parts: t.split.parts.map(x => [x.no, !!x.orderId, !!x.voided, !!x.re, x.total]), o: window.cur.posOrders.filter(o => o.tabId === 'ta').map(o => o.status) }; });
+  assert.deepEqual(r, { st: 'open', parts: [[1, true, true, false, 115], [2, false, false, false, 18.4], [3, false, false, true, 115]], o: ['void'] }, 'جزء إعادة بتسعير الجزء الملغى المجمّد');
+  await p.click('.pos-tabs button:has-text("الطاولات")'); await p.waitForTimeout(200); await p.click('[aria-label="طاولة 2"]'); await p.waitForTimeout(150);
+  assert.match(await p.locator('[data-partvoid="1"]').innerText(), new RegExp('ملغى\\s*' + n1 + '\\s*— أصنافه في المتبقي'));
+  assert.equal(await p.locator('[data-part="3"] [data-partre]').count(), 1);
+  assert.equal(await p.locator('[data-payrest]').isDisabled(), true, 'المتبقي الحر (حمص) مع جزء الإعادة ⇒ يُدفع جزء الإعادة أولًا');
+  assert.match(await p.locator('[data-payrestnote]').innerText(), /ادفع أولًا الأجزاء غير المدفوعة\s*2، 3\s*\(منها الجزء 3/, 'يسمّي الأجزاء غير المدفوعة الفعلية');
+  await shot(p, 'v5658-part-void');
+  await p.keyboard.press('Escape'); await p.waitForTimeout(100);
+  await payPart('2', 2);
+  await p.click('.pos-tabs button:has-text("الطاولات")'); await p.waitForTimeout(200); await p.click('[aria-label="طاولة 2"]'); await p.waitForTimeout(150);
+  assert.match(await p.locator('[data-payrest]').innerText(), /دفع المتبقي 115\.00/);
+  await p.click('[data-payrest]'); await p.waitForTimeout(200); await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200); await p.click('.modal button:has-text("تأكيد")'); await p.waitForTimeout(500);
+  r = await p.evaluate(() => ({ st: window.cur.posTabs.find(x => x.id === 'ta').status, o: window.cur.posOrders.filter(o => o.tabId === 'ta' && o.status !== 'void').map(o => [o.tabPart, o.total]).sort((a, b) => a[0] - b[0]) }));
+  assert.deepEqual(r, { st: 'paid', o: [[2, 18.4], [3, 115]] }, 'دفع المتبقي بتسعير جزء الإعادة ويُغلق الحساب');
+  // الطاولة 3: دُفع الجزآن فأُغلقت ⇒ إلغاء الجزء 1 لا يعيد فتحها
+  await payPart('3', 1); await payPart('3', 2);
+  assert.equal(await p.evaluate(() => window.cur.posTabs.find(x => x.id === 'tb').status), 'paid');
+  await voidOf('tb', 1);
+  assert.match(await say(p), /الطاولة مغلقة — لم تُعد الأصناف إليها/);
+  r = await p.evaluate(() => { const t = window.cur.posTabs.find(x => x.id === 'tb'); return [t.status, t.split.parts.map(x => !!x.voided)]; });
+  assert.deepEqual(r, ['paid', [false, false]]);
+  assert.deepEqual(errs, []); await ctx.close();
+});
