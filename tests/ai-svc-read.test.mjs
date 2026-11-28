@@ -116,8 +116,8 @@ test('aiSvcLinesEdited: أي تغيير في العدد أو الوصف أو ا�
 });
 
 test('aiSvcAccList: من حسابات النموذج — المصروفات ثم الأصول، رمز واسم فقط، 300 على الأكثر، والاسم مقصوص 120', () => {
-  const L = E.aiSvcAccList([{ code: '4101', name: 'مبيعات', kind: 'rev' }, { code: '1701', name: 'أثاث', kind: 'asset', cash: false }, { code: '5201', name: 'صيانة', kind: 'exp' }, { code: 'bad code', name: 'x', kind: 'exp' }, { code: '5202', name: '', kind: 'exp' }, { code: 'MZ-5301', name: 'ن'.repeat(200), kind: 'exp' }]);
-  assert.deepEqual(L.map(a => a.code), ['5201', 'MZ-5301', '1701']); assert.deepEqual(Object.keys(L[0]).sort(), ['code', 'name']); assert.equal(L[1].name.length, 120);
+  const L = E.aiSvcAccList([{ code: '4101', name: 'مبيعات', kind: 'rev' }, { code: '1701', name: 'أثاث', kind: 'asset', cash: false }, { code: '5901', name: 'صيانة', kind: 'exp' }, { code: 'bad code', name: 'x', kind: 'exp' }, { code: '5202', name: '', kind: 'exp' }, { code: 'MZ-5301', name: 'ن'.repeat(200), kind: 'exp' }]);
+  assert.deepEqual(L.map(a => a.code), ['5901', 'MZ-5301', '1701']); assert.deepEqual(Object.keys(L[0]).sort(), ['code', 'name']); assert.equal(L[1].name.length, 120);
   assert.equal(E.aiSvcAccList(Array.from({ length: 400 }, (_, i) => ({ code: String(50000 + i), name: 'م' + i, kind: 'exp' }))).length, 300);
   assert.deepEqual(E.aiSvcAccList(null), []);
   // كل ما يرسله العميل يقبله الخادم
@@ -224,19 +224,19 @@ test('المسار svc: الحدود والقفل مشتركة مع فاتورة
 /* ===== v56.57 قرارات المجلس بعد المراجعة ===== */
 const ORG = { branches: [{ id: 'b1', name: 'فرع', bankName: 'بنك', bankIban: 'SA00' }], deliveryApps: [{ id: 'a1', n: 'تطبيق', c: 20 }], posClearing: { enabled: true, from: '2026-01' },
   warehouses: [{ id: 'w1', name: 'مستودع', accCode: '160101', kind: 'main' }], whCfg: { on: true }, impair: { accAcc: '1795', lossAcc: '5805' },
-  customAccounts: [{ code: '1795', name: 'مجمع هبوط', kind: 'asset' }, { code: '1720', name: 'تحسينات مستأجرة', kind: 'asset' }, { code: '6101', name: 'صيانة‏ المباني', kind: 'exp' }, { code: '1150', name: 'صندوق مستورد', kind: 'asset', cash: true }] };
-const CTL = ['1101', '1111', '1201', '1211', '1911', '1801', '1811', '1301', '1399', '1380', '1401', '1402', '1501', '1601', '160101', '1609', '1791', '1795', '1150', '5150', '2101', '4101'];
+  customAccounts: [{ code: '1795', name: 'مجمع هبوط', kind: 'asset' }, { code: '1720', name: 'تحسينات مستأجرة', kind: 'asset' }, { code: '6101', name: 'صيانة‏ المباني', kind: 'exp' }, { code: '1150', name: 'صندوق مستورد', kind: 'asset', cash: true }, { code: '5805', name: 'خسارة هبوط', kind: 'exp' }, { code: '5803', name: 'فروق عملة', kind: 'exp' }, { code: '5804', name: 'فروق غير محققة', kind: 'exp' }] };
+const CTL = ['1101', '1111', '1201', '1211', '1911', '1801', '1811', '1301', '1399', '1380', '1401', '1402', '1501', '1601', '160101', '1609', '1791', '1795', '1150', '5150', '2101', '4101', '5201', '5202', '5203', '5204', '5701', '5401', '5803', '5804', '5801', '5805'];
 
 test('(1) حسابات الرقابة لا تُرسل ولا تُقترح: النقد والبنوك والوسطاء، الذمم 13xx، السلف، ضريبة المدخلات، المخزون ومستودعاته، البضاعة في الطريق، مجمّعا الإهلاك والهبوط', () => {
   const A = E.buildAccounting(ORG, {}).accounts; const L = E.aiSvcAccList(A, ORG); const sent = L.map(a => a.code);
   for (const c of CTL) assert.ok(!sent.includes(c), 'أُرسل ' + c);
-  for (const c of ['1701', '1720', '6101', '5198']) assert.ok(sent.includes(c), 'غاب ' + c);
+  for (const c of ['1701', '1720', '6101', '5198', '5301', '5901']) assert.ok(sent.includes(c), 'غاب ' + c);
   assert.equal(L.find(a => a.code === '6101').name, 'صيانة المباني', 'المحارف الخفية تُحذف من الاسم المرسل');
   assert.ok(aiSvcAccounts(L).v, 'القائمة المرسلة يقبلها الخادم');
   assert.ok(A.some(a => a.code === '1501') && A.some(a => a.code === '1791'), 'الدليل نفسه فيه الحسابات — الإقصاء من القائمة المرسلة فقط');
   // المقترح: رمز رقابي من النموذج ⇒ null + acc_missing، وآخر استخدام على حساب رقابي لا يُقترح
   const inv = [svcInv({ id: 'p', expLines: [{ accCode: '1501', net: 1 }] }), svcInv({ id: 'q', date: '2026-02-01', expLines: [{ accCode: '1201', net: 1 }, { accCode: '1601', net: 1 }] })];
-  for (const code of ['1501', '1201', '1601', '1791', '1380', '1401', '1609', '1101']) {
+  for (const code of ['1501', '1201', '1601', '1791', '1380', '1401', '1609', '1101', '5201', '5701', '5401', '5803', '5801']) {
     const r = E.aiSvcCheck(read({ lines: [{ desc: 'أ', amount: 1000, vat: 150, accountCode: code }] }), ctx({ accounts: L, invoices: inv }));
     assert.equal(r.fields.lines[0].accCode, null, code); assert.ok(codes(r).includes('acc_missing'), code); assert.equal(r.lastAcc, null);
   }

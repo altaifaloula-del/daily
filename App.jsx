@@ -12005,9 +12005,10 @@ const AI_SVC_INVIS = /[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g;   // م
    النقد والبنوك والوسطاء (cash)، الذمم 13xx، سلف الموظفين 1401، أوامر الصرف 1402، ضريبة المدخلات 1501، المخزون 1601 ومستودعاته،
    بضاعة في الطريق 1609، مجمع الإهلاك 1791 وحساب مجمع الهبوط المضبوط، وحسابات المقابلة (CTL_CONTRA) و5150 «بضاعة آخر المدة».
    الاختيار اليدوي في النموذج يبقى على كل الحسابات كما هو (قرار v44.3). */
-const AI_SVC_CTL = ['1101', '1201', '1380', '1399', '1401', DS_PRE_ACC, '1501', '1601', '1609', '1791', '5150'];
-const aiSvcCtl = (a, org) => { const c = String((a && a.code) || ''); const imp = String((((org || {}).impair) || {}).accAcc || '');
-  return !!(a && (a.cash || a.whId || a.appId)) || AI_SVC_CTL.includes(c) || CTL_CONTRA.has(c) || /^1[1-3]/.test(c) || /^1601/.test(c) || /^1[89]\d{2}$/.test(c) || (!!imp && c === imp); };
+const AI_SVC_CTL = ['1101', '1201', '1380', '1399', '1401', DS_PRE_ACC, '1501', '1601', '1609', '1791', '5150',
+  '5201', '5202', '5203', '5204', '5701', '5401', '5803', '5804', '5801'];   // + مصروفات يرحّلها النظام آليًا ولا تأتي من فاتورة مورد (قرار المجلس 2026-11-28): الرواتب، الإهلاك، عجز الصندوق، فروق العملة، خسائر الأصول
+const aiSvcCtl = (a, org) => { const c = String((a && a.code) || ''); const imp = String((((org || {}).impair) || {}).accAcc || ''), impL = String((((org || {}).impair) || {}).lossAcc || '');
+  return !!(a && (a.cash || a.whId || a.appId)) || AI_SVC_CTL.includes(c) || CTL_CONTRA.has(c) || /^1[1-3]/.test(c) || /^1601/.test(c) || /^1[89]\d{2}$/.test(c) || (!!imp && c === imp) || (!!impL && c === impL); };   // ومصروف الهبوط المضبوط
 /** قائمة الحسابات المرسلة للخادم والمسموح باقتراحها: من حسابات الدليل (buildAccounting) — المصروفات ثم الأصول غير الرقابية — رمز واسم فقط، 300 على الأكثر */
 const aiSvcAccList = (accs, org) => { const L = (Array.isArray(accs) ? accs : []).filter(a => a && AI_SVC_ACC_RE.test(String(a.code || '')) && String(a.name || '').replace(AI_SVC_INVIS, '').trim() && !aiSvcCtl(a, org));
   const rank = (a) => a.kind === 'exp' ? 0 : a.kind === 'asset' ? 1 : 2;

@@ -4911,7 +4911,7 @@ test('v56.57 قراءة فاتورة الخدمات والمصروفات كمق�
   assert.ok(sent[0].accounts.length > 0 && sent[0].accounts.length <= 300); assert.ok(sent[0].accounts.every(a => Object.keys(a).join() === 'code,name'));
   assert.ok(sent[0].accounts.some(a => a.code === A1)); assert.ok(!sent[0].accounts.some(a => a.code === '2101'), 'ذمم الموردين ليست من حسابات النموذج');
   // قرار المجلس 1: حسابات الرقابة لا تُرسل (وتبقى في القائمة اليدوية للنموذج)
-  const ctl = sent[0].accounts.map(a => a.code).filter(c => /^1[1-3]/.test(c) || ['1401', '1402', '1501', '1601', '1609', '1791', '5150'].includes(c) || /^1601/.test(c) || /^1[89]\d{2}$/.test(c));
+  const ctl = sent[0].accounts.map(a => a.code).filter(c => /^1[1-3]/.test(c) || ['1401', '1402', '1501', '1601', '1609', '1791', '5150', '5201', '5202', '5203', '5204', '5701', '5401', '5803', '5804', '5801'].includes(c) || /^1601/.test(c) || /^1[89]\d{2}$/.test(c));
   assert.deepEqual(ctl, []);
   const manual = await p.locator('select[aria-label="حساب البند 1"] option').evaluateAll(o => o.map(x => x.value));
   assert.ok(['1101', '1201', '1501', '1601'].every(c => manual.includes(c)), 'الاختيار اليدوي كما هو');
