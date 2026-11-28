@@ -55,7 +55,10 @@ export const ENGINE_EXPORTS = ['depBrRanges', 'depBrAt', 'depBrFrom', 'depBrOf',
   // v56.55 — البند F: قراءة فاتورة المورد بالذكاء الاصطناعي كمقترح
   'AI_INV_ROLES', 'AI_INV_FIELDS', 'aiInvOn', 'aiInvCheck', 'aiInvSim', 'aiInvEdited', 'purKey', 'vatNoOk',
   // v56.57 — قراءة فاتورة الخدمات والمصروفات كمقترح
-  'AI_SVC_MAX_ACCS', 'aiSvcAccList', 'aiSvcLastAcc', 'aiSvcCheck', 'aiSvcLinesEdited'];
+  'AI_SVC_MAX_ACCS', 'aiSvcAccList', 'aiSvcLastAcc', 'aiSvcCheck', 'aiSvcLinesEdited',
+  // v56.61 — كشوف البنوك (BANK-H-04..08) وفهرس كشوف الجهات (PERF-H-02) ومساعدات التنفيذ القديم في اختبار التطابق
+  'ST_DATE_BAD', 'stDateScan', 'stDateNotes', 'stNetMatch', 'stLinesOf', 'stBookAt', 'stFullMatch', 'stRecMemo', 'crLineKey', 'csvDelim', 'stHdrWords', 'bpIndex',
+  'posArCustMap', 'cvPosSplit', 'cvPosAllocOk', 'payTotal', 'payLabel', 'eclLive', 'eclR2', 'PAY_ADD_TYPES', 'contactOf', 'PT_TYPE', 'partnerCode', 'invPayments', 'today', 'bankOfBranch', 'monthEnd', 'sum', 'acctCloseDate', 'acctSafeOps', 'CRS_ST'];
 
 export async function buildEngine() {
   fs.mkdirSync(cache, { recursive: true });

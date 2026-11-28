@@ -31,7 +31,14 @@ const which = (bin) => { try { execFileSync('which', [bin], { stdio: 'ignore' })
 const git = (...a) => { try { return execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return ''; } };
 const needDeps = () => has('node_modules/esbuild') && has('node_modules/vite') ? null : 'الاعتماديات غير مثبتة (npm ci)';
 const needJava = () => needDeps() || (which('java') ? null : 'Java غير متوفرة لمحاكي Firestore');
-const needPw = () => needDeps() || (has('node_modules/playwright') && fs.existsSync(path.join(process.env.HOME || '', '.cache/ms-playwright')) ? null : 'متصفح Playwright غير مثبت');
+// v56.61 (ملاحظة المرحلة H): مسار متصفحات Playwright من PLAYWRIGHT_BROWSERS_PATH إن حُدد (كما يقرؤه Playwright نفسه)، وإلا المسار الافتراضي
+// ('0' = داخل الحزمة نفسها node_modules/playwright-core/.local-browsers)
+export const pwBrowsersDir = (env = process.env) => { const v = env.PLAYWRIGHT_BROWSERS_PATH;
+  if (v === '0') return path.join(ROOT, 'node_modules', 'playwright-core', '.local-browsers');
+  if (v) return path.resolve(v);
+  return process.platform === 'darwin' ? path.join(env.HOME || '', 'Library', 'Caches', 'ms-playwright') : process.platform === 'win32' ? path.join(env.LOCALAPPDATA || '', 'ms-playwright') : path.join(env.XDG_CACHE_HOME || path.join(env.HOME || '', '.cache'), 'ms-playwright'); };
+const pwHasBrowser = (dir) => { try { return fs.readdirSync(dir).some(n => /^(chromium|chromium_headless_shell|firefox|webkit)-/.test(n)); } catch { return false; } };
+const needPw = () => needDeps() || (has('node_modules/playwright') && pwHasBrowser(pwBrowsersDir()) ? null : 'متصفح Playwright غير مثبت (' + pwBrowsersDir() + ')');
 
 /** الفحوص. critical: فشله = FAIL. mandatory: الأوضاع التي يجب أن يُشغَّل فيها وإلا BLOCKED. */
 export const CHECKS = [

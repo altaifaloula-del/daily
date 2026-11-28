@@ -974,8 +974,11 @@ const stNum = (v) => {
   let s = String(v).trim();
   if (!s) return 0;
   const AR = '٠١٢٣٤٥٦٧٨٩';
-  s = s.replace(/[٠-٩]/g, ch => String(AR.indexOf(ch))).replace(/[٬,\s]/g, '').replace(/ر\.?س|SAR|SR/gi, '');
+  // v56.61 (BANK-H-01/02/03): «٫» فاصل كسور و«٬» فاصل آلاف عربيان، وعلامات الطرح الطباعية (− ‒ – — ﹣ －) سالبة، ولاحقة/سابقة DR (مدين ⇒ سالب) أو CR (دائن ⇒ موجب)
+  s = s.replace(/[٠-٩]/g, ch => String(AR.indexOf(ch))).replace(/٫/g, '.').replace(/[\u2212\u2012\u2013\u2014\uFE63\uFF0D]/g, '-').replace(/[٬,\s]/g, '').replace(/ر\.?س|SAR|SR/gi, '');
   let neg = false;
+  const dc = s.match(/^(DR|CR)\.?(?=[\d(.+-])/i) || s.match(/(?<=[\d).-])(DR|CR)\.?$/i);
+  if (dc) { s = dc.index === 0 ? s.slice(dc[0].length) : s.slice(0, dc.index); if (/^dr$/i.test(dc[1])) neg = true; }
   if (/^\(.*\)$/.test(s)) { neg = true; s = s.slice(1, -1); }
   if (s.endsWith('-')) { neg = true; s = s.slice(0, -1); }
   const n = parseFloat(s);
@@ -1007,13 +1010,17 @@ function parseMt940(text) {
   return out.lines.length ? out : null;
 }
 // تواريخ الكشوف: ISO · يوم/شهر/سنة (السائد بكشوف البنوك السعودية) · رقم إكسل التسلسلي
-const stDate = (v) => {
+// v56.61 (BANK-H-04، قرار المالك: الكشوف بالتاريخ الميلادي فقط): الشهر واليوم يُتحقق منهما بالتقويم (لا 13 ولا 30 فبراير)، والسنة قبل 1900 (الهجرية) تُرفض ⇒ ''.
+// order = 'mdy' ⇒ شهر/يوم/سنة (يحدده stDateScan من كل سطور الملف)؛ الافتراضي يوم/شهر/سنة كما كان
+const stDateOk = (y, m, d) => y >= 1900 && y <= 2100 && m >= 1 && m <= 12 && d >= 1 && d <= new Date(Date.UTC(y, m, 0)).getUTCDate();
+const stDateYmd = (y, m, d) => stDateOk(+y, +m, +d) ? y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0') : '';
+const stDate = (v, order) => {
   if (v == null) return '';
   const s = String(v).trim().replace(/[٠-٩]/g, ch => String('٠١٢٣٤٥٦٧٨٩'.indexOf(ch)));
   let m = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
-  if (m) return m[1] + '-' + m[2].padStart(2, '0') + '-' + m[3].padStart(2, '0');
+  if (m) return stDateYmd(m[1], m[2], m[3]);
   m = s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})/);
-  if (m) return m[3] + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0');
+  if (m) return order === 'mdy' ? stDateYmd(m[3], m[1], m[2]) : stDateYmd(m[3], m[2], m[1]);
   const n = parseFloat(s);
   if (isFinite(n) && n > 25569 && n < 80000) {   // تاريخ إكسل تسلسلي
     return new Date(Math.round((n - 25569) * 86400000)).toISOString().slice(0, 10);
@@ -1021,11 +1028,22 @@ const stDate = (v) => {
   return '';
 };
 // CSV: يدعم الفاصلة والفاصلة المنقوطة وTab والاقتباس وBOM
+// v56.61 (BANK-H-05): الفاصل يُحدَّد من أول 30 سطرًا غير فارغ لا من الأول وحده — الأرجح ما يتكرر بالعدد نفسه في أكثر السطور
+// (خارج الاقتباس)، ثم الأكثر عددًا، ثم الفاصلة. ملف بسطر واحد يبقى كما كان.
+const csvDelim = (t) => {
+  const lines = t.split(/\r?\n|\r/).filter(l => l.trim() !== '').slice(0, 30);
+  const strip = (l) => l.replace(/"(?:[^"]|"")*"/g, '');
+  let best = { d: ',', score: 0, mode: 0 };
+  [',', ';', '\t'].forEach(d => {
+    const freq = {}; lines.forEach(l => { const n = strip(l).split(d).length - 1; if (n > 0) freq[n] = (freq[n] || 0) + 1; });
+    let mode = 0, score = 0; Object.keys(freq).forEach(k => { const n = +k, c = freq[k]; if (c > score || (c === score && n > mode)) { score = c; mode = n; } });
+    if (score > best.score || (score === best.score && score > 0 && mode > best.mode)) best = { d, score, mode };
+  });
+  return best.d;
+};
 const parseCsvGrid = (text) => {
   const t = String(text).replace(/^﻿/, '');
-  const firstLine = t.slice(0, t.indexOf('\n') > -1 ? t.indexOf('\n') : t.length);
-  const delim = (firstLine.match(/;/g) || []).length > (firstLine.match(/,/g) || []).length ? ';'
-    : ((firstLine.match(/\t/g) || []).length > (firstLine.match(/,/g) || []).length ? '\t' : ',');
+  const delim = csvDelim(t);
   const grid = []; let row = []; let cell = ''; let q = false;
   for (let i = 0; i < t.length; i++) {
     const ch = t[i];
@@ -1127,16 +1145,22 @@ const parseXlsxGrid = async (buf, opts = {}) => {   // v40.6: opts.all ⇒ [{nam
   if (!shXml) throw new Error('sheet');
   return gridOf(shXml);
 };
+const stHdrWords = (v) => String(v ?? '').toLowerCase().replace(/[ً-ٰٟـ]/g, '').replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه')
+  .split(/[^a-zء-ي0-9]+/).filter(Boolean).map(w => /^[a-z]/.test(w)
+    ? (w.length > 3 && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w)
+    : w.replace(/^(?:بال|وال|لل|ال)(?=[ء-ي]{3})/, '').replace(/(?<=[ء-ي]{3})ات$/, '').replace(/(?<=[ء-ي]{3})ه$/, ''));
 // اكتشاف أعمدة الكشف تلقائياً بكلمات مفاتيح شائعة (عربي/إنجليزي)
 const detectStmtMap = (grid) => {
   const kw = {
     date: ['تاريخ', 'التاريخ', 'date', 'يوم'],
     credit: ['دائن', 'إيداع', 'ايداع', 'وارد', 'credit', 'deposit'],
-    debit: ['مدين', 'خصم', 'سحب', 'صادر', 'debit', 'withdraw'],
+    debit: ['مدين', 'خصم', 'سحب', 'صادر', 'debit', 'withdraw', 'withdrawal'],
     amount: ['مبلغ', 'المبلغ', 'قيمة', 'amount'],
-    desc: ['وصف', 'بيان', 'البيان', 'تفاصيل', 'description', 'details', 'narration']
+    desc: ['وصف', 'بيان', 'البيان', 'تفاصيل', 'description', 'details', 'narration', 'narrative']
   };
-  const hit = (cell, list) => { const s = String(cell || '').toLowerCase(); return list.some(k => s.includes(k)); };
+  // v56.61 (BANK-H-06): مطابقة بالكلمة بعد التطبيع لا بجزء من النص — «Last Updated» ليس تاريخًا، و«Narrative» بيان.
+  // التطبيع: حروف صغيرة، بلا تشكيل ولا تطويل، توحيد الألف والياء والتاء المربوطة، ونزع «ال/بال/وال/لل» والجمع («ات» و«s»)
+  const hit = (cell, list) => { const ws = stHdrWords(cell); return list.some(k => { const kw = stHdrWords(k); return kw.length && ws.some((w, i) => kw.every((x, j) => ws[i + j] === x)); }); };
   for (let r = 0; r < Math.min(grid.length, 12); r++) {
     const row = grid[r] || [];
     const m = { date: -1, credit: -1, debit: -1, amount: -1, desc: -1 };
@@ -1147,6 +1171,124 @@ const detectStmtMap = (grid) => {
   }
   return null;
 };
+/* v56.61 (BANK-H-04، قرار المالك: الكشوف بالتاريخ الميلادي فقط) — فحص تواريخ الكشف كله قبل القراءة:
+   الترتيب يوم/شهر أو شهر/يوم يُحسم من كل السطور: يوم أكبر من 12 في الخانة الثانية ⇒ شهر/يوم/سنة، وإلا يوم/شهر/سنة (الافتراضي كما كان).
+   إن لم يحسمه أي سطر وفي الكشف تواريخ تحتمل الترتيبين ⇒ الافتراضي مع تنبيه (ambiguous). الترتيبان معًا في الملف نفسه ⇒ الافتراضي مع تنبيه (mixed).
+   السطر الذي فيه تاريخ غير صالح أو هجري (وفيه مبلغ أو شكل تاريخ) يُرفض ويُذكر رقمه (bad) — لا يُتجاوز صامتًا. */
+const ST_DATE_BAD = 'التاريخ غير صالح أو هجري — الكشوف بالتاريخ الميلادي فقط';
+function stDateScan(grid, map) {
+  const out = { order: 'dmy', ambiguous: false, mixed: false, bad: [], dmy: 0, mdy: 0, amb: 0 };
+  if (!grid || !map || !(map.date >= 0)) return out;
+  const norm = (v) => String(v ?? '').trim().replace(/[٠-٩]/g, ch => String('٠١٢٣٤٥٦٧٨٩'.indexOf(ch)));
+  for (let r = map.start || 0; r < grid.length; r++) {
+    const m = norm((grid[r] || [])[map.date]).match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})/); if (!m) continue;
+    const a = +m[1], b = +m[2];
+    if (a > 12 && b <= 12) out.dmy++; else if (b > 12 && a <= 12) out.mdy++; else if (a <= 12 && b <= 12 && a !== b) out.amb++;
+  }
+  if (out.mdy && !out.dmy) out.order = 'mdy';
+  out.mixed = !!(out.mdy && out.dmy);
+  out.ambiguous = !out.dmy && !out.mdy && out.amb > 0;
+  const amtCols = [map.credit, map.debit, map.amount].filter(c => c >= 0);
+  for (let r = map.start || 0; r < grid.length; r++) {
+    const g = grid[r] || []; const raw = g[map.date]; const s = norm(raw);
+    if (!s || stDate(raw, out.order)) continue;
+    const looksDate = /^\d{1,4}[-\/.]\d{1,2}[-\/.]\d{1,4}/.test(s), hasAmt = amtCols.some(c => stNum(g[c]) !== 0);
+    if (looksDate || hasAmt) out.bad.push({ row: r + 1, value: String(raw ?? '').trim().slice(0, 30) });
+  }
+  return out;
+}
+/** رسائل الفحص بالعربية (للعرض): [{kind:'bad'|'order'|'ambiguous'|'mixed', msg}] */
+function stDateNotes(sc) {
+  const out = []; if (!sc) return out;
+  if (sc.bad.length) out.push({ kind: 'bad', msg: sc.bad.slice(0, 8).map(b => 'السطر ' + b.row + ' («' + b.value + '»)').join('، ') + (sc.bad.length > 8 ? ' و' + (sc.bad.length - 8) + ' سطرًا آخر' : '') + ': ' + ST_DATE_BAD + ' — لم يُقرأ ' + (sc.bad.length === 1 ? 'هذا السطر' : 'هذه السطور') + '؛ صحّحه في ملف البنك أو صدّر الكشف بالتاريخ الميلادي ثم أعد رفعه' });
+  if (sc.order === 'mdy') out.push({ kind: 'order', msg: 'قُرئت تواريخ الكشف بترتيب شهر/يوم/سنة لأن فيه يومًا أكبر من 12 في الخانة الثانية (' + sc.mdy + ' سطرًا) — راجع أن الحركات في شهرها الصحيح' });
+  if (sc.mixed) out.push({ kind: 'mixed', msg: 'الكشف يخلط ترتيبي يوم/شهر وشهر/يوم (' + sc.dmy + ' سطرًا بيوم/شهر و' + sc.mdy + ' بشهر/يوم) — قُرئ يوم/شهر/سنة (السائد في الكشوف السعودية) ورُفض ما يخالفه' });
+  if (sc.ambiguous) out.push({ kind: 'ambiguous', msg: 'تواريخ الكشف تحتمل يوم/شهر وشهر/يوم ولا يوجد سطر يحسمها (لا يوم أكبر من 12) — قُرئت يوم/شهر/سنة (السائد في الكشوف السعودية)؛ تأكد من ترتيب التاريخ في بنكك' });
+  return out;
+}
+/* v56.61 (BANK-H-07) — منطق «مطابقة الشبكة» و«المطابقة الشاملة» ومذكرة التسوية البنكية نُقل من mods/acct/Accounting.jsx (stRun/stLines/stFull/recStmt)
+   إلى دوال نقية بالسلوك نفسه حرفيًا (اختبار تطابق قديم ⇔ جديد في tests/bank-fixes-61.test.mjs). map.order اختياري (من stDateScan). */
+/** إيداعات الكشف ⇔ مبيعات الشبكة في الإغلاقات (لكل يوم، بنافذة 0–4 أيام) — نتيجة stRun كما هي */
+function stNetMatch(org, ops, grid, map, month, bank) {
+  const deposits = [];
+  for (let r = map.start; r < grid.length; r++) {
+    const g = grid[r] || [];
+    const d = stDate(g[map.date], map.order);
+    let credit = 0;
+    if (map.credit >= 0) credit = stNum(g[map.credit]);
+    else if (map.amount >= 0) credit = Math.max(0, stNum(g[map.amount]));
+    if (!d || !(credit > 0)) continue;
+    deposits.push({ date: d, amount: Math.round(credit * 100) / 100, desc: String(g[map.desc] ?? '').slice(0, 70), used: false });
+  }
+  const mStart = month + '-01';
+  const nm = new Date(mStart + 'T12:00:00Z'); nm.setUTCMonth(nm.getUTCMonth() + 1);
+  const mEnd = stAddDays(nm.toISOString().slice(0, 10), 6);   // حتى نهاية الشهر + 6 أيام (تسوية آخر الشهر تصل أول التالي)
+  const dep = deposits.filter(x => x.date >= mStart && x.date <= mEnd).sort((a, b) => a.date.localeCompare(b.date));
+  const sysMap = {};
+  (ops.closings || []).forEach(c => {
+    if (!(c.status === 'submitted' || c.status === 'approved')) return;
+    if ((c.date || '').slice(0, 7) !== month) return;
+    if (bankOfBranch(org, c.branchId) !== bank) return;
+    const amt = Math.round((c.cardSales || 0) * 100) / 100;
+    if (amt > 0) sysMap[c.date] = Math.round(((sysMap[c.date] || 0) + amt) * 100) / 100;
+  });
+  const sys = Object.entries(sysMap).map(([date, amount]) => ({ date, amount, used: false })).sort((a, b) => a.date.localeCompare(b.date));
+  const matched = [];
+  sys.forEach(s => {
+    const hit = dep.find(dp => !dp.used && Math.abs(dp.amount - s.amount) < 0.01 && dp.date >= s.date && dp.date <= stAddDays(s.date, 4));
+    if (hit) { hit.used = true; s.used = true; matched.push({ sDate: s.date, bDate: hit.date, amount: s.amount }); }
+  });
+  const r2s = (arr) => Math.round(sum(arr, x => x.amount) * 100) / 100;
+  const res = {
+    month, bank, depCount: dep.length,
+    sysTotal: r2s(sys), bankTotal: r2s(dep), matchedTotal: r2s(matched),
+    matched, sysUn: sys.filter(s => !s.used), bankUn: dep.filter(x => !x.used)
+  };
+  res.diff = Math.round((res.sysTotal - res.bankTotal) * 100) / 100;
+  return res;
+}
+/** كل حركات الكشف (إيداع موجب، سحب سالب) — stLines كما هي */
+function stLinesOf(grid, map) {
+  const out = [];
+  for (let r = map.start; r < grid.length; r++) { const g = grid[r] || []; const d = stDate(g[map.date], map.order); if (!d) continue;
+    let a = 0; const cr = map.credit >= 0 ? stNum(g[map.credit]) : 0, dr = map.debit >= 0 ? stNum(g[map.debit]) : 0;
+    if (cr > 0) a = cr; else if (dr > 0) a = -dr; else if (map.amount >= 0) a = stNum(g[map.amount]);
+    if (!a) continue; out.push({ i: r, date: d, amount: Math.round(a * 100) / 100, desc: String(g[map.desc] ?? '').slice(0, 80) }); }
+  return out;
+}
+/** رصيد حساب البنك في الدفاتر حتى تاريخ (فارغ ⇒ كل القيود) — bankBookAt كما هي */
+function stBookAt(entries, bank, d) {
+  let v = 0;
+  (entries || []).forEach(e => { if (!d || (e.date || '') <= d) e.lines.forEach(l => { if (l.code === bank) v += l.debit - l.credit; }); });
+  return Math.round(v * 100) / 100;
+}
+/** المطابقة الشاملة: كل سطر في الكشف ⇔ قيود حساب البنك بالمبلغ والتاريخ (±5 أيام، الأقرب تاريخًا) — نتيجة stFull كما هي */
+function stFullMatch(entries, lines, month, bank) {
+  const mStart = month + '-01', mEnd = monthEnd(month);
+  const bankL = lines.filter(x => x.date >= mStart && x.date <= mEnd).map(x => ({ ...x, used: false }));
+  const lo = stAddDays(mStart, -5), hi = stAddDays(mEnd, 5);
+  const book = (entries || []).filter(e => (e.date || '') >= lo && (e.date || '') <= hi && e.lines.some(l => l.code === bank))
+    .map(e => ({ id: e.id, date: e.date, title: e.title, amount: Math.round(sum(e.lines.filter(l => l.code === bank), l => l.debit - l.credit) * 100) / 100, used: false }))
+    .filter(b => Math.abs(b.amount) > 0.004);
+  const dd = (a, b) => Math.abs((Date.parse(a + 'T12:00:00Z') - Date.parse(b + 'T12:00:00Z')) / 86400000);
+  const matched = [];
+  bankL.forEach(x => { let best = null; book.forEach(b => { if (b.used || Math.abs(b.amount - x.amount) > 0.009 || dd(b.date, x.date) > 5) return; if (!best || dd(b.date, x.date) < dd(best.date, x.date)) best = b; });
+    if (best) { best.used = true; x.used = true; matched.push({ bank: x, book: best }); } });
+  const bankUn = bankL.filter(x => !x.used), bookUn = book.filter(b => !b.used && b.date >= mStart && b.date <= mEnd);
+  const bookEnd = stBookAt(entries, bank, mEnd);
+  const r2x = (n) => Math.round(n * 100) / 100;
+  // رصيد الكشف المتوقع = رصيد الدفتر + ما في الكشف ولم يُقيَّد − ما قُيِّد ولم يظهر في الكشف
+  const expStmt = r2x(bookEnd + sum(bankUn, x => x.amount) - sum(bookUn, b => b.amount));
+  return { month, bank: bankL.length, matched, bankUn, bookUn, bookEnd, expStmt };
+}
+/** مذكرة التسوية البنكية: الكشف ± البنود المعلقة = الدفتر ± غير المقيد — recStmt كما هي. stmtEnd: رصيد مُدخل ('' ⇒ من MT940)، mt940: {close} */
+function stRecMemo(M, stmtEnd = '', mt940) { if (!M) return null; const r2x = (n) => Math.round(n * 100) / 100;
+  const mt = mt940 && mt940.close && mt940.close.date.slice(0, 7) === M.month ? mt940.close.amount : null;
+  const bank = stmtEnd !== '' ? Number(stmtEnd) || 0 : mt;
+  const dit = r2x(sum(M.bookUn.filter(b => b.amount > 0), b => b.amount)), oc = r2x(-sum(M.bookUn.filter(b => b.amount < 0), b => b.amount));
+  const bin = r2x(sum(M.bankUn.filter(x => x.amount > 0), x => x.amount)), bout = r2x(-sum(M.bankUn.filter(x => x.amount < 0), x => x.amount));
+  const adjBank = bank == null ? null : r2x(bank + dit - oc), adjBook = r2x(M.bookEnd + bin - bout);
+  return { bank, src: stmtEnd !== '' ? 'مُدخل' : mt != null ? 'MT940' : '', dit, oc, bin, bout, adjBank, adjBook, diff: adjBank == null ? null : r2x(adjBank - adjBook) }; }
 
 // ترقيم تلقائي لكل شريك حسب نوعه — لتمييز التكرار في الأسماء
 const PT_PREFIX = { supplier: 'مورد', employee: 'موظف', customer: 'عميل' };
@@ -1670,13 +1812,20 @@ const contactFields = (c) => { const o = {}; CONTACT_F.forEach(k => { if (k === 
   if (o.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(o.email)) o.email = '';
   o.na = naClean(c.na); if (naHas(o.na)) o.address = fmtNA(o.na); if (o.na.city) o.city = o.na.city; return o; };
 const contactOf = (r) => { const o = {}; CONTACT_F.forEach(k => { if (r && r[k] != null && r[k] !== '') o[k] = r[k]; }); if (r && naHas(r.na)) o.na = naClean(r.na); return o; };
+/* v56.61 (PERF-H-02): كانت كل جهة تمسح كل الفواتير والإغلاقات والسندات (الزمن = الجهات × المستندات). الآن فهرس لكل مصدر بمفتاح الجهة
+   يُبنى مرة (وعند أول حاجة فقط) بالترتيب الأصلي نفسه، والشرط المركّب (partnerKey أو supplierId) يُدمج بترتيب المستند الأصلي بلا تكرار.
+   الناتج مطابق حرفيًا للطريقة السابقة (اختبار تطابق في tests/bank-fixes-61.test.mjs يحتفظ بالتنفيذ القديم للمقارنة). */
+const bpIndex = (arr, keyOf) => { const m = new Map(); (arr || []).forEach(x => { const ks = keyOf(x); (Array.isArray(ks) ? ks : [ks]).forEach(k => { const a = m.get(k); if (a) a.push(x); else m.set(k, [x]); }); }); return m; };   // keyOf ⇒ مفتاح أو مفاتيح بلا تكرار
+const bpLazy = (f) => { let v = null; return () => v || (v = f()); };
 function buildPartners(org, ops) {
   const parts = [];
   const led = ops.ledgerEntries || [];
+  const NONE = [];
   // v46.6 — سندات القبض والصرف والمقاصّة في كشوف الجهات (الموزَّع على فواتير يظهر مع الفاتورة نفسها)
   let PM0 = null; const PM = () => PM0 || (PM0 = posArCustMap(ops));   // v56.46: يُبنى فقط إن وُجد تخصيص pos:
+  const CVX = bpLazy(() => bpIndex(ops.cashVouchers, v => { const ks = [(v.party || {}).key]; if (v.kind === 'ov') ks.push(v.supKey, v.custKey); return [...new Set(ks)]; }));
   const cvFor = (key) => { const t = [];
-    (ops.cashVouchers || []).forEach(v => { const a = Number(v.amount) || 0; if (!(a > 0) || !cvLive(v)) return; const d = String(v.date || '').slice(0, 10);   // v56.32: المعلّق لا يظهر في الكشف
+    (CVX().get(key) || NONE).forEach(v => { const a = Number(v.amount) || 0; if (!(a > 0) || !cvLive(v)) return; const d = String(v.date || '').slice(0, 10);   // v56.32: المعلّق لا يظهر في الكشف
       if (v.kind === 'ov') { if (v.supKey === key) t.push({ date: d, desc: 'مقاصّة مع حساب العميل ' + v.no, ref: v.no, src: 'cv', debit: a, credit: 0 }); if (v.custKey === key) t.push({ date: d, desc: 'مقاصّة مع حساب المورد ' + v.no, ref: v.no, src: 'cv', debit: 0, credit: a }); return; }
       const p = v.party || {}; if (p.key !== key) return;
       const hasPos = (v.alloc || []).some(x => x && /^pos:/.test(String(x.id || ''))); const PS = hasPos ? cvPosSplit(PM(), v) : { ok: 0, bad: 0 };
@@ -1687,7 +1836,8 @@ function buildPartners(org, ops) {
       if (!(rest > 0.004)) return;
       t.push({ date: d, desc: (v.kind === 'rv' ? 'سند قبض ' : 'سند صرف ') + v.no + ' — على الحساب', ref: v.no, src: 'cv', debit: v.kind === 'pv' ? rest : 0, credit: v.kind === 'rv' ? rest : 0 }); });
     return t; };
-  const ledFor = (key) => led.filter(e => e.partnerKey === key).map(e => ({
+  const LDX = bpLazy(() => bpIndex(led, e => e.partnerKey));
+  const ledFor = (key) => (LDX().get(key) || NONE).map(e => ({
     date: (e.date || '').slice(0, 10), desc: e.desc || 'حركة يدوية', ref: e.ref || '',
     src: e.src || 'manual', debit: e.debit || 0, credit: e.credit || 0, entryId: e.id
   }));
@@ -1696,9 +1846,15 @@ function buildPartners(org, ops) {
   const EXP_PM_AR = { cash: 'نقدًا', card: 'شبكة', cheque: 'شيكًا', bank_transfer: 'تحويلًا' };
   // مصروفات/مشتريات الإغلاق المرتبطة بشريك (عبر partnerKey للجميع، أو supplierId للموردين توافقاً)
   // الآجلة فقط ترفع الرصيد المستحق؛ المدفوعة فورًا تُقيَّد مع سدادها بنفس السطر (أثر صافٍ صفر)
+  // فهرس [إغلاق، بند، ترتيبه] بمفتاح الجهة وبرقم المورد؛ الشرط «أو» يُدمج بالترتيب الأصلي بلا تكرار
+  const seqIdx = (rows) => { const byK = new Map(), byS = new Map(); rows.forEach(r => { const a = byK.get(r[1].partnerKey); if (a) a.push(r); else byK.set(r[1].partnerKey, [r]); const b = byS.get(r[1].supplierId); if (b) b.push(r); else byS.set(r[1].supplierId, [r]); }); return { byK, byS }; };
+  const seqOf = (X, key, supId) => { const A = X.byK.get(key) || NONE; if (!supId) return A; const B = X.byS.get(supId) || NONE; if (!B.length) return A; if (!A.length) return B;
+    const out = []; let i = 0, j = 0; while (i < A.length || j < B.length) { const a = A[i], b = B[j]; if (b === undefined || (a !== undefined && a[2] < b[2])) { out.push(a); i++; } else if (a === undefined || b[2] < a[2]) { out.push(b); j++; } else { out.push(a); i++; j++; } } return out; };
+  const CLX = bpLazy(() => { const rows = []; countedClosings.forEach(c => (c.expenses || []).forEach(e => rows.push([c, e, rows.length]))); return seqIdx(rows); });
+  const PYX = bpLazy(() => { const rows = []; countedClosings.forEach(c => (c.supplierPayments || []).forEach(pm => rows.push([c, pm, rows.length]))); return seqIdx(rows); });
   const closeFor = (key, supId) => {
     const t = [];
-    countedClosings.forEach(c => (c.expenses || []).forEach(e => {
+    seqOf(CLX(), key, supId).forEach(([c, e]) => {
       if (e.partnerKey === key || (supId && e.supplierId === supId)) {
         const amt = e.amount || 0; if (!amt) return;
         const base = (e.categoryName || 'مصروف');
@@ -1708,25 +1864,26 @@ function buildPartners(org, ops) {
           t.push({ date: c.date, desc: base + ' (مسدّدة ' + (EXP_PM_AR[e.paymentMethod] || 'فورًا') + ') — إغلاق ' + (c.branchName || ''), ref: c.id, src: 'close', debit: amt, credit: amt });
         }
       }
-    }));
+    });
     return t;
   };
   // سدادات الموردين المسجّلة في الإغلاق → مدين (يقلّل ما علينا)، وقد تُوزَّع على عدة طرق دفع
   const payFor = (key, supId) => {
     const t = [];
-    countedClosings.forEach(c => (c.supplierPayments || []).forEach(pm => {
+    seqOf(PYX(), key, supId).forEach(([c, pm]) => {
       if (pm.partnerKey === key || (supId && pm.supplierId === supId)) {
         const tot = payTotal(pm); if (tot <= 0) return;
         t.push({ date: c.date, desc: 'سداد' + (payLabel(pm) ? ' (' + payLabel(pm) + ')' : '') + ' — إغلاق ' + (c.branchName || ''), ref: pm.reference || c.id, src: 'pay', debit: tot, credit: 0 });
       }
-    }));
+    });
     return t;
   };
 
   // الموردون — فواتير + سداداتها + مشتريات الإغلاق المرتبطة + حركات يدوية
+  const INX = bpLazy(() => bpIndex(ops.invoices, i => i.supplierId)), CIX = bpLazy(() => bpIndex(ops.closingInvPays, x => x.supplierId));
   (org.suppliers || []).forEach(sp => {
     const key = sp.key || ('sup:' + sp.id); const txns = []; let linked = false;
-    (ops.invoices || []).filter(i => i.supplierId === sp.id).forEach(i => {
+    (INX().get(sp.id) || NONE).forEach(i => {
       const d = (i.date || i.createdAt || i.dueDate || today() || '').slice(0, 10);
       // v28.2: الإشعار الدائن (مبلغ سالب) يُعرض مدينًا يخفض الرصيد بدل دائن سالب
       txns.push((i.amount || 0) < 0
@@ -1738,7 +1895,7 @@ function buildPartners(org, ops) {
     const ct = closeFor(key, sp.id); txns.push(...ct); if (ct.length) linked = true;
     const pt = payFor(key, sp.id); txns.push(...pt); if (pt.length) linked = true;
     // v8.1: السدادات المركزية لفواتير الورديات المشتقة
-    (ops.closingInvPays || []).filter(x => x.supplierId === sp.id).forEach(x => {
+    (CIX().get(sp.id) || NONE).forEach(x => {
       txns.push({ date: (x.date || '').slice(0, 10), desc: x.mizanId ? ('سداد من البنك' + (x.payType ? ' — ' + x.payType : '') + (x.bankRef ? ' · ' + x.bankRef : '')) : 'سداد مركزي لمشتريات وردية', ref: x.mizanId || x.refId || '', src: 'pay', debit: x.amount || 0, credit: 0 });
       linked = true;
     });
@@ -1751,24 +1908,29 @@ function buildPartners(org, ops) {
   const posRet = (() => { const P = ops.posOrders || []; if (!P.some(r => r && r.kind === 'return' && (r.payments || []).some(q => q && q.m === 'credit'))) return [];
     const ks = posArDayKeys(ops); return P.filter(r => r && r.kind === 'return' && r.status !== 'void' && ks.has(r.branchId + '|' + r.date) && posCreditAmt(r) < -0.004); })();
   // v31.0: حركات العميل من سجل فواتير المبيعات (الآجلة فقط: الفاتورة مدين، التحصيل والإشعار الدائن دائن)
+  const PAX = bpLazy(() => bpIndex(posAr, x => x.customerKey)), PRX = bpLazy(() => bpIndex(posRet, r => posArCust(r).key));
+  const SIX = bpLazy(() => bpIndex((ops.salesInvoices || []).filter(x => !x.inClosing), x => x.customerKey));
+  const ECX = bpLazy(() => bpIndex((ops.eclDocs || []).filter(d => eclLive(d) && (d.kind === 'wo' || d.kind === 'rec')), d => d.customerKey));
+  const ARX = bpLazy(() => { const m = new Map(); AR.forEach(y => { if (!m.has(y.id)) m.set(y.id, y); }); return m; });
   const siFor = (key) => { const t = [];
-    posAr.filter(x => x.customerKey === key).forEach(x => t.push({ date: x.date, desc: 'فاتورة نقطة بيع آجلة ' + x.no, ref: x.no, src: 'pos', debit: x.total, credit: 0, due: x.dueDate, sid: x.id }));
-    posRet.filter(r => posArCust(r).key === key).forEach(r => t.push({ date: r.date, desc: 'مرتجع إلى الحساب ' + (r.no || '') + (r.refNo ? ' (عن ' + r.refNo + ')' : ''), ref: r.no || '', src: 'pos', debit: 0, credit: -posCreditAmt(r), sid: 'pos:' + r.refId }));
-    (ops.salesInvoices || []).filter(x => x.customerKey === key && !x.inClosing).forEach(x => {
+    (PAX().get(key) || NONE).forEach(x => t.push({ date: x.date, desc: 'فاتورة نقطة بيع آجلة ' + x.no, ref: x.no, src: 'pos', debit: x.total, credit: 0, due: x.dueDate, sid: x.id }));
+    (PRX().get(key) || NONE).forEach(r => t.push({ date: r.date, desc: 'مرتجع إلى الحساب ' + (r.no || '') + (r.refNo ? ' (عن ' + r.refNo + ')' : ''), ref: r.no || '', src: 'pos', debit: 0, credit: -posCreditAmt(r), sid: 'pos:' + r.refId }));
+    (SIX().get(key) || NONE).forEach(x => {
       if (x.kind === 'credit') { if (x.terms === 'credit') t.push({ date: x.date, desc: 'إشعار دائن ' + x.no, ref: x.no, src: 'si', debit: 0, credit: x.total }); return; }
       if (x.terms !== 'credit') return;
       t.push({ date: x.date, desc: (x.kind === 'debit' ? 'إشعار مدين ' : 'فاتورة مبيعات ') + x.no, ref: x.no, src: 'si', debit: x.total, credit: 0, due: x.dueDate, sid: x.id });
       (x.receipts || []).forEach(r => t.push({ date: r.date, desc: 'تحصيل عن ' + x.no, ref: x.no, src: 'si', debit: 0, credit: Number(r.amount) || 0 }));
     });
-    (ops.eclDocs || []).filter(d => eclLive(d) && (d.kind === 'wo' || d.kind === 'rec') && d.customerKey === key).forEach(d => t.push(d.kind === 'wo'
+    (ECX().get(key) || NONE).forEach(d => t.push(d.kind === 'wo'
       ? { date: d.date, desc: 'شطب دين معدوم ' + (d.no || ''), ref: d.no || '', src: 'ecl', debit: 0, credit: eclR2(d.amount), sid: d.siId }   // v56.40: يُخصم من فاتورته في الأعمار
-      : { date: d.date, desc: 'استرداد دين مشطوب ' + (d.no || ''), ref: d.no || '', src: 'ecl', debit: eclR2(d.amount), credit: 0, due: (AR.find(y => y.id === d.siId) || {}).dueDate || d.date }));   // يُعمَّر بتاريخ استحقاق فاتورته
+      : { date: d.date, desc: 'استرداد دين مشطوب ' + (d.no || ''), ref: d.no || '', src: 'ecl', debit: eclR2(d.amount), credit: 0, due: (ARX().get(d.siId) || {}).dueDate || d.date }));   // يُعمَّر بتاريخ استحقاق فاتورته
     return t; };
 
   // الموظفون — استحقاق وصرف الرواتب قيود دائمة تُرحَّل من شاشة الرواتب (لا سطر اصطناعي يتغيّر بالشهر)
+  const ADX = bpLazy(() => bpIndex((ops.advances || []).filter(a => !PAY_ADD_TYPES.includes(a.type)), a => a.employeeId));
   (org.employees || []).forEach(em => {
     const key = 'emp:' + em.id; const txns = []; let linked = false;
-    (ops.advances || []).filter(a => a.employeeId === em.id && !PAY_ADD_TYPES.includes(a.type)).forEach(a => {   // المكافأة (م8) داخل استحقاق الراتب أصلًا — لا تُعرض كمديونية على الموظف
+    (ADX().get(em.id) || NONE).forEach(a => {   // المكافأة (م8) داخل استحقاق الراتب أصلًا — لا تُعرض كمديونية على الموظف
       const isDraw = ['advance', 'salary_draw'].includes(a.type);
       txns.push({ date: (a.date || '').slice(0, 10), desc: (isDraw ? 'سلفة/سحب على الراتب' : 'خصم/جزاء') + (a.reason ? ' — ' + a.reason : ''), ref: a.month || '', src: 'adv', debit: a.amount || 0, credit: 0 });
       linked = true;
@@ -2549,7 +2711,13 @@ function fxRevalRows(org, ops, month) {
   return out;
 }
 const fxNextDay = (month) => { let [y, m] = month.split('-').map(Number); m++; if (m > 12) { m = 1; y++; } return y + '-' + String(m).padStart(2, '0') + '-01'; };
+// v56.61 (ملاحظة المراجع): تاريخ إغلاق ليس نصًا (رقم، كائن، Date) كان يكسر buildAccounting كله عند ترتيب القيود (localeCompare).
+// تاريخ Date صالح ⇒ يومه المحلي (isoD كبقية التطبيق)؛ وغير ذلك ⇒ '' كالإغلاق بلا تاريخ تمامًا (null/undefined تبقى كما هي). النصوص لا تُمس.
+const acctCloseDate = (d) => (d == null || typeof d === 'string') ? d : (d instanceof Date && !isNaN(d) ? isoD(d) : '');
+const acctSafeOps = (ops) => { const C = ops && ops.closings; if (!Array.isArray(C) || !C.some(c => c && c.date != null && typeof c.date !== 'string')) return ops;
+  return { ...ops, closings: C.map(c => (c && c.date != null && typeof c.date !== 'string') ? { ...c, date: acctCloseDate(c.date) } : c) }; };
 function buildAccounting(org, ops) {
+  ops = acctSafeOps(ops);
   // م3: الضريبة — تُفعّل صراحةً من شاشة الضريبة (org.taxCfg)، والمبالغ المسجلة تُعامل شاملةً للضريبة
   const tax = org.taxCfg || {};
   const taxOn = !!tax.enabled;
@@ -4077,7 +4245,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.60';
+const APP_VER = 'v56.61';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -14366,7 +14534,7 @@ const CR_TIME = /^\d{1,2}:\d{2}(:\d{2})?$/;
 function cardStmtLines(grid, map) {
   const out = []; if (!grid || !map) return out;
   for (let r = map.start || 0; r < grid.length; r++) {
-    const g = grid[r] || []; const date = stDate(g[map.date]); if (!date) continue;
+    const g = grid[r] || []; const date = stDate(g[map.date], map.order); if (!date) continue;   // v56.61: ترتيب التاريخ من stDateScan
     let credit = 0, debit = 0;
     if (map.credit >= 0 || map.debit >= 0) { credit = map.credit >= 0 ? stNum(g[map.credit]) : 0; debit = map.debit >= 0 ? stNum(g[map.debit]) : 0; }
     else if (map.amount >= 0) { const a = stNum(g[map.amount]); credit = a > 0 ? a : 0; debit = a < 0 ? -a : 0; }
@@ -14385,7 +14553,7 @@ function cardStmtLines(grid, map) {
     if (credit > 0 && type && (posHint || tid)) kind = 'settle';
     else if (isFee && (posHint || type) ) kind = 'fee';
     if (!kind) continue;
-    out.push({ date, time: cells.find(c => CR_TIME.test(c)) || '', credit: anR(credit), debit: anR(debit), tid, type, kind, text: text.slice(0, 120) });
+    out.push({ date, time: cells.find(c => CR_TIME.test(c)) || '', credit: anR(credit), debit: anR(debit), tid, type, kind, text: text.slice(0, 120), row: r + 1 });   // v56.61: row = رقم السطر في الملف (لتحديد السطر المشتبه)
   }
   // عمولة بلا «مدى» في نصها: عمولة مدى إن قابلتها دفعة مدى للجهاز نفسه في التاريخ والوقت نفسيهما؛ وإلا فرسوم جهاز (شهرية/ضعف استخدام) لا عمولة مبيعات
   out.forEach(l => { if (l.kind !== 'fee' || l.type === 'mada') return;
@@ -14524,20 +14692,31 @@ function fsStatus(org, ops, opts = {}) {
 /* v41.3 — التسوية التلقائية لوسيط الشبكة بعد اعتماد الإغلاق: قيد لكل فرع ويوم إيداع من حركات كشف البنك
    مع الوسيط: من حـ/البنك (المودَع فعلًا) + حـ/عمولات الشبكة (بلا ضريبة) + حـ/رسوم الأجهزة + حـ/ضريبة المدخلات ⇐ إلى حـ/وسيط الشبكة (الإجمالي المُسوّى)
    بلا وسيط (الشبكة قُيّدت في البنك بإجماليها): من حـ/العمولات والرسوم والضريبة ⇐ إلى حـ/البنك.
-   لا يُرحَّل يوم: إغلاقه غير معتمد أو غير موجود، أو فترته مقفلة، أو رُحّل سابقًا (المرجع crs|فرع|تاريخ). عمولة البنك وضريبتها من الكشف (شاملة الضريبة). */
+   لا يُرحَّل يوم: إغلاقه غير معتمد أو غير موجود، أو فترته مقفلة، أو رُحّل سابقًا (المرجع crs|فرع|تاريخ). عمولة البنك وضريبتها من الكشف (شاملة الضريبة).
+   v56.61 (BANK-H-08، قرار المالك «يمنع الترحيل حتى تُراجع»): إن تجاوز الإجمالي المُسوّى ليوم مبيعات الشبكة في إغلاقه (مثل سطر مكرر في الكشف)
+   ⇒ الحالة 'over' (لا يُرحَّل) مع الفرق (over) والسطور المشتبهة (suspects: المكرر حرفيًا بالتاريخ والوقت والجهاز والنوع والمبلغ).
+   يعود جاهزًا إن استبعد المحاسب السطور المكررة (opts.exclude: مفاتيح crLineKey) أو أكّد بعد المراجعة (opts.confirm[ref] = {by, at, gross} — يسري
+   ما دام الإجمالي هو نفسه الذي أُكّد). */
+const crLineKey = (l, i) => (l.src || '') + '#' + (l.row != null ? l.row : 'i' + i);
 function cardSettlePlan(org, ops, lines, opts = {}) {
   const tax = org.taxCfg || {}, vat = Number(tax.rate) || 15, vatOn = !!tax.enabled, R = ((org.profitCfg || {}).cardRates) || {};
   const tidBr = {}; (org.cardTerminals || []).forEach(x => { if (x && x.tid) tidBr[String(x.tid)] = x.branchId; });
   const pc = org.posClearing || {}, pcFrom = pc.enabled && pc.from ? String(pc.from) : null;
   const done = new Set((ops.journalManual || []).filter(j => j.status !== 'rejected').map(j => j.ref).filter(Boolean)), lags = opts.lags || {};
   const r2 = (n) => Math.round(n * 100) / 100, G = {};
-  lines.forEach(l => { const b = tidBr[l.tid]; if (!b) return; const k = b + '|' + l.date; const g = G[k] = G[k] || { b, date: l.date, mg: 0, mf: 0, vn: 0, vg: 0, dev: 0, noRate: new Set() };
+  const exclude = new Set(opts.exclude || []), confirm = opts.confirm || {};
+  lines.forEach((l, i) => { const b = tidBr[l.tid]; if (!b) return; const key = crLineKey(l, i); if (exclude.has(key)) return; const k = b + '|' + l.date; const g = G[k] = G[k] || { b, date: l.date, mg: 0, mf: 0, vn: 0, vg: 0, dev: 0, noRate: new Set(), L: [] };
+    g.L.push({ ...l, key });
     if (l.kind === 'fee') g.mf += l.debit; else if (l.kind === 'devfee') g.dev += l.debit; else if (l.type === 'mada') g.mg += l.credit;
     else { const r = Number(R[l.type]) || 0; g.vn += l.credit; if (r > 0) g.vg += l.credit / (1 - r / 100 * (1 + vat / 100)); else { g.vg += l.credit; g.noRate.add(l.type); } } });
   const rows = Object.values(G).sort((a, c) => (a.date + a.b).localeCompare(c.date + c.b)).map(g => {
     const biz = anDay(g.date, -(lags[g.b] || 0)), ref = 'crs|' + g.b + '|' + g.date, bank = bankOfBranch(org, g.b);
     const cl = (ops.closings || []).filter(c => c.branchId === g.b && c.date === biz);
-    const status = done.has(ref) ? 'done' : periodLocked(org, g.date) ? 'locked' : !cl.length ? 'noclose' : cl.some(c => c.status !== 'approved') ? 'pending' : 'ready';
+    const sales = r2(sum(cl, c => Number(c.cardSales) || 0)), over0 = r2(r2(g.mg + g.vg) - sales), over = cl.length && over0 > 0.009 ? over0 : 0;
+    const cf = confirm[ref], confirmed = !!(over && cf && cf.by && Math.abs((Number(cf.gross) || 0) - r2(g.mg + g.vg)) < 0.005);
+    const status = done.has(ref) ? 'done' : periodLocked(org, g.date) ? 'locked' : !cl.length ? 'noclose' : cl.some(c => c.status !== 'approved') ? 'pending' : over && !confirmed ? 'over' : 'ready';
+    const seen = new Map(), suspects = [];
+    if (over) g.L.forEach(l => { if (l.kind !== 'settle') return; const sig = [l.date, l.time, l.tid, l.type, l.credit].join('|'); if (seen.has(sig)) suspects.push({ ...l, dupOf: seen.get(sig) }); else seen.set(sig, l.key); });
     const fee = r2(g.mf + (g.vg - g.vn)), feeEx = r2(vatOn ? fee / (1 + vat / 100) : fee), devEx = r2(vatOn ? g.dev / (1 + vat / 100) : g.dev), vatAmt = r2(fee - feeEx + g.dev - devEx);
     const gross = r2(g.mg + g.vg), net = r2(g.mg + g.vn - g.mf - g.dev), clrOn = !!(pcFrom && biz.slice(0, 7) >= pcFrom);
     const L = [];
@@ -14545,11 +14724,12 @@ function cardSettlePlan(org, ops, lines, opts = {}) {
     else { if (feeEx) L.push({ code: '5303', debit: feeEx, credit: 0 }); if (devEx) L.push({ code: '5304', debit: devEx, credit: 0 }); if (vatAmt) L.push({ code: '1501', debit: vatAmt, credit: 0 }); if (fee + g.dev > 0) L.push({ code: bank, debit: 0, credit: r2(fee + g.dev) }); }
     const dr = r2(sum(L, x => x.debit)), cr = r2(sum(L, x => x.credit)); if (L.length && Math.abs(dr - cr) >= 0.005) L[0] = { ...L[0], debit: r2(L[0].debit + (cr - dr)) };   // فرق التقريب على السطر الأول
     const nm = ((org.branches || []).find(x => x.id === g.b) || {}).name || g.b;
-    return { ref, branchId: g.b, branch: nm, date: g.date, biz, status, clrOn, gross, net, fee, feeEx, dev: r2(g.dev), devEx, vat: vatAmt, noRate: [...g.noRate], lines: L.filter(x => x.debit || x.credit) };
+    return { ref, branchId: g.b, branch: nm, date: g.date, biz, status, clrOn, gross, net, fee, feeEx, dev: r2(g.dev), devEx, vat: vatAmt, noRate: [...g.noRate], lines: L.filter(x => x.debit || x.credit),
+      sales, over, suspects, stmtLines: over ? g.L.filter(l => l.kind === 'settle') : [], ...(confirmed ? { confirmed: { by: cf.by, at: cf.at || '', gross: r2(g.mg + g.vg), sales, over } } : {}) };
   }).filter(r => r.lines.length);
   return { rows, ready: rows.filter(r => r.status === 'ready'), vatOn };
 }
-const CRS_ST = { ready: ['b-mint', 'جاهز للترحيل'], done: ['b-dim', 'مُرحّل'], pending: ['b-amber', 'بانتظار اعتماد الإغلاق'], noclose: ['b-rose', 'لا إغلاق لهذا اليوم'], locked: ['b-dim', 'فترة مقفلة'] };
+const CRS_ST = { ready: ['b-mint', 'جاهز للترحيل'], done: ['b-dim', 'مُرحّل'], pending: ['b-amber', 'بانتظار اعتماد الإغلاق'], noclose: ['b-rose', 'لا إغلاق لهذا اليوم'], locked: ['b-dim', 'فترة مقفلة'], over: ['b-rose', 'يتجاوز مبيعات الإغلاق — يحتاج مراجعة'] };
 /* ===== v40.4 — المرحلة 3: خطة التوفير =====
    فرص مقاسة من البيانات الفعلية فقط (لا نسب مفترضة): الهدر المسجّل، الاستهلاك فوق النظري، فرق سعر الشراء عن أفضل سعر دُفع فعلًا،
    الخصومات اليدوية في نقطة البيع. كل فرصة: قيمتها في الفترة ومعدلها لكل 30 يومًا. النسبة المستهدفة يُدخلها المستخدم.
@@ -17543,3 +17723,4 @@ export { piHour, piCutoff, posRecon, salesDays, importDraftClosing };
 // v40.0 — أساس الرقابة
 export { PROFIT_OPTS, profitMissing, profitDays, menuEngineering, MENU_CLS, SAV_KIND, savingsMeasure, savingsOpps, savingsTrack, CR_TYPE, cardStmtLines, cardRecon, cardSettlePlan, CRS_ST, FS_KIND, fsInRange, fsStatus, CC_KIND, CC_SRC, ccOpenShifts, cashCountStatus, MT_TYPE, maintStatus, archKey, archivePlan, recipeRaw, recipeCost, prepUnitCost, dataFootprint, kcalUnitFactor, kcalPerUnit, recipeKcal, productKcal, prepMix, prepPlan, ibanNorm, ibanMask, IBAN_APPROVERS, IBAN_ST, loadIbanSigs, ibanPayees, ibanStatus, requestIban, ibanApply };
 export { UpdateGate, APP_CV, auditWrite, logAudit, auditFetch, sigDigest, signoff, signDecision, sigFailMsg, loadSignoffs, loadRelease, raiseRelease, sigVerify, SIG_BADGE, SIG_NAME };
+export { ST_DATE_BAD, stDateScan, stDateNotes, stNetMatch, stLinesOf, stBookAt, stFullMatch, stRecMemo, crLineKey, csvDelim, stHdrWords, bpIndex, posArCustMap, cvPosSplit, cvPosAllocOk, eclR2, partnerCode, acctCloseDate, acctSafeOps };   // v56.61 كشوف البنوك (BANK-H) وفهرس كشوف الجهات (PERF-H-02)
