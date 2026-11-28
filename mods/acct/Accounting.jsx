@@ -32,7 +32,7 @@ import { ACCT_GROUPS, DocLink, RowGrip, moveIdx, RECUR_AR, recurNext, recurDue, 
 
 export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }) {
   // v56.56 (قرار المجلس F): حسم تعارضات نقطة البيع من السجل المحمي لبند مهام الإقفال (يُحمَّل فقط إن وُجدت تعارضات)
-  const [pcrL, setPcrL] = useState(null); const [pcfL, setPcfL] = useState(null); const hasPConf = !!((org.posCfg || {}).offline) || (ops.posTabs || []).some(t => (t.conflicts || []).length);   // v56.58: السجلات المحمية تُحمَّل دائمًا لبند «تعارضات نقطة البيع» في مهام الإقفال
+  const [pcrL, setPcrL] = useState(null); const [pcfL, setPcfL] = useState(undefined); const hasPConf = !!((org.posCfg || {}).offline) || (ops.posTabs || []).some(t => (t.conflicts || []).length);   // v56.58: السجلات المحمية تُحمَّل دائمًا لبند «تعارضات نقطة البيع» في مهام الإقفال
   useEffect(() => { let on = true; pcrLoad(null, true).then(L => { if (on) setPcrL(L); }); pcfLoad(null, true).then(L => { if (on) setPcfL(L); }); return () => { on = false; }; }, [hasPConf]);
   const [view, setView] = useState('jr'); const [prjF, setPrjF] = useState({ name: '', branchId: '', budget: '' }); const [prjOpen, setPrjOpen] = useState(null);   // v47.4           // jr قيود · coa دليل · tb ميزان · fs قوائم
   const [vatTab, setVatTab] = useState('form');      // v35.8: أقسام تفاصيل الإقرار
@@ -3052,7 +3052,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                   </Field>
                   <button className="btn pri" onClick={doLock}><Lock size={14} />قفل الفترات</button>
                 </div>
-                {(() => { const mm = lockTo || prevYm; const on = closeListOn(org); const AC = closeAutoChecks(A, { ...ops, posConflictRes: pcrL || [], posConflictRecs: pcfL || [] }, mm, org); const MS = closeManualState(ops, mm, org);
+                {(() => { const mm = lockTo || prevYm; const on = closeListOn(org); const AC = closeAutoChecks(A, { ...ops, posConflictRes: pcrL || [], posConflictRecs: Array.isArray(pcfL) ? pcfL : pcfL === false ? [] : null }, mm, org); const MS = closeManualState(ops, mm, org);
                   const mark = async (k, ap) => { const cur = (ops.closeTasks || []).find(t => t.month === mm && t.key === k);
                     if (ap && cur && (cur.doneById || cur.doneBy) === (me.id || me.name)) return say('يعتمد المهمة غير من أنجزها (فصل المهام)', 'no');
                     const note = ap ? '' : (window.prompt('ملاحظة أو مرجع الدليل (اختياري):') || '');

@@ -5,7 +5,7 @@ import { Check, ChevronDown, ClipboardCheck, FileText, Send, Banknote, CreditCar
 import { APPS, CameraModal, DENOMS, EXP_CATS, Field, LOCK_MSG, Modal, MoneyField, Num, OutputDialog, PT_TYPE, PhotoField, ROLES, SignaturePad, arDate, buildPartners, businessDay, countDenoms, countedClosing, deficitCfg, deficitPatterns, emptyDenoms, isoD, money, nextPartnerCode, normalizeSupPays, nowISO, payCashPart, paySplits, payTotal, periodLocked, posR2, salesDaySource, sum, uid, signoff, sigFailMsg } from '../../App.jsx';
 
 import { whtPayBlock } from '../../App.jsx';   // v56.47 (E7)
-import { posChainGapsDay, posConflictBlock, pcrLoad, pcfLoad, posOffOn, pcfGate, pcfNeedRes } from '../../App.jsx';   // v56.56 قرارا المالك: فحص فجوات السلسلة دائمًا (تنبيه)، وتعارضات دون اتصال تمنع الإغلاق حتى يحسمها مدير الفرع
+import { posChainGapsDay, posConflictBlock, pcrLoad, pcfLoad, posOffOn, pcfGate, pcfNeedRes, PCF_READ_MSG } from '../../App.jsx';   // v56.56 قرارا المالك: فحص فجوات السلسلة دائمًا (تنبيه)، وتعارضات دون اتصال تمنع الإغلاق حتى يحسمها مدير الفرع
 export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say, onClose, onStartNew, existing = [], invoices = [], branchPartners = [], posOrders = [], posImports = [], posTabs = [] }) {
   // v56.56 (قرار المجلس E): حسم التعارضات من السجل المحمي pos_conflict_res وحده — لا يُحمَّل إلا إن وُجدت تعارضات؛ تعذّر القراءة ⇒ تبقى غير محسومة (فشل مغلق)
   // m1: والتعارضات نفسها من السجل المحمي pos_conflicts (مع العمل دون اتصال أو بوجود تعارضات) — لم يُحمَّل أو تعذّر ⇒ فشل مغلق
@@ -32,7 +32,7 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
   useEffect(() => { if (!f.branchId) return; let on = true; setPcf(undefined); pcfLoad([f.branchId], false, null, f.date).then(L => { if (on) setPcf(L); }); return () => { on = false; }; }, [f.branchId, f.date]);   // eslint-disable-line react-hooks/exhaustive-deps
   const needRes = pcfNeedRes(pcf, hasConf);
   useEffect(() => { if (!needRes) return; let on = true; const ids = (branches || []).map(b => b.id); pcrLoad(ids, false).then(L => { if (on) setPcr(L); }); return () => { on = false; }; }, [needRes]);   // eslint-disable-line react-hooks/exhaustive-deps
-  const pcfArg = pcfGate(pcf, hasConf);   // المقروء كما هو؛ تعذّر أو لم يكتمل ⇒ فشل مغلق مع العمل دون اتصال أو تعارض على الحساب (كما كان)
+  const pcfArg = pcfGate(pcf, hasConf);   // المقروء كما هو؛ قيد التحميل أو تعذّر ⇒ فشل مغلق؛ بلا هوية Firestore (محلي) كما كان
   const [secs, setSecs] = useState(() => {
     const d = initial || {};
     return {
@@ -201,6 +201,7 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
     if (dup) { say('يوجد إغلاق مسجّل لهذا الفرع بنفس التاريخ — عدّل الإغلاق القائم بدل إنشاء نسخة ثانية', 'no'); return null; }
     // v56.56 (قرار المالك): مع العمل دون اتصال لا يُرحَّل اليوم وفيه تعارض فواتير لم يحسمه مدير الفرع
     if (status === 'submitted') { const cf = posConflictBlock(org, { posOrders, posTabs }, f.branchId, f.date, pcr, pcfArg);
+      if (cf.some(c => c.readErr)) { say('لا يُرحَّل الإغلاق: ' + PCF_READ_MSG, 'no'); return null; }   // v56.58 (المجلس): فشل مغلق متى وُجدت هوية Firestore
       if (cf.length) { say('لا يُرحَّل الإغلاق: ' + cf.length + ' تعارض فواتير بعد عودة الاتصال لم يحسمه مدير الفرع (' + cf.map(c => c.orderNo).join('، ') + ') — نقطة البيع ← الورديات والتقارير', 'no'); return null; } }
     // v40.2: تقسيم الشبكة حسب نوع البطاقة — إن أُدخل فمجموعه = إجمالي الجهاز (يُمنع الترحيل عند الاختلاف)
     const spl = f.cardSplit || {}; const splSum = r2c((Number(spl.mada) || 0) + (Number(spl.visa) || 0) + (Number(spl.mc) || 0));
@@ -429,7 +430,7 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
     if (me.role !== 'cashier' && sPhotos.length === 0) add('block', 'صورة توثيق المسؤول مطلوبة', ['notes']);
     // v56.56 (قرار المالك): فجوات سلسلة فواتير نقطة البيع لليوم — تنبيه دائم لكل الفروع (لا يمنع)؛ وتعارضات دون اتصال غير محسومة — تمنع
     if (f.branchId) { const gp = posChainGapsDay(posOrders, f.branchId, f.date); if (gp.length) add('warn', gp.length + ' خلل في سلسلة فواتير نقطة البيع لهذا اليوم (' + gp.slice(0, 3).map(g => g.prevNo + ' ← ' + g.no).join('، ') + ') — راجعه في نقطة البيع ← الورديات والتقارير', ['sales']);
-      const cf = posConflictBlock(org, { posOrders, posTabs }, f.branchId, f.date, pcr, pcfArg); if (cf.length) add('block', cf.length + ' تعارض فواتير بعد عودة الاتصال بانتظار حسم مدير الفرع («إبقاء» أو «إلغاء بمرتجع»)', ['sales']); }
+      const cf = posConflictBlock(org, { posOrders, posTabs }, f.branchId, f.date, pcr, pcfArg); if (cf.some(c => c.readErr)) add('block', PCF_READ_MSG, ['sales']); else if (cf.length) add('block', cf.length + ' تعارض فواتير بعد عودة الاتصال بانتظار حسم مدير الفرع («إبقاء» أو «إلغاء بمرتجع»)', ['sales']); }
     return L;
   })();
   const auditBlocks = auditChecks.filter(x => x.lvl === 'block').length, auditWarns = auditChecks.filter(x => x.lvl === 'warn').length;

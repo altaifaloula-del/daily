@@ -15,7 +15,7 @@ import { posVoidBlock, posNextNo, posTabCuts, escH, POS_VOID_ROLES } from '../..
 import { posCreditList, posCreditAuthApi, posArRefundMax } from '../../App.jsx';   // v56.46 البيع الآجل
 import { restCfg, coversOf, posWaiters, salesByWaiter, tabRemain, tabSplitItems, tabSplitSet, tabPartPriced, tabSplitReset, tabPayPart, tabMerge, kdsStations, kdsSplit, kdsPrepReport, kdsPrepSheets } from '../../App.jsx';   // v56.52 المطعم (مُطفأة افتراضيًا)
 import { pcfPut, pcfRec } from '../../App.jsx';   // v56.56 (m1)
-import { tabPartVoid } from '../../App.jsx';   // v56.58 إلغاء جزء التقسيم بالأصناف يعيد أصنافه للطاولة المفتوحة
+import { tabPartVoid, tabRemainFree, tabRemainPay, tabCpHeldCarry } from '../../App.jsx';   // v56.58 إلغاء جزء التقسيم بالأصناف يعيد أصنافه للطاولة المفتوحة
 import { tabSplitEqual, tabPartTotals, tabPayWhole, tabCouponMove, EQ_CP_USE, tabEqCpRelease, tabEqCpAllVoid, tabEqCpMark, posRetEqItems } from '../../App.jsx';   // v56.56 التقسيم بالتساوي، تعارض دفع الحساب كاملًا، نقل الكوبون من الجزء الملغى
 import { posDevRegOn, posDevNoGet, posDevNoSet, posDevSrvTag, posDevKey, posDevTagPick, posDevRegApi, posShellOn, posSwSync, POS_SW_FLAG } from '../../App.jsx';   // v56.54 سجل الأجهزة وفتح التطبيق دون إنترنت (مُطفآن افتراضيًا)
 import { posOffOn, POS_OB_USED, posObItem, posObSort, posStoreOpen, posLegacyQ, posObMigrate, posObRestore, posSyncRun, posSyncLogList, posSyncDelay, posSyncErr, posOffRetCheck, posOffRetPending, posOffRetReview, posLockRun, posOnMark, posOnFresh, posOnClear, posRetHashSrc, posOffRetAudit, posChainGaps } from '../../App.jsx';   // v56.53 العمل دون اتصال (مُطفأ افتراضيًا)
@@ -229,13 +229,14 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const at = nowISO(), no = tbl;
     const cv = RC.covers ? coversOf(tmeta.covers) : 0, wt = RC.waiters ? waiters.find(w => w.id === tmeta.waiterId) : null;   // v56.52
     const meta = { ...(cv ? { covers: cv } : {}), ...(wt ? { waiterId: wt.id, waiterName: wt.name } : {}) };
-    let cpRel = null;   // v56.56 (D): جولة جديدة تسقط تقسيمًا بالتساوي لم يُدفع منه شيء ⇒ يُحرَّر حجز كوبونه
-    const ok = await commit(d => { const t0 = openTab(d, br.id, no); cpRel = null;
-      const tabs = t0 ? (d.posTabs || []).map(t => { if (t.id !== t0.id) return t; const t1 = { ...tabSplitReset(t), ...meta, billAt: '', rounds: [...(t.rounds || []), { at, by: me.name, lines }] }; cpRel = tabEqCpRelease(t, t1); return t1; })
+    let cpRel = null, hRel = [];   // v56.56 (D): جولة جديدة تسقط تقسيمًا بالتساوي لم يُدفع منه شيء ⇒ يُحرَّر حجز كوبونه. v56.58: وحجز منقول على جزء غير مدفوع سقط ⇒ يُحرَّر
+    const ok = await commit(d => { const t0 = openTab(d, br.id, no); cpRel = null; hRel = [];
+      const tabs = t0 ? (d.posTabs || []).map(t => { if (t.id !== t0.id) return t; const t1 = { ...tabSplitReset(t), ...meta, billAt: '', rounds: [...(t.rounds || []), { at, by: me.name, lines }] }; cpRel = tabEqCpRelease(t, t1); const C = tabCpHeldCarry(t, t1); hRel = C.rel; return C.tab; })
         : [{ id: uid('tab'), branchId: br.id, table: no, status: 'open', openedAt: at, openedBy: me.name, ...meta, rounds: [{ at, by: me.name, lines }] }, ...(d.posTabs || [])];
       return posTrim({ ...d, posTabs: tabs, kdsTickets: kds ? [...(d.kdsTickets || []), ...kdsSplit(org, br.id, { branchId: br.id, src: 'tab', table: no, channel: 'dinein', lines, at, by: me.name, rush: RC.rush && rush }, org.products)] : (d.kdsTickets || []) }, today);
     }, { actionType: 'create', targetType: 'pos_tab', targetId: br.id + ':' + no, branchName: br.name, title: 'أرسل طلب الطاولة ' + no + (kds ? ' للمطبخ' : ''), details: lines.map(l => l.name + ' ×' + l.qty).join('، ').slice(0, 160) });
     if (ok && cpRel && cpRel.limited) cpnRelease(cpRel.code, cpRel.use, 'أُعيد تقسيم الطاولة');
+    if (ok) hRel.forEach(h => { if (h.limited) cpnRelease(h.code, h.use, 'أُعيد تقسيم الطاولة'); });
     if (ok) { setCart([]); setShowCart(false); setTmeta({ covers: '', waiterId: '' }); setRush(false); say('أُرسل طلب الطاولة ' + no + (kds ? ' للمطبخ' : '') + ' ✓'); }
   };
   const startPayTab = (t, part) => { const S = part ? { lines: part.lines } : tabRemain(t); tabSent.current = S.lines; setPayPart(part ? part.id : null);   /* v56.52: جزء من فاتورة مقسّمة، أو المتبقي (بلا تقسيم = tabSum) */ setCart(S.lines.map(l => ({ key: uid('l'), productId: l.productId, name: l.name, price: l.price, qty: l.qty, note: l.note || '' }))); setChannel('dinein'); setTbl(String(t.table)); setPayTab(t.id); setTblSel(null); setView('sell'); };
@@ -265,28 +266,32 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
       () => err ? null : { actionType: 'update', targetType: 'pos_tab', targetId: dst.id, branchName: br.name, title: 'دمج حساب الطاولة ' + fromNo + ' في الطاولة ' + dst.table, details: 'المنقول ' + money(tot) });
     if (err) return say(err, 'no'); if (ok) say('دُمج حساب الطاولة ' + fromNo + ' في الطاولة ' + dst.table + ' ✓'); };
   // v56.52 (قرار المجلس بعد التحقق): الطاولة تُسعَّر كاملة مرة واحدة (العروض التلقائية + كوبون الطاولة) ثم تُوزَّع على الأجزاء
-  const splitPrice = (t, cpc) => posPriceCart(tabRemain(t).lines.map((l, i) => ({ ...l, key: 'r' + i })), org.products, org.posPromos, { branchId: br.id, code: cpc || '', phone: '', isMember: false, uses: loy ? (loy.cpn || {}) : null });
-  const saveSplit = async () => { const { tab: t, n, alloc } = splitF; let err = '', parts = null, cpRel = null; const at = nowISO();
-    const ok = await commit(d => { err = ''; cpRel = null; const cur = (d.posTabs || []).find(x => x.id === t.id); if (!cur || cur.status !== 'open') { err = 'الحساب لم يعد مفتوحًا'; return d; }
+  const splitPrice = (t, cpc) => posPriceCart(tabRemainFree(t).lines.map((l, i) => ({ ...l, key: 'r' + i })), org.products, org.posPromos, { branchId: br.id, code: cpc || '', phone: '', isMember: false, uses: loy ? (loy.cpn || {}) : null });
+  const saveSplit = async () => { const { tab: t, n, alloc } = splitF; let err = '', parts = null, cpRel = null, hRel = []; const at = nowISO();
+    const ok = await commit(d => { err = ''; cpRel = null; hRel = []; const cur = (d.posTabs || []).find(x => x.id === t.id); if (!cur || cur.status !== 'open') { err = 'الحساب لم يعد مفتوحًا'; return d; }
       const S = tabSplitItems(cur, alloc, n, splitPrice(cur, splitF.code)); if (S.err) { err = S.err; return d; } parts = S.parts;
-      const nx = tabSplitSet(cur, S.parts, { at, by: me.name }); cpRel = tabEqCpRelease(cur, nx);
+      const nx0 = tabSplitSet(cur, S.parts, { at, by: me.name }); cpRel = tabEqCpRelease(cur, nx0);
+      const C = tabCpHeldCarry(cur, nx0), nx = C.tab; hRel = C.rel;   // v56.58: الحجز المنقول على جزء سقط ⇒ ينتقل لجزء جديد بالرمز نفسه أو يُحرَّر
       return { ...d, posTabs: (d.posTabs || []).map(x => x.id === t.id ? nx : x) }; },
       () => err ? null : { actionType: 'update', targetType: 'pos_tab', targetId: t.id, branchName: br.name, title: 'تقسيم فاتورة الطاولة ' + t.table + ' إلى ' + n + ' أجزاء', details: (parts || []).map(p => 'جزء ' + p.no + ': ' + money(p.total)).join(' · ') });
     if (err) return say(err, 'no'); if (ok && cpRel && cpRel.limited) cpnRelease(cpRel.code, cpRel.use, 'أُعيد تقسيم الطاولة');   // v56.56 (D)
+    if (ok) hRel.forEach(h => { if (h.limited) cpnRelease(h.code, h.use, 'أُعيد تقسيم الطاولة'); });
     if (ok) { setSplitF(null); say('قُسّمت فاتورة الطاولة ' + t.table + ' ✓ — ادفع كل جزء من نافذة الطاولة'); } };
   // v56.56 (قرار المالك): التقسيم بالتساوي — الطاولة تُسعَّر كاملة مرة واحدة ثم تُقسَّم مبالغ متساوية (الباقي بالهللة على الأخير)، والحفظ على أحدث نسخة بنسخة تقسيم جديدة
-  const saveEq = async () => { const { tab: t, n } = eqF; let err = '', parts = null, cpRel = null; const at = nowISO(), ver = uid('sv'), code = String(eqF.code || '').trim();
+  const saveEq = async () => { const { tab: t, n } = eqF; let err = '', parts = null, cpRel = null, hRel = []; const at = nowISO(), ver = uid('sv'), code = String(eqF.code || '').trim();
     // v56.56 (D، قرار المجلس): خصم الكوبون موزّع على كل الأجزاء ⇒ يُحجز ذرّيًا مرة واحدة عند الحفظ بمفتاح نسخة التقسيم (لا عند دفع جزء)
     const P0 = splitPrice(t, code); const cp0 = P0.coupon ? { code, id: P0.coupon.id, limited: !!P0.coupon.limited, use: EQ_CP_USE(ver) } : null;
     if (cp0 && cp0.limited) { const pr = (org.posPromos || []).find(x => x.id === cp0.id) || {};
       const rv = await cpnReserve(code, { id: cp0.use, phone: '', at, br: br.id }, pr); if (!rv.ok) { reloadLoy(); return say('الكوبون: ' + rv.why + ' — احذف الرمز للتقسيم بدونه', 'no'); } if (rv.doc) setLoy(rv.doc); }
-    const ok = await commit(d => { err = ''; cpRel = null; const cur = (d.posTabs || []).find(x => x.id === t.id); if (!cur || cur.status !== 'open') { err = 'الحساب لم يعد مفتوحًا'; return d; }
+    const ok = await commit(d => { err = ''; cpRel = null; hRel = []; const cur = (d.posTabs || []).find(x => x.id === t.id); if (!cur || cur.status !== 'open') { err = 'الحساب لم يعد مفتوحًا'; return d; }
       const S = tabSplitEqual(cur, n, splitPrice(cur, code), rate); if (S.err) { err = S.err; return d; } if (!!S.cp !== !!cp0) { err = 'تغيّر حال الكوبون — أعد المحاولة'; return d; } parts = S.parts;
-      const nx = tabSplitSet(cur, S.parts, { at, by: me.name, ver, ...(cp0 ? { cp: cp0 } : {}) }); cpRel = tabEqCpRelease(cur, nx);
+      const nx0 = tabSplitSet(cur, S.parts, { at, by: me.name, ver, ...(cp0 ? { cp: cp0 } : {}) }); cpRel = tabEqCpRelease(cur, nx0);
+      const C = tabCpHeldCarry(cur, nx0), nx = C.tab; hRel = C.rel;   // v56.58: أجزاء التساوي بلا كوبون ⇒ الحجز المنقول الساقط يُحرَّر
       return { ...d, posTabs: (d.posTabs || []).map(x => x.id === t.id ? nx : x) }; },
       () => err ? null : { actionType: 'update', targetType: 'pos_tab', targetId: t.id, branchName: br.name, title: 'تقسيم فاتورة الطاولة ' + t.table + ' بالتساوي إلى ' + n + ' أجزاء', details: (parts || []).map(p => 'جزء ' + p.no + ': ' + money(p.total)).join(' · ') + (cp0 ? ' · كوبون ' + code : '') });
     if ((err || !ok) && cp0 && cp0.limited) cpnRelease(code, cp0.use, 'لم يُحفظ التقسيم');   // لا حجز معلّق بلا تقسيم
     if (ok && !err && cpRel && cpRel.limited) cpnRelease(cpRel.code, cpRel.use, 'أُعيد تقسيم الطاولة');
+    if (ok && !err) hRel.forEach(h => { if (h.limited) cpnRelease(h.code, h.use, 'أُعيد تقسيم الطاولة'); });
     if (err) return say(err, 'no'); if (ok) { setEqF(null); say('قُسّمت فاتورة الطاولة ' + t.table + ' بالتساوي ✓ — ادفع كل جزء من نافذة الطاولة'); } };
   // شارة العرض على بطاقة الصنف (العروض الفعّالة الآن بلا كوبون، وخصم بطاقة الصنف)
   const nowT = new Date(); const actP = (org.posPromos || []).filter(pr => pr.type !== 'order' && !pr.code && promoActive(pr, nowT, (br || {}).id));
@@ -832,15 +837,17 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
               {(() => { const SA = salesByArea(org, ops, br.id, today, today); return SA.length ? <div className="note" style={{ marginBottom: 10, fontSize: 12 }} data-areasales>مبيعات اليوم حسب الصالة: {SA.map(x => <span key={x.id || 'n'} style={{ marginInlineEnd: 12 }}>{x.name} <b className="num">{money(x.total)}</b> <small>({x.orders})</small>{x.perHead != null ? <small> · للشخص <span className="num">{money(x.perHead)}</span></small> : null}</span>)}</div> : null; })()}
               {shown.map(g => <div key={g.id || 'none'} style={{ marginBottom: 12 }} data-area={g.name}><div className="lbl" style={{ marginBottom: 6 }}>{g.name}</div><div className="pos-tables">{g.list.map(btn)}</div></div>)}
             </>; })()}
-          {tblSel && (() => { const tl = openTab(ops, br.id, tblSel.no) || tblSel.tab; const RM = tabRemain(tl); const parts = ((tl.split || {}).parts) || []; return <Modal title={'الطاولة ' + tblSel.no} onClose={() => setTblSel(null)}>
+          {tblSel && (() => { const tl = openTab(ops, br.id, tblSel.no) || tblSel.tab; const RM = tabRemain(tl), RF = tabRemainFree(tl), RP = tabRemainPay(tl); const parts = ((tl.split || {}).parts) || []; return <Modal title={'الطاولة ' + tblSel.no} onClose={() => setTblSel(null)}>
             <div className="note" style={{ marginBottom: 10 }}>مفتوحة منذ <b className="num">{tblSel.mins}</b> دقيقة · {tblSel.rounds} جولة · الإجمالي <b className="num">{money(tblSel.total)}</b></div>
             {tabSum(tblSel.tab).lines.map((l, i) => <div key={i} className="row" style={{ justifyContent: 'space-between', fontSize: 13, padding: '4px 0', borderBottom: '1px dashed var(--line)' }}><span>{l.name} ×<b className="num">{l.qty}</b>{l.note ? <small style={{ color: 'var(--faint)' }}> · {l.note}</small> : null}</span><span className="num">{money(l.qty * l.price)}</span></div>)}
             <div className="grid g2" style={{ gap: 8, marginTop: 12 }}>
               <button className="btn" onClick={() => { setTbl(tblSel.no); setChannel('dinein'); setPayTab(null); setTblSel(null); setView('sell'); }}><Plus size={14} />إضافة طلب</button>
               <button className="btn" onClick={() => printBill(tblSel.tab)}><Printer size={14} />طباعة الحساب</button>
               <select className="sel" aria-label="نقل إلى طاولة" value="" onChange={e => e.target.value && moveTab(tblSel.tab, e.target.value)}><option value="">نقل إلى طاولة…</option>{TS.filter(y => y.st === 'free').map(y => <option key={y.no} value={y.no}>{y.no}</option>)}</select>
-              <button className="btn pri" onClick={() => startPayTab(tl)}><Banknote size={14} />{RM.paidParts ? 'دفع المتبقي ' + money(RM.total) : 'الدفع'}</button>
+              {RP ? <button className="btn pri" data-payrest disabled={!!RP.block} title={RP.block ? 'ادفع أولًا الجزء ' + RP.block + ' (أصناف الفاتورة الملغاة بحصتها من الخصم)' : ''} onClick={() => !RP.block && startPayTab(tl, RP.part)}><Banknote size={14} />{'دفع المتبقي ' + money(RP.block ? posR2(RF.total + RP.part.total) : RP.part.total)}</button>   /* v56.58 (قرار المالك): أصناف الجزء الملغى بتسعيره المجمّد */
+                : <button className="btn pri" onClick={() => startPayTab(tl)}><Banknote size={14} />{RM.paidParts ? 'دفع المتبقي ' + money(RM.total) : 'الدفع'}</button>}
             </div>
+            {RP && RP.block ? <div className="note" data-payrestnote style={{ marginTop: 8, fontSize: 12.5 }}>ادفع أولًا الجزء <b className="num">{RP.block}</b> (أصناف الفاتورة الملغاة بحصتها من خصم الطاولة)، ثم المتبقي.</div> : null}
             {/* v56.52 — المطعم: الأشخاص والنادل والدمج والتقسيم (تظهر بتفعيلها فقط) */}
             {(RC.covers || RC.waiters) && <div className="row" data-tabmeta style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 10 }}>
               {RC.covers && <label className="row" style={{ gap: 6, fontSize: 13, alignItems: 'center' }}>الأشخاص<input className="inp n" style={{ width: 64 }} inputMode="numeric" aria-label="أشخاص الطاولة" defaultValue={tl.covers || ''} key={'cv' + tl.id + (tl.covers || '')} onBlur={e => { const v = e.target.value.trim(); if (v !== String(tl.covers || '')) setTabMeta(tl, { covers: v }); }} /></label>}
@@ -848,18 +855,18 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
             </div>}
             {(RC.merge || RC.split) && <div className="grid g2" style={{ gap: 8, marginTop: 10 }}>
               {RC.merge && <select className="sel" aria-label="دمج طاولة" value="" onChange={e => e.target.value && mergeTab(tl, e.target.value)}><option value="">ضمّ حساب طاولة أخرى…</option>{TS.filter(y => y.st !== 'free' && y.no !== tblSel.no).map(y => <option key={y.no} value={y.no}>{y.no} · {money(y.total)}</option>)}</select>}
-              {RC.split && <button className="btn" data-splitbtn disabled={!RM.lines.length} onClick={() => setSplitF({ tab: tl, n: 2, alloc: Object.fromEntries(RM.lines.map((l, i) => [i, [l.qty, 0]])) }) || setTblSel(null)}>تقسيم الفاتورة بالأصناف</button>}
-              {RC.split && <button className="btn" data-spliteqbtn disabled={!RM.lines.length} onClick={() => setEqF({ tab: tl, n: 2, code: '' }) || setTblSel(null)}>تقسيم الفاتورة بالتساوي</button>}
+              {RC.split && <button className="btn" data-splitbtn disabled={!RF.lines.length} onClick={() => setSplitF({ tab: tl, n: 2, alloc: Object.fromEntries(RF.lines.map((l, i) => [i, [l.qty, 0]])) }) || setTblSel(null)}>تقسيم الفاتورة بالأصناف</button>}
+              {RC.split && <button className="btn" data-spliteqbtn disabled={!RF.lines.length} onClick={() => setEqF({ tab: tl, n: 2, code: '' }) || setTblSel(null)}>تقسيم الفاتورة بالتساوي</button>}
             </div>}
             {parts.length > 0 && <div className="note" data-parts style={{ marginTop: 10 }}><b>أجزاء الفاتورة</b>
               {parts.map(pt => <div key={pt.id} className="row" data-part={pt.no} style={{ justifyContent: 'space-between', alignItems: 'center', gap: 6, padding: '4px 0', borderBottom: '1px dashed var(--line)' }}>
-                <span style={{ fontSize: 12.5 }}>الجزء <b className="num">{pt.no}</b> · {pt.eq ? <span data-parteq>بالتساوي {pt.eq.k}/{pt.eq.n}</span> : pt.lines.map(l => l.name + ' ×' + l.qty).join('، ')}{pt.coupon ? ' · كوبون ' + (pt.coupon.code || '') : ''} · <b className="num">{money(pt.total)}</b></span>
+                <span style={{ fontSize: 12.5 }}>الجزء <b className="num">{pt.no}</b>{pt.re ? <span data-partre> (أصناف فاتورة ملغاة بسعرها)</span> : null} · {pt.eq ? <span data-parteq>بالتساوي {pt.eq.k}/{pt.eq.n}</span> : pt.lines.map(l => l.name + ' ×' + l.qty).join('، ')}{pt.coupon ? ' · كوبون ' + (pt.coupon.code || '') : ''} · <b className="num">{money(pt.total)}</b></span>
                 {pt.voided ? <span className="badge b-rose" data-partvoid={pt.no}>ملغى <span className="num">{pt.orderNo}</span> — أصنافه في المتبقي</span> : pt.orderId ? <span className="badge b-mint">مدفوع <span className="num">{pt.orderNo}</span></span> : <button className="btn sm pri" onClick={() => startPayTab(tl, pt)}>دفع الجزء {pt.no}</button>}</div>)}
             </div>}
             {(tl.conflicts || []).length > 0 && <div className="note" data-conflicts style={{ marginTop: 8, borderColor: 'var(--rose)' }}><b style={{ color: 'var(--rose)' }}>فواتير لم تُختم على الحساب (تعارض) — يراجعها مدير الفرع</b>{tl.conflicts.map((c, i) => <div key={i} style={{ fontSize: 12 }}><span className="num">{c.orderNo}</span> · {money(c.total)} · {c.why}</div>)}</div>}
             {(tl.mergeLog || []).length > 0 && <div style={{ fontSize: 11.5, color: 'var(--faint)', marginTop: 6 }} data-mergelog>{tl.mergeLog.map((m, i) => <div key={i}>دُمجت الطاولة <span className="num">{m.from}</span> ({money(m.total)}) — {m.by} · <span className="num">{String(m.at || '').slice(11, 16)}</span></div>)}</div>}
           </Modal>; })()}
-          {splitF && (() => { const RM = tabRemain(splitF.tab), n = splitF.n; const PZ = splitPrice(splitF.tab, splitF.code); const S = tabSplitItems(splitF.tab, splitF.alloc, n, PZ); const disc = posR2(PZ.lines.reduce((a, l) => a + (l.disc || 0), 0) + PZ.orderDisc);
+          {splitF && (() => { const RM = tabRemainFree(splitF.tab), n = splitF.n; const PZ = splitPrice(splitF.tab, splitF.code); const S = tabSplitItems(splitF.tab, splitF.alloc, n, PZ); const disc = posR2(PZ.lines.reduce((a, l) => a + (l.disc || 0), 0) + PZ.orderDisc);
             const ptot = Array.from({ length: n }, (_, k) => RM.lines.reduce((a, l, i) => a + Math.round((Number((splitF.alloc[i] || [])[k]) || 0) * l.price * 100), 0) / 100);
             const setN = (v) => setSplitF(f => ({ ...f, n: v, alloc: Object.fromEntries(RM.lines.map((l, i) => [i, Array.from({ length: v }, (_, k) => (f.alloc[i] || [])[k] || 0)])) }));
             return <Modal title={'تقسيم فاتورة الطاولة ' + splitF.tab.table} onClose={() => setSplitF(null)} foot={<><button className="btn pri" data-splitsave disabled={!!S.err} onClick={saveSplit}><Check size={14} />حفظ التقسيم</button><button className="btn gh" onClick={() => setSplitF(null)}>إلغاء</button></>}>
@@ -874,7 +881,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
               </tbody></table></div>
               {S.err && <div className="note" data-spliterr style={{ marginTop: 8, color: 'var(--rose)' }}>{S.err}</div>}
             </Modal>; })()}
-          {eqF && (() => { const RM = tabRemain(eqF.tab), PZ = splitPrice(eqF.tab, eqF.code); const S = tabSplitEqual(eqF.tab, eqF.n, PZ, rate);
+          {eqF && (() => { const RM = tabRemainFree(eqF.tab), PZ = splitPrice(eqF.tab, eqF.code); const S = tabSplitEqual(eqF.tab, eqF.n, PZ, rate);
             return <Modal title={'تقسيم فاتورة الطاولة ' + eqF.tab.table + ' بالتساوي'} onClose={() => setEqF(null)} foot={<><button className="btn pri" data-spliteqsave disabled={!!S.err} onClick={saveEq}><Check size={14} />حفظ التقسيم</button><button className="btn gh" onClick={() => setEqF(null)}>إلغاء</button></>}>
               <div className="note" style={{ marginBottom: 8 }}>تُسعَّر الطاولة كاملة مرة واحدة (العروض والكوبون) ثم تُقسَّم على عدد الأجزاء بمبالغ متساوية، وباقي الهللات على الجزء الأخير. كل جزء فاتورة مستقلة بضريبتها، ومجموع الأجزاء = إجمالي الحساب <b className="num">{S.err ? money(RM.total) : money(S.total)}</b> وضريبته تمامًا.</div>
               <Field label="كوبون الطاولة (اختياري — يُحتسب على الطاولة كاملة ويُستهلك على الجزء الأول)"><input className="inp" aria-label="كوبون الطاولة بالتساوي" value={eqF.code || ''} onChange={e => setEqF(f => ({ ...f, code: e.target.value }))} />{(eqF.code || '').trim() ? <div style={{ fontSize: 12, marginTop: 3, color: PZ.codeOk ? 'var(--mint)' : 'var(--rose)', fontWeight: 600 }}>{PZ.codeOk ? '✓ الكوبون فعّال' : 'رمز غير صالح أو العرض غير متاح الآن'}</div> : null}</Field>
