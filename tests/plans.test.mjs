@@ -28,8 +28,9 @@ test('الخادم: الخطة من السجل، والطيف «المؤسسات
 });
 
 test('الخادم يفرض الخطة على مسارات الذكاء والفوترة (لا يكفي الإخفاء في الواجهة)', () => {
-  const s = rd('server.js');
-  for (const r of ["'/api/ai/analyze'", "'/api/ai/feedback'", "'/api/ai/growth'"]) assert.match(s, new RegExp('app\\.post\\(' + r.replace(/\//g, '\\/') + ", [^\\n]*requireMember, requireFeature\\('ai'\\)"), r);
+  const s = rd('server.js'), ai = rd('server-ai.js');   // v56.59: مسارات التحليل والتعليقات والنمو في server-ai.js
+  assert.match(s, /mountAiRoutes\(app, \{[^\n]*requireFeature/);
+  for (const r of ["'/api/ai/analyze'", "'/api/ai/feedback'", "'/api/ai/growth'"]) assert.match(ai, new RegExp('app\\.post\\(' + r.replace(/\//g, '\\/') + ", [^\\n]*requireMember, requireFeature\\('ai'\\)"), r);
   assert.match(s, /app\.post\('\/api\/zatca\/onboard', [^\n]*requireMember, requireFeature\('zatca'\)/);
   assert.match(s, /res\.status\(402\)/);
 });

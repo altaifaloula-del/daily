@@ -8,7 +8,7 @@ import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebas
 import { doc, getDoc, setDoc, deleteDoc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
 
 let env;
-const U = { owner: 'owner@test.com', view: 'view@test.com', acct: 'acct@test.com', acct2: 'acct2@test.com', bm: 'bm@test.com' };
+const U = { owner: 'owner@test.com', view: 'view@test.com', acct: 'acct@test.com', acct2: 'acct2@test.com', bm: 'bm@test.com', reg: 'reg@test.com', nob: 'nob@test.com' };
 const as = (k) => env.authenticatedContext('u-' + k, { email: U[k] }).firestore();
 const CV = 561700;
 const rec = (k, x) => ({ reason: 'سبب', by: U[k], at: serverTimestamp(), cv: CV, ...x });
@@ -27,6 +27,8 @@ before(async () => {
     await m('acct', { scope: 'all', role: 'head_office' });
     await m('acct2', { scope: 'all', role: 'head_office' });
     await m('bm', { scope: 'branch', branchId: 'A', branchIds: [], role: 'branch_manager' });
+    await m('reg', { scope: 'assigned', branchIds: ['A'], role: 'regional_manager' });   // v56.59: مدير إقليمي بلا branchId
+    await m('nob', { scope: 'branch', role: 'branch_manager' });   // عضو فرع بلا branchId ولا branchIds
     await setDoc(doc(d, 'platform', 'release'), { minCv: 400000, cutover: '2026-01-01', at: 1, by: U.owner });
   });
 });
@@ -113,4 +115,30 @@ test('MKM-6 القراءة: المركز والمسؤول فقط', async () => {
   await assertSucceeds(getDoc(doc(as('acct2'), 'mkt_merges', g)));
   await assertSucceeds(getDoc(doc(as('owner'), 'mkt_merges', g)));
   await assertFails(getDoc(doc(as('bm'), 'mkt_merges', g)), 'الفرع لا يرى');
+});
+
+test('v56.59 PII — سجل المركز (فرع \'\') لا يقرؤه عضو بلا branchId (مدير إقليمي)، ويقرؤه المركز والمسؤول؛ وسجل فرعه المسند يقرؤه', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    const d = ctx.firestore();
+    await setDoc(doc(d, 'mkt_merges', 'pii-c'), { kind: 'merge', ref: 'pii-c', from: '500000001', to: '500000002', pts: 1, reason: 'x', by: U.acct, at: 1, cv: CV });
+    await setDoc(doc(d, 'loy_tx', 'pii-c'), { phone: '500000001', pts: 5, br: '', by: U.acct, at: 1, cv: CV });
+    await setDoc(doc(d, 'loy_tx', 'pii-a'), { phone: '500000001', pts: 5, br: 'A', by: U.bm, at: 1, cv: CV });
+    await setDoc(doc(d, 'mkt_consents', 'pii-c'), { branchId: '', by: U.acct, at: 1, cv: CV });
+    await setDoc(doc(d, 'mkt_consents', 'pii-a'), { branchId: 'A', by: U.bm, at: 1, cv: CV });
+    await setDoc(doc(d, 'signoffs', 'pii-c'), { branchId: '', kind: 'clr', stage: 'submit', by: U.acct, at: 1 });
+    await setDoc(doc(d, 'signoffs', 'pii-a'), { branchId: 'A', kind: 'clr', stage: 'submit', by: U.bm, at: 1 });
+  });
+  const C = [['mkt_merges', 'pii-c'], ['loy_tx', 'pii-c'], ['mkt_consents', 'pii-c'], ['signoffs', 'pii-c']];
+  for (const [c, i] of C) {
+    await assertFails(getDoc(doc(as('reg'), c, i)), 'مدير إقليمي بلا branchId: ' + c);
+    await assertFails(getDoc(doc(as('nob'), c, i)), 'عضو فرع بلا branchId: ' + c);
+    await assertFails(getDoc(doc(as('bm'), c, i)), 'مدير فرع: ' + c);
+    await assertSucceeds(getDoc(doc(as('acct'), c, i)), 'المركز: ' + c);
+    await assertSucceeds(getDoc(doc(as('owner'), c, i)), 'المسؤول: ' + c);
+  }
+  for (const [c, i] of [['loy_tx', 'pii-a'], ['mkt_consents', 'pii-a'], ['signoffs', 'pii-a']]) {
+    await assertSucceeds(getDoc(doc(as('reg'), c, i)), 'الإقليمي يقرأ فرعه المسند: ' + c);
+    await assertSucceeds(getDoc(doc(as('bm'), c, i)), 'مدير الفرع يقرأ فرعه: ' + c);
+    await assertFails(getDoc(doc(as('nob'), c, i)), 'بلا فرع لا يقرأ فرعًا: ' + c);
+  }
 });

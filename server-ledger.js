@@ -57,6 +57,8 @@ const val = (f) => !f ? undefined : 'stringValue' in f ? f.stringValue : 'intege
 export function mountLedger(app, { express, requireMember, rateLimit, T, cv = 0, fetchImpl = fetch, log = console }) {
   const json = express.json({ limit: '2mb' });
   const lim = rateLimit({ windowMs: 60 * 1000, max: 60 });
+  // v56.59 — الهوية قبل قراءة الجسم (2MB)، ويسبقها حد لكل عنوان IP
+  const ipLim = rateLimit({ windowMs: 60 * 1000, max: 120, keyFn: (r) => 'ledger-ip:' + (r.ip || 'anon') });
   const tokens = new Map();
   const tenantOf = (req) => T.byId((req.user && req.user.tenant) || 'default') || T.def;
   const tok = (t) => { if (!tokens.has(t.id)) tokens.set(t.id, saTokenSource(t.sa, { fetchImpl })); return tokens.get(t.id)(); };
@@ -106,7 +108,7 @@ export function mountLedger(app, { express, requireMember, rateLimit, T, cv = 0,
     return { key, err: 'تزاحم — أعد المحاولة' };
   }
 
-  app.post('/api/ledger/post', json, requireMember, lim, async (req, res) => {
+  app.post('/api/ledger/post', ipLim, requireMember, lim, json, async (req, res) => {
     const u = req.user || {}; const email = String(u.email || '').toLowerCase();
     const t = tenantOf(req);
     if (!t || !t.sa) return res.status(409).json({ error: 'لم يُضبط حساب الخدمة على الخادم (FIREBASE_SERVICE_ACCOUNT)' });

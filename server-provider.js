@@ -10,6 +10,7 @@
 import { subscriptionState, applyPayment, okInvoiceNo } from './billing.js';
 import { extendSub, saTokenSource } from './server-billing.js';
 import { PLAN_FEATURES } from './plans.js';
+import { okStrictEmail, shq } from './tenant.js';
 
 const s = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
 const today = (now) => new Date(now()).toISOString().slice(0, 10);
@@ -38,7 +39,7 @@ export function validateSignup(b = {}) {
     plan: Object.prototype.hasOwnProperty.call(PLAN_FEATURES, b.plan) ? b.plan : 'basic', note: s(b.note, 500) };
   if (v.company.length < 3) return { error: 'اسم المنشأة مطلوب' };
   if (v.contact.length < 3) return { error: 'اسم المسؤول مطلوب' };
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.email)) return { error: 'البريد الإلكتروني غير صالح' };
+  if (!okStrictEmail(v.email)) return { error: 'البريد الإلكتروني غير صالح' };   // v56.59 — صيغة صارمة (يدخل أمر التهيئة)
   if (!/^(05[0-9]{8}|\+9665[0-9]{8}|9665[0-9]{8})$/.test(v.phone)) return { error: 'رقم الجوال السعودي غير صالح (05XXXXXXXX)' };
   if (v.crNo && !/^[0-9]{10}$/.test(v.crNo)) return { error: 'السجل التجاري 10 أرقام' };
   if (v.vatNo && !/^3[0-9]{13}3$/.test(v.vatNo)) return { error: 'الرقم الضريبي 15 رقمًا يبدأ وينتهي بـ 3' };
@@ -154,11 +155,12 @@ export function mountProvider(app, { express, requireMember, rateLimit, T, cfg, 
       if (!['approved', 'rejected'].includes(status)) return res.status(400).json({ error: 'القرار: approved | rejected' });
       const sg = await store.getSignup(id); if (!sg) return res.status(404).json({ error: 'الطلب غير موجود' });
       if (sg.status !== 'new') return res.status(409).json({ error: 'اتُّخذ القرار سابقًا' });
+      if (status === 'approved' && !(okStrictEmail(sg.email) && Object.prototype.hasOwnProperty.call(PLAN_FEATURES, sg.plan))) return res.status(409).json({ error: 'بريد الطلب أو خطته غير صالحة — لا يُولَّد أمر تهيئة له' });   // v56.59: طلبات قديمة قبل الصيغة الصارمة
       const tid = /^[a-z0-9][a-z0-9-]{1,21}$/.test(String(req.body.tenantId || '')) && req.body.tenantId !== 'default' ? req.body.tenantId : suggestId(sg.company, sg.seq);
       const next = { ...sg, status, decidedAt: new Date(now()).toISOString(), decidedBy: req.user.email, note: s(req.body.note, 300), tenantId: status === 'approved' ? tid : '' };
       await store.putSignup(next); audit(req, 'signup', { id, status });
-      const q = (x) => '"' + String(x).replace(/["\\$`]/g, '') + '"';
-      res.json({ ok: true, signup: next, cmd: status === 'approved' ? 'node scripts/tenant-provision.mjs plan --id ' + tid + ' --name ' + q(sg.company) + ' --plan ' + sg.plan + ' --owner ' + sg.email : '' });
+      // v56.59 — كل قيمة من الطلب العام مقتبسة اقتباسًا مفردًا (لا يصل رمز صدفة إلى التنفيذ)
+      res.json({ ok: true, signup: next, cmd: status === 'approved' ? 'node scripts/tenant-provision.mjs plan --id ' + tid + ' --name ' + shq(sg.company) + ' --plan ' + sg.plan + ' --owner ' + shq(sg.email) : '' });
     } catch (e) { res.status(502).json({ error: 'تعذّر حفظ القرار' }); }
   });
 

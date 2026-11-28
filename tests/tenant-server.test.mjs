@@ -7,12 +7,12 @@ import { createVerifier, tenantForToken, tokenProject } from '../server-auth.js'
 import { seal, open, vaultReady } from '../zatca/vault.js';
 
 const K = (n) => 'AIzaSy' + n.padEnd(33, 'x');
-const ENV = { FIREBASE_API_KEY: K('altaif'), FIREBASE_PROJECT_ID: 'altaif-prod', ZATCA_ENC_KEY: 'z'.repeat(40), FB_KEY_C2: K('c2'), ZK_C2: 'q'.repeat(40),
+const ENV = { FIREBASE_API_KEY: K('demo'), FIREBASE_PROJECT_ID: 'demo-prod', ZATCA_ENC_KEY: 'z'.repeat(40), FB_KEY_C2: K('c2'), ZK_C2: 'q'.repeat(40),
   MQ_TENANTS_JSON: JSON.stringify([{ id: 'client2', projectId: 'mithqal-client2', apiKeyEnv: 'FB_KEY_C2', zatcaKeyEnv: 'ZK_C2' }]) };
-const KEY_PROJECT = { [K('altaif')]: 'altaif-prod', [K('c2')]: 'mithqal-client2' };
+const KEY_PROJECT = { [K('demo')]: 'demo-prod', [K('c2')]: 'mithqal-client2' };
 const tok = (aud, email) => ['h', Buffer.from(JSON.stringify({ aud, email })).toString('base64url'), 's'].join('.');
 // محاكاة Google: الرمز يُقبل فقط بمفتاح مشروعه؛ والعضوية تُقرأ من قاعدة مشروع الرمز
-const MEMBERS = { 'altaif-prod': { 'a@altaif.sa': 'system_admin' }, 'mithqal-client2': { 'b@c2.sa': 'branch_manager' } };
+const MEMBERS = { 'demo-prod': { 'a@example.sa': 'system_admin' }, 'mithqal-client2': { 'b@c2.sa': 'branch_manager' } };
 const calls = [];
 const fakeFetch = async (url, init) => {
   calls.push(url);
@@ -37,22 +37,22 @@ test('السجل على الخادم: الطيف + منشأة إضافية، و�
 
 test('الهوية: كل منشأة تتحقق بمفتاحها، ورمز منشأة لا يفتح الأخرى', async () => {
   const T = loadTenants(ENV); const v = createVerifier({ T, fetchImpl: fakeFetch });
-  assert.deepEqual(await v(tok('altaif-prod', 'a@altaif.sa')), { email: 'a@altaif.sa', role: 'system_admin', tenant: 'default', mfa: false });
+  assert.deepEqual(await v(tok('demo-prod', 'a@example.sa')), { email: 'a@example.sa', role: 'system_admin', tenant: 'default', mfa: false });
   assert.deepEqual(await v(tok('mithqal-client2', 'b@c2.sa')), { email: 'b@c2.sa', role: 'branch_manager', tenant: 'client2', mfa: false });
   calls.length = 0;
-  assert.equal(await v(tok('mithqal-client2', 'a@altaif.sa')), null, 'مدير الطيف ليس عضوًا في منشأة أخرى');
-  assert.ok(calls.some(u => u.includes('projects/mithqal-client2/')) && !calls.some(u => u.includes('projects/altaif-prod/')), 'العضوية من قاعدة المنشأة نفسها فقط');
-  assert.equal(await v(tok('evil-project', 'a@altaif.sa')), null, 'مشروع غير مسجَّل يُرفض');
+  assert.equal(await v(tok('mithqal-client2', 'a@example.sa')), null, 'مدير الطيف ليس عضوًا في منشأة أخرى');
+  assert.ok(calls.some(u => u.includes('projects/mithqal-client2/')) && !calls.some(u => u.includes('projects/demo-prod/')), 'العضوية من قاعدة المنشأة نفسها فقط');
+  assert.equal(await v(tok('evil-project', 'a@example.sa')), null, 'مشروع غير مسجَّل يُرفض');
   assert.equal(await v('not-a-jwt'), null);
 });
 
 test('الطيف بلا FIREBASE_PROJECT_ID: يبقى السلوك القديم (مفتاح الطيف هو الحَكَم)', async () => {
   const { FIREBASE_PROJECT_ID, ...env } = ENV; const T = loadTenants(env);
-  assert.equal(tenantForToken(T, tok('altaif-prod', 'x')).id, 'default');
+  assert.equal(tenantForToken(T, tok('demo-prod', 'x')).id, 'default');
   assert.equal(tenantForToken(T, tok('mithqal-client2', 'x')).id, 'client2');
   const v = createVerifier({ T, fetchImpl: fakeFetch });
-  assert.equal((await v(tok('altaif-prod', 'a@altaif.sa'))).tenant, 'default');
-  assert.equal(await v(tok('evil-project', 'a@altaif.sa')), null, 'Google ترفض رمز مشروع آخر بمفتاح الطيف');
+  assert.equal((await v(tok('demo-prod', 'a@example.sa'))).tenant, 'default');
+  assert.equal(await v(tok('evil-project', 'a@example.sa')), null, 'Google ترفض رمز مشروع آخر بمفتاح الطيف');
   assert.equal(tokenProject(tok('A_B', 'x')), '');
 });
 
@@ -70,17 +70,17 @@ const policyFetch = (policy, admins = [], fail = false) => async (url, init) => 
 test('التحقق بخطوتين: من تلزمه السياسة بلا خطوة ثانية يُرفض على الخادم', async () => {
   const T = loadTenants(ENV);
   const byRole = createVerifier({ T, fetchImpl: policyFetch({ roles: ['system_admin'], admins: false }) });
-  assert.deepEqual(await byRole(mfaTok('altaif-prod', 'a@altaif.sa', false)), { blocked: 'mfa', email: 'a@altaif.sa', tenant: 'default' }, 'الدور ملزَم ولا خطوة ثانية');
-  assert.deepEqual(await byRole(mfaTok('altaif-prod', 'a@altaif.sa', true)), { email: 'a@altaif.sa', role: 'system_admin', tenant: 'default', mfa: true }, 'بخطوتين يمر');
+  assert.deepEqual(await byRole(mfaTok('demo-prod', 'a@example.sa', false)), { blocked: 'mfa', email: 'a@example.sa', tenant: 'default' }, 'الدور ملزَم ولا خطوة ثانية');
+  assert.deepEqual(await byRole(mfaTok('demo-prod', 'a@example.sa', true)), { email: 'a@example.sa', role: 'system_admin', tenant: 'default', mfa: true }, 'بخطوتين يمر');
   assert.equal((await byRole(mfaTok('mithqal-client2', 'b@c2.sa', false))).role, 'branch_manager', 'دور غير ملزَم يمر بلا خطوة ثانية');
-  const byAdmin = createVerifier({ T, fetchImpl: policyFetch({ roles: [], admins: true }, ['a@altaif.sa']) });
-  assert.equal((await byAdmin(mfaTok('altaif-prod', 'a@altaif.sa', false))).blocked, 'mfa', 'المدراء ملزَمون ⇒ المدير يُرفض بلا خطوة ثانية');
-  const notAdmin = createVerifier({ T, fetchImpl: policyFetch({ roles: [], admins: true }, ['x@altaif.sa']) });
-  assert.equal((await notAdmin(mfaTok('altaif-prod', 'a@altaif.sa', false))).role, 'system_admin', 'ليس في قائمة المدراء ⇒ غير ملزَم');
+  const byAdmin = createVerifier({ T, fetchImpl: policyFetch({ roles: [], admins: true }, ['a@example.sa']) });
+  assert.equal((await byAdmin(mfaTok('demo-prod', 'a@example.sa', false))).blocked, 'mfa', 'المدراء ملزَمون ⇒ المدير يُرفض بلا خطوة ثانية');
+  const notAdmin = createVerifier({ T, fetchImpl: policyFetch({ roles: [], admins: true }, ['x@example.sa']) });
+  assert.equal((await notAdmin(mfaTok('demo-prod', 'a@example.sa', false))).role, 'system_admin', 'ليس في قائمة المدراء ⇒ غير ملزَم');
   const none = createVerifier({ T, fetchImpl: policyFetch(null) });
-  assert.equal((await none(mfaTok('altaif-prod', 'a@altaif.sa', false))).role, 'system_admin', 'بلا سياسة ⇒ السلوك القديم');
+  assert.equal((await none(mfaTok('demo-prod', 'a@example.sa', false))).role, 'system_admin', 'بلا سياسة ⇒ السلوك القديم');
   const broken = createVerifier({ T, fetchImpl: policyFetch(null, [], true) });
-  assert.equal(await broken(mfaTok('altaif-prod', 'a@altaif.sa', false)), null, 'تعذّر قراءة السياسة ⇒ رفض');
+  assert.equal(await broken(mfaTok('demo-prod', 'a@example.sa', false)), null, 'تعذّر قراءة السياسة ⇒ رفض');
 });
 
 test('server.js يرفض الجلسة المحجوبة بخطوتين في requireMember', async () => {
@@ -105,7 +105,10 @@ test('خزنة الفوترة لكل منشأة: الطيف على اشتقاق�
 test('صورة Docker تنسخ كل ملفات الخادم المحلية التي يستوردها server.js', async () => {
   const fs = await import('node:fs');
   const src = fs.readFileSync(new URL('../server.js', import.meta.url), 'utf8'), df = fs.readFileSync(new URL('../Dockerfile', import.meta.url), 'utf8');
-  const locals = [...src.matchAll(/from '\.\/([^'/]+\.js)'/g)].map(m => m[1]);
-  assert.ok(locals.includes('server-auth.js'));
+  // v56.59 — والاستيراد غير المباشر أيضًا (server-provider.js ⇐ tenant.js)
+  const locals = [], seen = new Set(), q = [...src.matchAll(/from '\.\/([^'/]+\.m?js)'/g)].map(m => m[1]);
+  while (q.length) { const f = q.shift(); if (seen.has(f)) continue; seen.add(f); locals.push(f);
+    for (const m of fs.readFileSync(new URL('../' + f, import.meta.url), 'utf8').matchAll(/from '\.\/([^'/]+\.m?js)'/g)) q.push(m[1]); }
+  assert.ok(locals.includes('server-auth.js') && locals.includes('tenant.js'));
   for (const f of locals) assert.match(df, new RegExp('COPY [^\\n]*\\b' + f.replace('.', '\\.') + '\\b'), f + ' غير منسوخ في Dockerfile');
 });

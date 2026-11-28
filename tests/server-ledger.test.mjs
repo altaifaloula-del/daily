@@ -7,16 +7,16 @@ import { mountLedger, ledgerValidate, ledgerPeriodOk, LEDGER_FIN_ROLES } from '.
 import { loadTenants } from '../tenants.js';
 
 const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 1024 });
-const SA = JSON.stringify({ client_email: 'ops@altaif-prod.iam.gserviceaccount.com', private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }), project_id: 'altaif-prod' });
-const ENV = { FIREBASE_API_KEY: 'AIzaSy' + 'a'.repeat(33), FIREBASE_PROJECT_ID: 'altaif-prod', FIREBASE_SERVICE_ACCOUNT: SA };
+const SA = JSON.stringify({ client_email: 'ops@demo-prod.iam.gserviceaccount.com', private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }), project_id: 'demo-prod' });
+const ENV = { FIREBASE_API_KEY: 'AIzaSy' + 'a'.repeat(33), FIREBASE_PROJECT_ID: 'demo-prod', FIREBASE_SERVICE_ACCOUNT: SA };
 const LINES = JSON.stringify([['1101', 115000, 0, 'b1'], ['4101', 0, 100000, 'b1'], ['2301', 0, 15000, 'b1']]);
 const item = (key, x = {}) => ({ key, rec: { date: '2026-11-20', src: 'rev:' + key, title: 'إيراد', lines: LINES, ver: 1, ...(x.rec || {}) }, ...x, ...(x.rec ? { rec: { date: '2026-11-20', src: 'rev:' + key, title: 'إيراد', lines: LINES, ver: 1, ...x.rec } } : {}) });
 
 /** خادم Firestore REST وهمي في الذاكرة يحترم المعاملة: currentDocument.exists والتحويل REQUEST_TIME */
-function harness({ env = ENV, locks = '2026-10-31', mig = null, admins = ['o@altaif.sa'], docs = {} } = {}) {
+function harness({ env = ENV, locks = '2026-10-31', mig = null, admins = ['o@example.sa'], docs = {} } = {}) {
   const routes = {}; const app = { post: (p, ...h) => (routes[p] = h) };
-  const users = { owner: { email: 'o@altaif.sa', role: 'system_admin', tenant: 'default' }, acct: { email: 'acc@altaif.sa', role: 'accountant', tenant: 'default' },
-    cash: { email: 'c@altaif.sa', role: 'cashier', tenant: 'default' }, boss: { email: 'boss@altaif.sa', role: 'cashier', tenant: 'default' } };
+  const users = { owner: { email: 'o@example.sa', role: 'system_admin', tenant: 'default' }, acct: { email: 'acc@example.sa', role: 'accountant', tenant: 'default' },
+    cash: { email: 'c@example.sa', role: 'cashier', tenant: 'default' }, boss: { email: 'boss@example.sa', role: 'cashier', tenant: 'default' } };
   const requireMember = (req, res, next) => { const u = users[req.who]; if (!u) return res.status(401).json({}); req.user = u; next(); };
   const db = { 'fin_periods/locks': { fields: { lockedTo: { stringValue: locks } } }, 'platform/admins': { fields: { emails: { arrayValue: { values: admins.map(e => ({ stringValue: e })) } } } },
     ...(mig ? { 'fin_periods/migration': { fields: { open: { booleanValue: true }, until: { timestampValue: new Date(Date.now() + 3600e3).toISOString() } } } } : {}), ...docs };
@@ -72,7 +72,7 @@ test('الترحيل: المحاسب يرحّل بأرقام متتالية من
   assert.equal(r.status, 200); assert.deepEqual(r.json.results.map(x => x.no), ['JV-2026-000001', 'JV-2026-000002']);
   const A = H.F('fin_ledger/a_v1');
   assert.equal(A.no, 'JV-2026-000001'); assert.equal(A.seq, 1); assert.equal(A.year, 2026); assert.equal(A.drH, 115000); assert.equal(A.status, 'posted');
-  assert.equal(A.by, 'acc@altaif.sa'); assert.equal(A.via, 'server'); assert.equal(A.at, 'NOW', 'وقت الخادم لا العميل'); assert.equal(A.cv, 561400);
+  assert.equal(A.by, 'acc@example.sa'); assert.equal(A.via, 'server'); assert.equal(A.at, 'NOW', 'وقت الخادم لا العميل'); assert.equal(A.cv, 561400);
   assert.deepEqual(H.F('fin_ledger_meta/seq_2026'), { n: 2, last: 'b_v1' });
   r = await H.call('acct', [item('a_v1')]); assert.equal(r.json.results[0].skip, 'exists', 'لا تكرار');
   assert.equal((await H.call('cash', [item('c_v1')])).status, 403);
@@ -105,6 +105,6 @@ test('العكس والإصدار التالي: الأصل «معكوس» في �
 });
 
 test('بلا حساب خدمة: 409 برسالة واضحة', async () => {
-  const H = harness({ env: { FIREBASE_API_KEY: ENV.FIREBASE_API_KEY, FIREBASE_PROJECT_ID: 'altaif-prod' } });
+  const H = harness({ env: { FIREBASE_API_KEY: ENV.FIREBASE_API_KEY, FIREBASE_PROJECT_ID: 'demo-prod' } });
   const r = await H.call('acct', [item('a_v1')]); assert.equal(r.status, 409); assert.match(r.json.error, /FIREBASE_SERVICE_ACCOUNT/);
 });

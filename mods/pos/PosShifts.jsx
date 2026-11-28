@@ -1,7 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useEffect } from 'react';
 import { ClipboardCheck, Printer, Lock } from 'lucide-react';
-import { posDocView, Field, Modal, Num, _xe, businessDay, money, nowISO, posOrdersStats, posPrint, posR2, posShiftHtml, posZHtml, printA4, dtLocal, posOffOn, posChainGaps, posConflicts, posConflictResolve, tabConflictMark, POS_CONFLICT_ROLES, posConflictOn, pcrWrite, pcrLoad, pcfLoad, pcfMissing, pcfWrite } from '../../App.jsx';
+import { posDocView, Field, Modal, Num, _xe, businessDay, money, nowISO, posOrdersStats, posPrint, posR2, posShiftHtml, posZHtml, printA4, dtLocal, posOffOn, posChainGaps, posConflicts, posConflictResolve, posConflictBulkKeep, tabConflictMark, POS_CONFLICT_ROLES, posConflictOn, pcrWrite, pcrLoad, pcfLoad, pcfMissing, pcfWrite } from '../../App.jsx';
 
 export function PosShifts({ org, ops, me, brs, commit, say }) {
   const [bid, setBid] = useState('all'); const [d, setD] = useState(businessDay()); const [rc, setRc] = useState(null);
@@ -58,12 +58,29 @@ export function PosShifts({ org, ops, me, brs, commit, say }) {
     await commit(dd => ({ ...dd, posTabs: (dd.posTabs || []).map(t => t.id === c.tabId ? tabConflictMark(t, c.orderId) : t) }),
       { actionType: 'update', targetType: 'pos_tab', targetId: c.tabId, branchName: bOf(c.branchId).name, title: 'حسم تعارض فاتورة نقطة البيع ' + c.orderNo + ': ' + (act === 'keep' ? 'إبقاء' : 'إلغاء بمرتجع'), details: 'الطاولة ' + c.table + ' · ' + money(c.total) + (pre.rec.doc ? ' · ' + pre.rec.doc : '') });
     setResVer(v => v + 1); say('حُسم التعارض ✓'); };
+  // v56.59 (قرار المالك: «حسم جماعي للمدير») — «إبقاء الكل»: حسم «إبقاء» مستقل لكل تعارض بالفحوص نفسها، وما لا يحق للمدير حسمه (كفاتورته) يُتخطّى ويُذكر
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const keepAll = async () => {
+    const P = posConflictBulkKeep(ops, confl.filter(c => !c.res), me, resList || []);
+    const skipTxt = (L) => L.map(x => (x.c.orderNo || x.c.orderId) + ': ' + x.err).join('\n');
+    if (!P.ok.length) return say('لا تعارض يمكنك حسمه جماعيًا' + (P.skipped.length ? ' — ' + skipTxt(P.skipped) : ''), 'no');
+    if (!window.confirm('إبقاء ' + P.ok.length + ' فاتورة صحيحة مع فواتير حساباتها الأخرى؟' + (P.skipped.length ? '\n\nتُتخطّى ' + P.skipped.length + ' (لا يحق لك حسمها):\n' + skipTxt(P.skipped) : '') + '\n\nيُسجَّل لكل فاتورة حسم مستقل ببريدك والوقت في سجل محمي لا يُعدَّل.')) return;
+    setBulkBusy(true); const done = [], failed = [...P.skipped];
+    try {
+      for (const x of P.ok) { const W = await pcrWrite(x.rec); if (W.err) failed.push({ c: x.c, err: W.err }); else done.push(x.c); }
+      if (done.length) { const byTab = new Map(); done.forEach(c => byTab.set(c.tabId, [...(byTab.get(c.tabId) || []), c.orderId]));
+        await commit(dd => ({ ...dd, posTabs: (dd.posTabs || []).map(t => byTab.has(t.id) ? byTab.get(t.id).reduce((tt, oid) => tabConflictMark(tt, oid), t) : t) }),
+          { actionType: 'update', targetType: 'pos_tab', targetId: done[0].tabId, branchName: bOf(done[0].branchId).name, title: 'حسم جماعي لتعارضات نقطة البيع: إبقاء ' + done.length, details: done.map(c => c.orderNo + ' · ' + money(c.total)).join('، ').slice(0, 900) }); }
+    } finally { setBulkBusy(false); setResVer(v => v + 1); }
+    say('أُبقيت ' + done.length + (failed.length ? ' — لم تُحسم ' + failed.length + ': ' + skipTxt(failed) : ' ✓'), failed.length ? 'no' : undefined);
+  };
   return (
     <div className="grid" style={{ gap: 12 }}>
       {gaps.length > 0 && <div className="note" role="alert" data-chaingaps style={{ borderColor: 'var(--rose)' }}><b>تنبيه: {gaps.length} خلل في سلسلة فواتير نقطة البيع</b> — قد يدل على فاتورة لم تصل أو مسح لبيانات جهاز. راجعه قبل اعتماد الإغلاق.
         {gaps.slice(0, 20).map((g, i) => <div key={i} style={{ fontSize: 12, marginTop: 4 }} data-chaingap={g.kind}>{bOf(g.branchId).name} · جهاز {g.dev} · {KIND[g.kind]}: <span className="num">{g.prevNo} (#{g.prevIcv}) ← {g.no} (#{g.icv})</span></div>)}</div>}
       {pcfErr && <div className="note" data-pcferr style={{ borderColor: 'var(--rose)' }}>تعذّر قراءة سجل تعارضات نقطة البيع المحمي — لا يُرحَّل الإغلاق اليومي حتى تُقرأ (تحقق من الاتصال ثم أعد المحاولة).</div>}
       {confl.length > 0 && <div className="note" data-conflictlist style={{ borderColor: 'var(--rose)' }}><b>تعارضات فواتير بعد عودة الاتصال — يحسمها مدير الفرع قبل الإغلاق اليومي</b>
+        {canRes && confl.filter(c => !c.res).length > 1 && <div className="row" style={{ marginTop: 6 }}><button className="btn sm" data-conflictkeepall disabled={bulkBusy} onClick={keepAll}>إبقاء الكل ({confl.filter(c => !c.res).length})</button></div>}
         <div className="hint">فاتورة صدرت لحساب طاولة لم تُختم عليه (دُفع الحساب أو الجزء من جهاز آخر، أو أُعيد التقسيم). «إبقاء»: الفاتورتان صحيحتان. «إلغاء بمرتجع»: بعد إصدار مرتجع كامل للفاتورة (أو إلغائها بإشعار دائن) من «المبيعات» — لا تُحذف فاتورة. لا يحسمه من أصدر الفاتورة.</div>
         {confl.map(c => <div key={c.tabId + c.orderId} className="row" data-conflict={c.orderNo} style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap', fontSize: 12.5, marginTop: 6 }}>
           <span>{bOf(c.branchId).name} · الطاولة <b className="num">{c.table}</b> · <span className="num">{c.orderNo}</span> · {money(c.total)} · {c.why}{c.by ? ' · أصدرها ' + c.by : ''}</span>

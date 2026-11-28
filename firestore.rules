@@ -307,7 +307,8 @@ service cloud.firestore {
     function sigRead(bId) {
       let m = memOf();
       let adm = admOf(m);
-      return okUser(m, adm) && (adm || centralOf(m) || branchOf(m, adm, bId));
+      // v56.59 (تدقيق H): سجل المركز (فرع '') للمدير والمركز وحدهما — عضو بلا branchId (كمدير إقليمي) لا يطابق '' فيقرأه
+      return okUser(m, adm) && (adm || centralOf(m) || (bId != '' && branchOf(m, adm, bId)));
     }
     match /signoffs/{id} {
       allow create: if sigCreate(request.resource.data);
