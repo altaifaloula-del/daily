@@ -4507,6 +4507,20 @@ test('v56.63 قرار المالك: «فواتير المبيعات» مخفية
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v56.64 الحملات التسويقية للمركز فقط: لا شاشة ولا «حملة جديدة» لمدير الفرع، والملاحظة باقية؛ والمكتب الرئيسي يراها', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/MktGrowth/bm');
+  await p.waitForTimeout(300); await p.click('[data-mktv="cmp"]'); await p.waitForTimeout(300); await settle(p);
+  assert.equal(await p.locator('[data-cmp]').count(), 0, 'bm: لا شاشة حملات');
+  assert.equal(await p.locator('button:has-text("حملة جديدة")').count(), 0, 'bm: لا زر حملة جديدة');
+  assert.ok(await p.locator('.note:has-text("الحملات تُخطط وتُعتمد من المركز")').count() >= 1, 'bm: الملاحظة باقية');
+  await p.evaluate(() => window.as('ho')); await p.waitForTimeout(300); await settle(p);
+  if (!(await p.locator('[data-cmp]').count())) { await p.click('[data-mktv="cmp"]'); await p.waitForTimeout(300); }
+  await p.waitForSelector('[data-cmp]');
+  assert.ok(await p.locator('[data-cmp] button:has-text("حملة جديدة")').count() >= 1, 'ho: زر حملة جديدة ظاهر');
+  assert.equal(await p.locator('.note:has-text("الحملات تُخطط وتُعتمد من المركز")').count(), 0, 'ho: بلا ملاحظة الفرع');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('v56.51 المقترحات الضريبية: تحويل المبسّطة إلى ضريبية (إشعار + ضريبية مرتبطتان)، والاحتساب العكسي على سند صرف غير المقيم، وبطاقة الإعداد', async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/SalesHub/admin');
   await p.evaluate(() => window.setOrg(g => ({ ...g, taxCfg: { enabled: true, rate: 15 }, partners: [...(g.partners || []), { id: 'cx', key: 'cust:cx', name: 'شركة مسجّلة تجريبية', type: 'customer', tax: '300000000000003', address: 'عنوان وطني تجريبي' }] }))); await p.waitForTimeout(150);
