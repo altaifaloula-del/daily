@@ -4488,6 +4488,25 @@ test('v56.50 الرسائل: مفتاح مسار الإرسال لمسؤول ا�
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v56.63 قرار المالك: «فواتير المبيعات» مخفية عن أدوار الفروع (مدير فرع، إقليمي، كاشير) وظاهرة للمالية والمركز', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/SalesHub/bm');
+  const tabN = () => p.locator('button:has-text("فواتير المبيعات")').count();
+  for (const who of ['bm', 'rm', 'cs']) {
+    await p.evaluate((w) => window.as(w), who); await p.waitForTimeout(250); await settle(p);
+    assert.equal(await tabN(), 0, who + ': لا تبويب فواتير المبيعات');
+    assert.equal(await p.locator('button:has-text("فاتورة مبيعات")').count(), 0, who + ': ولا زر إنشاء');
+    assert.ok(await p.locator('button:has-text("تحليل المبيعات")').count() >= 1, who + ': بقية أقسام المبيعات كما هي');
+  }
+  for (const who of ['fin', 'ho', 'admin']) {
+    await p.evaluate((w) => window.as(w), who); await p.waitForTimeout(250); await settle(p);
+    assert.ok(await tabN() >= 1, who + ': التبويب ظاهر');
+    await p.locator('button:has-text("فواتير المبيعات")').first().click(); await p.waitForTimeout(300); await settle(p);
+    assert.equal(await p.locator('[data-sinv-denied]').count(), 0, who + ': الشاشة نفسها تعمل');
+    assert.ok(await p.locator('button:has-text("فاتورة مبيعات")').count() >= 1, who + ': زر الإنشاء ظاهر');
+  }
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('v56.51 المقترحات الضريبية: تحويل المبسّطة إلى ضريبية (إشعار + ضريبية مرتبطتان)، والاحتساب العكسي على سند صرف غير المقيم، وبطاقة الإعداد', async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/SalesHub/admin');
   await p.evaluate(() => window.setOrg(g => ({ ...g, taxCfg: { enabled: true, rate: 15 }, partners: [...(g.partners || []), { id: 'cx', key: 'cust:cx', name: 'شركة مسجّلة تجريبية', type: 'customer', tax: '300000000000003', address: 'عنوان وطني تجريبي' }] }))); await p.waitForTimeout(150);

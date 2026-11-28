@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserCog, Check, Scale, Lock } from 'lucide-react';
 import { ACCT_SECTIONS, ACCT_SEC_AR, LAUNCH_APPS, ROLES, acctSecKey, EDIT_KINDS, editPermOf, rolePost, roleEdit } from '../../App.jsx';
-import { authApi } from '../../storage';
+import { authApi, ACCESS_MFA_MSG } from '../../storage';
 
 /* v51.9 — صلاحيات التعديل لكل مستخدم (طلب المالك): القيود اليدوية وفواتير الموردين — اختيارية يحددها المسؤول */
 const MODE_AR = { role: 'حسب الدور', allow: 'مسموح', deny: 'ممنوع' };
@@ -14,6 +14,7 @@ function EditPermsCard({ u, commitOrg, say }) {
   const set = (k, patch) => setF(x => ({ ...x, [k]: { ...x[k], ...patch } }));
   const save = async () => {
     const ep = Object.fromEntries(Object.entries(f).filter(([, v]) => v.mode !== 'role' || v.own || v.days).map(([k, v]) => [k, { mode: v.mode, ...(v.own ? { own: true } : {}), ...(v.days ? { days: v.days } : {}) }]));
+    if (u.email && authApi.enabled && await authApi.accessMfaBlocked()) return say(ACCESS_MFA_MSG + ' — من «حسابي ← التحقق بخطوتين» ثم ادخل بالرمز (لم يُحفَظ شيء)', 'no');   // v56.63 (م-1)
     const ok = await commitOrg(d => ({ ...d, users: (d.users || []).map(x => x.id === u.id ? (Object.keys(ep).length ? { ...x, editPerms: ep } : (({ editPerms, ...rest }) => rest)(x)) : x) }), {
       actionType: 'update', targetType: 'user_perms', targetId: u.id, need: 'edit', title: 'حدّد صلاحيات التعديل لمستخدم',
       details: u.name + ' · ' + Object.keys(EDIT_KINDS).map(k => EDIT_KINDS[k] + ': ' + MODE_AR[f[k].mode] + (f[k].own ? ' (ما أدخله فقط)' : '') + (f[k].days ? ' (آخر ' + f[k].days + ' يوم)' : '')).join(' · ') });

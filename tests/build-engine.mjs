@@ -58,6 +58,8 @@ export const ENGINE_EXPORTS = ['depBrRanges', 'depBrAt', 'depBrFrom', 'depBrOf',
   'AI_SVC_MAX_ACCS', 'aiSvcAccList', 'aiSvcLastAcc', 'aiSvcCheck', 'aiSvcLinesEdited',
   // v56.61 — كشوف البنوك (BANK-H-04..08) وفهرس كشوف الجهات (PERF-H-02) ومساعدات التنفيذ القديم في اختبار التطابق
   'ST_DATE_BAD', 'stDateScan', 'stDateNotes', 'stNetMatch', 'stLinesOf', 'stBookAt', 'stFullMatch', 'stRecMemo', 'crLineKey', 'CRS_OVER_TOL', 'csvDelim', 'stHdrWords', 'bpIndex',
+  // v56.63 — م-1 (الخطوتان لإدارة الوصول) وقرار المالك على فواتير المبيعات
+  'siTabOk', 'CORE_SCOPE_MSG', 'accessMfaNeeded', 'ACCESS_MFA_MSG', 'CORE_COLS', 'BR_COLS',
   'posArCustMap', 'cvPosSplit', 'cvPosAllocOk', 'payTotal', 'payLabel', 'eclLive', 'eclR2', 'PAY_ADD_TYPES', 'contactOf', 'PT_TYPE', 'partnerCode', 'invPayments', 'today', 'bankOfBranch', 'monthEnd', 'sum', 'acctCloseDate', 'acctSafeOps', 'CRS_ST'];
 
 export async function buildEngine() {

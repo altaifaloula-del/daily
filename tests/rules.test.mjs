@@ -499,7 +499,9 @@ test('v49.0 G4 نافذة الترحيل: المدير وحده يفتحها ل�
 const fd = (kind, email, over) => ({ kind, date: '2026-11-10', digest: D64, data: '{"lines":[]}', prog: '{}', paid: 0, by: email, at: serverTimestamp(), ...(over || {}) });
 test('v49.0 fin_docs: الإنشاء بعد الإقفال، والمحتوى ثابت ولا يتغير إلا السداد، والسند لا يُعدَّل ولا يُحذف', async () => {
   await finSeed('2026-10-31');
-  await assertSucceeds(setDoc(doc(brA(), 'fin_docs', 'pi_a1'), fd('pi', BR_A)), 'الفرع يسجل فاتورة مورد');
+  // v56.62 (م-2): الفرع لا يكتب السجلات المحمية (مصدرها rms8_core المركزي) — المركزي يسجّل
+  await assertFails(setDoc(doc(brA(), 'fin_docs', 'pi_a0'), fd('pi', BR_A)), 'الكاشير لا يسجّل فاتورة مورد');
+  await assertSucceeds(setDoc(doc(acct(), 'fin_docs', 'pi_a1'), fd('pi', ACCT)), 'المحاسب المركزي يسجّل فاتورة مورد');
   await assertSucceeds(setDoc(doc(acct(), 'fin_docs', 'si_s1'), fd('si', ACCT)));
   await assertSucceeds(setDoc(doc(acct(), 'fin_docs', 'cv_v1'), fd('cv', ACCT)));
   await assertFails(setDoc(doc(acct(), 'fin_docs', 'pi_old'), fd('pi', ACCT, { date: '2026-10-15' })), 'فترة مقفلة');

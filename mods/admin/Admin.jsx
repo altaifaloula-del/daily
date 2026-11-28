@@ -1,6 +1,6 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useEffect } from 'react';
-import { authApi } from '../../storage';
+import { authApi, ACCESS_MFA_MSG } from '../../storage';
 import { SystemMaintenance } from './SystemMaintenance.jsx';
 import { ClaudeLink } from './ClaudeLink.jsx';   // v53.5 ربط Claude (MCP)
 import { ProviderConsole, probeProvider } from './ProviderConsole.jsx';
@@ -15,6 +15,9 @@ export function Admin({ org, ops, me, commit, commitOrg, say }) {
   useEffect(() => { let on = true; if (TENANT.id === 'default' && authApi.enabled) probeProvider().then(v => { if (on) setIsProv(v); }); return () => { on = false; }; }, []);
   const [bEdit, setBEdit] = useState(null);
   const [uEdit, setUEdit] = useState(null);
+  // v56.63 (م-1): تنبيه دائم في شاشة المستخدمين متى كانت إدارة العضويات تتطلب جلسة بخطوتين
+  const [mfaHold, setMfaHold] = useState(false);
+  useEffect(() => { let on = true; if (tab === 'users' && authApi.enabled) authApi.accessMfaBlocked().then(v => { if (on) setMfaHold(!!v); }, () => { }); return () => { on = false; }; }, [tab]);
 
   const saveBranch = async (b) => {
     const isNew = !org.branches.some(x => x.id === b.id);
@@ -37,6 +40,8 @@ export function Admin({ org, ops, me, commit, commitOrg, say }) {
     // تفسير. الصحيح: إنشاء حساب المصادقة أولاً، وعند فشله نوقف الحفظ ونشرح بدقة ماذا يُفعل.
     // v56.3 (V56-019): عند إيقاف التسجيل الذاتي في Firebase يرفض المتصفح الإنشاء، فيُنشأ حساب الدخول
     // من الخادم بحساب الخدمة «بعد» حفظ العضوية (الخادم يشترط أن يكون البريد عضوًا). مع التسجيل مفعّلًا: السلوك السابق كما هو.
+    // v56.63 (م-1): سياسة الخطوتين قائمة وجلستك بلا خطوة ثانية ⇒ الخادم يرفض كتابة العضوية — نوقف قبل أي حفظ (لا حفظ نصفي ولا فشل صامت)
+    if (authApi.enabled && await authApi.accessMfaBlocked()) return say(ACCESS_MFA_MSG + ' — من «حسابي ← التحقق بخطوتين» ثم ادخل بالرمز (لم يُحفَظ شيء)', 'no');
     let viaServer = false; const initPass = u.newPass;
     if (authApi.enabled && isNew && u.newPass) {
       try { await authApi.createUser(email, u.newPass); }
@@ -97,6 +102,7 @@ export function Admin({ org, ops, me, commit, commitOrg, say }) {
     if ((ROLES[u.role] || {}).admin && org.users.filter(x => x.isActive && (ROLES[x.role] || {}).admin).length <= 1) {
       return say('لا يمكن حذف آخر حساب مدير نشط في المنصة', 'no');
     }
+    if (authApi.enabled && await authApi.accessMfaBlocked()) return say(ACCESS_MFA_MSG + ' — من «حسابي ← التحقق بخطوتين» ثم ادخل بالرمز (لم يُحذف شيء)', 'no');   // v56.63
     if (!window.confirm(`سيُحذف حساب «${u.name}» (${u.email}) نهائياً من المنصة، ويصبح بريده متاحاً لإنشاء حساب جديد به. إغلاقاته وسجلاته السابقة تبقى محفوظة في فرعها. هل أنت متأكد؟`)) return;
     await commitOrg(d => ({ ...d, users: d.users.filter(x => x.id !== u.id) }), {
       actionType: 'delete', targetType: 'user_account', targetId: u.id, title: 'حذف مستخدماً', details: `${u.name} — ${u.email}`
@@ -116,6 +122,7 @@ export function Admin({ org, ops, me, commit, commitOrg, say }) {
   const [memSync, setMemSync] = useState(null);
   const syncMembers = async () => {
     if (!authApi.enabled) return say('المصادقة السحابية غير مفعّلة في هذه النسخة', 'no');
+    if (await authApi.accessMfaBlocked()) return say(ACCESS_MFA_MSG + ' — من «حسابي ← التحقق بخطوتين» ثم ادخل بالرمز', 'no');   // v56.63
     setMemSync('busy');
     let ok = 0, fail = 0; const failed = [];
     for (const u of (org.users || [])) {
@@ -197,6 +204,7 @@ export function Admin({ org, ops, me, commit, commitOrg, say }) {
 
       {tab === 'users' && (
         <div className="card">
+          {mfaHold && <div className="note" data-mfahold style={{ marginBottom: 10, borderColor: 'var(--rose)' }}><Lock size={13} /> {ACCESS_MFA_MSG} — سياسة التحقق بخطوتين مفعّلة على المنشأة، فلا يُضاف مستخدم ولا يُعدَّل دوره أو فرعه ولا يُحذف إلا من جلسة دخلت بالرمز (من «حسابي ← التحقق بخطوتين»).</div>}
           <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
             <div className="note" style={{ flex: 1, minWidth: 260 }}>قواعد الخادم تعزل الفروع اعتمادًا على «عضوية» كل حساب (الفرع/النطاق). إن ظهر على جهاز فرع شريط أحمر «لن تُحفظ أي بيانات» أو اختفى حضور/إغلاق بعد إعادة التحميل، اضغط «مزامنة صلاحيات الأعضاء» ثم أعد الدخول على ذلك الجهاز.</div>
             <button className="btn sm" disabled={memSync === 'busy'} onClick={syncMembers} title="إعادة كتابة members/{email} لكل المستخدمين من سجلاتهم هنا"><ShieldCheck size={13} />{memSync === 'busy' ? 'جارٍ المزامنة…' : 'مزامنة صلاحيات الأعضاء'}</button>

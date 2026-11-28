@@ -24,7 +24,7 @@ import { CSS } from './styles';
 import { LoginFx, WelcomeFx, markWelcome, clearWelcome } from './mods/login/LoginFx.jsx';   // v56.5 تجربة الدخول
 import { TX, getLang, setLangGlobal, isEn, domI18n } from './i18n';
 import { tenantFirebase, tenantFbReady, TENANT } from './tenant.js';
-import { cloud, KEYS, kb, authApi, brKey, bfKey, lybKey, pushApi } from './storage';
+import { cloud, KEYS, kb, authApi, brKey, bfKey, lybKey, pushApi, accessMfaNeeded, ACCESS_MFA_MSG } from './storage';
 
 /* ===== v38.3 — تحميل التطبيقات عند الطلب =====
    الحزمة الأولى تحمل الدخول والرئيسية والهيكل فقط؛ كل تطبيق في ملف مستقل يُنزَّل عند فتحه (ثم يُجلب الباقي بهدوء في الخلفية).
@@ -3748,8 +3748,21 @@ function outOfScopeRecords(next, latest, myBrIds) {
   BR_COLS.forEach(c => ((latest || {})[c] || []).forEach(x => seen.add(c + ':' + x.id)));
   const out = [];
   BR_COLS.forEach(c => ((next || {})[c] || []).forEach(x => { if (!seen.has(c + ':' + x.id) && (!x.branchId || !(myBrIds || []).includes(x.branchId))) out.push({ col: c, id: x.id, branchId: x.branchId || '' }); }));
+  // v56.63 (شبكة أمان — قرار المالك): مسار الفرع لا يكتب المستند المركزي أبدًا ⇒ أي إضافة أو تعديل أو حذف في مجموعة مركزية
+  //   (CORE_COLS: فواتير المبيعات والموردين والسندات والقيود…) كان يظهر محليًا ثم يضيع بصمت. نُبلغ به ليُرفض الحفظ صراحةً.
+  CORE_COLS.forEach(c => {
+    const a = (latest || {})[c] || [], b = (next || {})[c] || [];
+    if (a === b) return;
+    const A = new Map(a.map(x => [x && x.id, JSON.stringify(x)])), B = new Set();
+    b.forEach(x => { const k = x && x.id; B.add(k); if (A.get(k) !== JSON.stringify(x)) out.push({ col: c, id: k == null ? '' : k, branchId: (x && x.branchId) || '', core: true }); });
+    a.forEach(x => { const k = x && x.id; if (!B.has(k)) out.push({ col: c, id: k == null ? '' : k, branchId: (x && x.branchId) || '', core: true, removed: true }); });
+  });
   return out;
 }
+// v56.63 — رسالة رفض حفظ سجل مركزي من حساب فرع (لا نجاح صامت)
+const CORE_SCOPE_MSG = 'لم يُحفظ: هذا الإجراء يغيّر سجلات مركزية (فواتير المبيعات أو الموردين أو السندات أو القيود…) لا يحفظها حساب الفرع — يُنفّذه المركز (المالية أو الإدارة)';
+// v56.63 (قرار المالك): شاشة «فواتير المبيعات» للأدوار ذات النطاق الكامل (المركز) فقط — مدير الفرع والإقليمي والكاشير وأي نطاق ≠ all لا يرونها
+const siTabOk = (role) => (ROLES[role] || {}).scope === 'all';
 const roleEdit = (role) => rolePost(role) && !ROLES[role]?.postOnly;
 // v15.12: البوابة الأمنية المركزية — الحارس داخل عملية الحفظ نفسها (دفاع بعمق).
 //   need='post' يتطلب صلاحية الإدخال، need='edit' يتطلب صلاحية التعديل/الإعدادات،
@@ -4247,7 +4260,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.61';
+const APP_VER = 'v56.63';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -4531,7 +4544,10 @@ function PlatformApp() {
       o = await migrateV9(o, oldOps);
     }
     // مزامنة نطاقات الأعضاء (فرع/مركز) مع مستندات العضوية — تعتمد عليها القواعد الخادمية
-    if (authApi.enabled && o.migratedV9 && !o.membersSyncedV9) {
+    // v56.63 (م-1): سياسة خطوتين قائمة وجلسة بلا خطوة ثانية ⇒ القواعد ترفض كتابة العضويات — نؤجّل المزامنة (لا تُعلَّم منجزة) ولا نوقف الإقلاع
+    let memSyncHold = false;
+    if (authApi.enabled && o.migratedV9 && !o.membersSyncedV9) { try { memSyncHold = await authApi.accessMfaBlocked(); } catch { memSyncHold = false; } if (memSyncHold) console.warn('مزامنة العضويات مؤجلة: ' + ACCESS_MFA_MSG); }
+    if (authApi.enabled && o.migratedV9 && !o.membersSyncedV9 && !memSyncHold) {
       try {
         for (const u2 of (o.users || [])) {
           if (!u2.email) continue;
@@ -5045,7 +5061,7 @@ function PlatformApp() {
       // (يظهر محليًا ثم يختفي بعد إعادة التحميل). نرفضه صراحةً.
       if (!ctx.central) {
         const lost = outOfScopeRecords(next, latest, ctx.myBrIds);
-        if (lost.length) { lastWriteErr.current = 'scope'; console.warn('writeOps: سجلات خارج نطاق الفرع لن تُحفظ', lost, ctx.myBrIds); return false; }
+        if (lost.length) { lastWriteErr.current = lost.some(x => x.core) ? 'scopecore' : 'scope'; console.warn('writeOps: سجلات خارج نطاق الفرع لن تُحفظ', lost, ctx.myBrIds); return false; }
       }
       const { core: coreOut, br: brOut } = splitOps(next, ctx.myBrIds);
       // v34.1: تعذّرت قراءة المستند المركزي؟ إن لم يغيّر هذا الحفظ شيئًا فيه (وردية، فاتورة نقطة بيع، إغلاق فرع…)
@@ -5136,6 +5152,7 @@ function PlatformApp() {
       else if (k === 'locked') say('لم يُحفظ: هذا التعديل يغيّر قيودًا في شهر مقفل محاسبيًا 🔒 — الفتح الاستثنائي من المحاسبة ← الإقفال', 'no');
       else if (k === 'denied') say('رفض الخادم حفظ بيانات فرعك (صلاحيات، لا اتصال): عضوية حسابك على الخادم لا تحمل هذا الفرع — اطلب من مسؤول النظام «مزامنة صلاحيات الأعضاء» من الفروع والمستخدمين ثم أعد الدخول', 'no');
       else if (k === 'scope') say('لم يُحفظ: السجل يخص فرعًا خارج نطاق حسابك (أو بلا فرع) — راجع إعداد فرع حسابك', 'no');
+      else if (k === 'scopecore') say(CORE_SCOPE_MSG, 'no');
       else if (String((cloud.lastError || {}).code) === 'read-failed') { const ek = (cloud.lastError || {}).key || ''; const re = cloud.readErr(ek) || {};
         const lbl = ek === KEYS.core ? 'المستند المركزي' : ek.startsWith('rms8:br_') ? 'مستند فرع «' + (((orgNow.current || {}).branches || []).find(b => 'rms8:br_' + b.id === ek) || { name: ek.slice(8) }).name + '»' : ek;
         const det = (/\(([^)]+)\)\s*$/.exec(re.msg || '') || [])[1];
@@ -7652,10 +7669,11 @@ function salesDaySource(ops, branchId, date) {
 
 function SalesHub(props) {
   const [v, setV] = useState('analysis');
+  const siOk = siTabOk(props.me && props.me.role);   // v56.63 قرار المالك: فواتير المبيعات للمركز فقط
   return (
     <div className="grid" style={{ gap: 12 }}>
-      <div className="card" style={{ padding: '9px 13px' }}><SectionNav label="أقسام المبيعات" app="المبيعات" ctl={ctlBarOn(props.org)} cur={v} onPick={setV} items={[{ id: 'analysis', ar: 'تحليل المبيعات', icon: BarChart3 }, { id: 'invoices', ar: 'فواتير المبيعات', icon: FileText }, { id: 'posimp', ar: 'استيراد نقاط البيع', icon: Upload }]} /></div>
-      {v === 'analysis' ? <Sales {...props} /> : v === 'posimp' ? <PosImport {...props} /> : <SalesInvoices {...props} />}
+      <div className="card" style={{ padding: '9px 13px' }}><SectionNav label="أقسام المبيعات" app="المبيعات" ctl={ctlBarOn(props.org)} cur={v} onPick={setV} items={[{ id: 'analysis', ar: 'تحليل المبيعات', icon: BarChart3 }, siOk && { id: 'invoices', ar: 'فواتير المبيعات', icon: FileText }, { id: 'posimp', ar: 'استيراد نقاط البيع', icon: Upload }]} /></div>
+      {v === 'analysis' ? <Sales {...props} /> : v === 'posimp' ? <PosImport {...props} /> : siOk ? <SalesInvoices {...props} /> : <Sales {...props} />}
     </div>
   );
 }
@@ -17699,6 +17717,7 @@ async function qrAnalyzeComments(items) {
 
 // v38.3 — ما تحتاجه ملفات التطبيقات المنفصلة (mods/) من النواة
 export { promoEligible, couponWhy, cpnKey, cpnReserve, cpnRelease, promoDiscPct, promoMarginCheck, LOY_DEF, loyX, loyTier, loyEarnX, loyExpiring, loyPeriodicTx, mktProfiles, rewardCoupon };
+export { siTabOk, CORE_SCOPE_MSG, accessMfaNeeded, ACCESS_MFA_MSG, CORE_COLS };   // v56.63
 export { mktUnmergeBlock, splitOps, composeOps, outOfScopeRecords, MKT_RW_KEY, rwPendSplit, rwUndoTx, MKT_BR_CV, mktBrOn, mktRecBranch, mktMergesLive, MKT_DEF, mktCfg, mktCanApprove, MKT_SEGS, MKT_SEG_ORDER, mktAlias, mktConsentOf, mktCanContact, crmBuild, crmSegment, crmDupes, mktNameKey, mktKpis };
 export { moveIdx, RowGrip, RECUR_AR, recurNext, recurDue };
 export { peekDoc, DocLink, DocPeekHost, VoiceSearchHost, voiceNorm };
