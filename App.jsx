@@ -2423,12 +2423,21 @@ const posGlFrom = (org) => { const o = posGlRanges(org).find(r => !r.to); return
 /** تفصيل فواتير يوم الفرع (بلا الملغاة): الصافي والضريبة والخصومات والاستبدال والنقاط الممنوحة — كلها بعد استبعاد الضريبة */
 /* مراجعة رئيس المحاسبين (2): قيمة النقطة من الفاتورة نفسها (loyalty.pv منذ v56.18)، وللفواتير الأقدم لقطة وقت التفعيل — لا الإعداد الحالي */
 const posGlPv = (org) => { const g = (org && org.posGl) || {}; return Number(g.pv != null ? g.pv : (org && org.loyaltyCfg || {}).ptValue) || 0; };
-function posGlDay(orders, branchId, date, ptValue, rateDef) {
+/* v56.59 (المرحلة H — الأداء): فهرس واحد لفواتير الأيام بدل مسح كل الفواتير لكل إغلاق — كان buildAccounting مع posGl يكلّف (الإغلاقات × الفواتير):
+   1,200 إغلاق × 60 ألف فاتورة ≈ 10 ثوانٍ. الفهرس بالترتيب الأصلي نفسه (والمعرّف المكرر: الأخير يغلب كما كان)، فالنتيجة مطابقة حرفيًا؛ ويُبنى مرة لكل استدعاء للمحرك. */
+function posGlIndex(orders) {
+  const byId = {}, day = new Map();
+  (orders || []).forEach(o => { if (!o) return; if (o.id) byId[o.id] = o;
+    let B = day.get(o.branchId); if (!B) day.set(o.branchId, B = new Map()); let L = B.get(o.date); if (!L) B.set(o.date, L = []); L.push(o); });
+  return { byId, day };
+}
+function posGlDay(orders, branchId, date, ptValue, rateDef, ix) {
   const r2 = (x) => Math.round((Number(x) || 0) * 100) / 100; const pv0 = Number(ptValue) || 0;
-  const byId = {}; (orders || []).forEach(o => { if (o && o.id) byId[o.id] = o; });
+  const byId = ix ? ix.byId : {}; if (!ix) (orders || []).forEach(o => { if (o && o.id) byId[o.id] = o; });
   const pvOf = (o) => { const L = (o && o.loyalty) || {}; if (L.pv != null) return Number(L.pv) || 0; const ref = o && o.refId && byId[o.refId]; if (ref && ref.loyalty && ref.loyalty.pv != null) return Number(ref.loyalty.pv) || 0; return pv0; };
   const out = { n: 0, retN: 0, total: 0, vat: 0, net: 0, disc: 0, redeem: 0, earn: 0 };
-  (orders || []).forEach(o => {
+  const B = ix && ix.day.get(branchId); const src = ix ? ((B && B.get(date)) || []) : (orders || []);
+  src.forEach(o => {
     if (!o || o.branchId !== branchId || o.date !== date || o.status === 'void') return;
     const t = Number(o.total) || 0, v = Number(o.vat) || 0, rate = Number(o.rate != null ? o.rate : rateDef) || 0;
     const k = t ? (t - v) / t : 100 / (100 + rate);   // نسبة الصافي إلى الشامل في الفاتورة نفسها
@@ -2516,10 +2525,10 @@ const posMisLoyAt = (org, d) => posMisLoyRanges(org).some(r => String(d || '') >
 const posGlNote = (org, id) => ((((org && org.posGl) || {}).notes) || {})[id] || '';
 /** تشخيص للصيانة: الإغلاقات في النطاق وهل طابقت فواتير اليوم */
 function posGlCheck(org, ops) {
-  const pv = posGlPv(org), rate = (org.taxCfg || {}).enabled ? Number((org.taxCfg || {}).rate) || 15 : 0;
+  const pv = posGlPv(org), rate = (org.taxCfg || {}).enabled ? Number((org.taxCfg || {}).rate) || 15 : 0; let ix = null;
   return (ops.closings || []).filter(c => countedClosing(c) && posGlAt(org, c.date)).map(c => {
     const tot = (c.cashSales || 0) + (c.cardSales || 0) + (c.bankTransferSales || 0) + sum((c.deliverySales || []).filter(s => (s.amount || 0) > 0), s => s.amount) + (Number(c.creditSales) || 0);   // v56.46 الآجل
-    const d = posGlDay(ops.posOrders || [], c.branchId, c.date, pv, rate);
+    const d = posGlDay(ops.posOrders || [], c.branchId, c.date, pv, rate, ix || (ix = posGlIndex(ops.posOrders || [])));
     const n = d.n + d.retN; return { id: c.id, date: c.date, branchId: c.branchId, branchName: c.branchName || '', tot: Math.round(tot * 100) / 100, pos: d.total, n, st: !n ? 'none' : Math.abs(tot - d.total) < 0.005 ? 'ok' : 'diff', ok: n > 0 && Math.abs(tot - d.total) < 0.005 };
   });
 }
@@ -2550,7 +2559,7 @@ function buildAccounting(org, ops) {
     const net = Math.round(grossAmt / (1 + trate) * 100) / 100;
     return { net, vat: Math.round((grossAmt - net) * 100) / 100 };
   };
-  const accounts = []; const accIx = {};
+  const accounts = []; const accIx = {}; let posGlIx = null;   // v56.59: فهرس فواتير الأيام لـ posGlDay يُبنى مرة واحدة عند أول حاجة
   const addAcc = (code, name, kind, meta) => {
     const a = { code, name, kind, debit: 0, credit: 0, ...(meta || {}) };
     accounts.push(a); accIx[code] = a; return a;
@@ -2742,7 +2751,7 @@ function buildAccounting(org, ops) {
       });
       let sv = splitVat(tot); let pg = null, dMis = null, posGlInv = false;
       if (posGlAt(org, c.date)) {   // v56.18 (POS 6a)
-        const d = posGlDay(ops.posOrders || [], c.branchId, c.date, posGlPv(org), taxOn ? trate * 100 : 0);
+        const d = posGlDay(ops.posOrders || [], c.branchId, c.date, posGlPv(org), taxOn ? trate * 100 : 0, posGlIx || (posGlIx = posGlIndex(ops.posOrders || [])));
         if ((d.n + d.retN) > 0 && Math.abs(tot - d.total) < 0.005) { d.net = Math.round((tot - d.vat) * 100) / 100; pg = d; sv = { net: d.net, vat: d.vat }; posGlLines(d).forEach(([code, dr, cr]) => lines.push(L(code, dr, cr))); }
         else if ((d.n + d.retN) > 0) { posGlInv = true; if (posMisLoyAt(org, c.date)) dMis = d; }   // v56.33 P2 — غير مطابق وله فواتير
       }
