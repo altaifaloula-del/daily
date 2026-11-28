@@ -32,7 +32,7 @@ test('BUG-00-11 (قياس): الطلب ≈ 700 بايت، وفرع بـ150 طل�
   assert.ok(yearMB > 25, 'الإسقاط السنوي ' + yearMB.toFixed(1) + 'MB — يتجاوز ما يصلح لإعادة رفعه مع كل حفظ (انظر G3_POS_ORDERS_SPLIT)');
 });
 
-/* ===== المرحلة H (v56.59) — الأداء بحجم منشأة كبيرة (بيانات اصطناعية حتمية: tests/fixtures/scale-data.mjs) =====
+/* ===== المرحلة H (v56.60) — الأداء بحجم منشأة كبيرة (بيانات اصطناعية حتمية: tests/fixtures/scale-data.mjs) =====
    20 فرعًا × 365 يومًا من الإغلاقات (7,300)، 200 ألف فاتورة نقطة بيع، 50 ألف فاتورة مورد، 5 آلاف أصل، 500 موظف برواتب 12 شهرًا،
    1,000 عميل آجل بـ 5 آلاف فاتورة مبيعات. الحد لكل دالة ≈ 5 أضعاف زمنها المقاس محليًا (docs/testing/PHASE_H_REPORT.md):
    يمرّ على CI أبطأ بمرتين، ويكشف أي تراجع بخمسة أضعاف (مثل عودة مسح كل الفواتير لكل إغلاق). */
@@ -75,7 +75,7 @@ test('الأداء (H): المحرك المحاسبي والقوائم والت�
   assert.deepEqual(over, [], 'تجاوز الحد: ' + over.join(' · '));
 });
 
-test('PERF-H-01 (إصلاح v56.59): فهرس posGlIndex يطابق المسح الكامل حرفيًا — مرتجعات بقيمة نقطة الأصل، ملغاة، معرّف مكرر، فرع آخر، عناصر فارغة', () => {
+test('PERF-H-01 (إصلاح v56.60): فهرس posGlIndex يطابق المسح الكامل حرفيًا — مرتجعات بقيمة نقطة الأصل، ملغاة، معرّف مكرر، فرع آخر، عناصر فارغة', () => {
   const D = '2026-11-10', D2 = '2026-11-11';
   const O = [null, { id: 'a', branchId: 'b1', date: D, status: 'paid', total: 115, vat: 15, rate: 15, loyalty: { earned: 10, redeemAmt: 5, pv: 0.2 }, lines: [{ qty: 1, price: 115 }] },
     { id: 'r1', kind: 'return', refId: 'a', branchId: 'b1', date: D, status: 'paid', total: -57.5, vat: -7.5, loyalty: { ded: 5 } },
@@ -91,7 +91,7 @@ test('PERF-H-01 (إصلاح v56.59): فهرس posGlIndex يطابق المسح �
   for (let k = 0; k < 7300; k += 731) { const c = ops.closings[k]; assert.deepEqual(E.posGlDay(ops.posOrders, c.branchId, c.date, 0.1, 15, big), E.posGlDay(ops.posOrders, c.branchId, c.date, 0.1, 15)); }
 });
 
-test('PERF-H-01 (انحدار): buildAccounting مع posGl لا يعود تربيعيًا — 1,200 إغلاق × 60 ألف فاتورة كان ≈ 10 ثوانٍ قبل v56.59', () => {
+test('PERF-H-01 (انحدار): buildAccounting مع posGl لا يعود تربيعيًا — 1,200 إغلاق × 60 ألف فاتورة كان ≈ 10 ثوانٍ قبل v56.60', () => {
   const S = scaleData({ branches: 10, days: 120, orders: 60000, invoices: 0, assets: 0, employees: 0, suppliers: 1, customers: 0, salesInvoices: 0 });
   const org = { ...S.org, posGl: { on: true, from: S.first } }; let A;
   const t = ms(() => { A = E.buildAccounting(org, S.ops); });

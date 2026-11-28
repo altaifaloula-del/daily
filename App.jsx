@@ -2423,7 +2423,7 @@ const posGlFrom = (org) => { const o = posGlRanges(org).find(r => !r.to); return
 /** تفصيل فواتير يوم الفرع (بلا الملغاة): الصافي والضريبة والخصومات والاستبدال والنقاط الممنوحة — كلها بعد استبعاد الضريبة */
 /* مراجعة رئيس المحاسبين (2): قيمة النقطة من الفاتورة نفسها (loyalty.pv منذ v56.18)، وللفواتير الأقدم لقطة وقت التفعيل — لا الإعداد الحالي */
 const posGlPv = (org) => { const g = (org && org.posGl) || {}; return Number(g.pv != null ? g.pv : (org && org.loyaltyCfg || {}).ptValue) || 0; };
-/* v56.59 (المرحلة H — الأداء): فهرس واحد لفواتير الأيام بدل مسح كل الفواتير لكل إغلاق — كان buildAccounting مع posGl يكلّف (الإغلاقات × الفواتير):
+/* v56.60 (المرحلة H — الأداء): فهرس واحد لفواتير الأيام بدل مسح كل الفواتير لكل إغلاق — كان buildAccounting مع posGl يكلّف (الإغلاقات × الفواتير):
    1,200 إغلاق × 60 ألف فاتورة ≈ 10 ثوانٍ. الفهرس بالترتيب الأصلي نفسه (والمعرّف المكرر: الأخير يغلب كما كان)، فالنتيجة مطابقة حرفيًا؛ ويُبنى مرة لكل استدعاء للمحرك. */
 function posGlIndex(orders) {
   const byId = {}, day = new Map();
@@ -2559,7 +2559,7 @@ function buildAccounting(org, ops) {
     const net = Math.round(grossAmt / (1 + trate) * 100) / 100;
     return { net, vat: Math.round((grossAmt - net) * 100) / 100 };
   };
-  const accounts = []; const accIx = {}; let posGlIx = null;   // v56.59: فهرس فواتير الأيام لـ posGlDay يُبنى مرة واحدة عند أول حاجة
+  const accounts = []; const accIx = {}; let posGlIx = null;   // v56.60: فهرس فواتير الأيام لـ posGlDay يُبنى مرة واحدة عند أول حاجة
   const addAcc = (code, name, kind, meta) => {
     const a = { code, name, kind, debit: 0, credit: 0, ...(meta || {}) };
     accounts.push(a); accIx[code] = a; return a;
@@ -4077,7 +4077,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.59';
+const APP_VER = 'v56.60';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };

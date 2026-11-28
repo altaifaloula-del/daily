@@ -304,7 +304,7 @@ test('تحميل بيانات الإرسال: الأعمدة الإضافية و
   assert.equal(D0.ops.commsJobs, undefined); assert.equal(D0.ops.mktConsents, undefined); assert.equal(D0.loy, undefined, 'الموصل كما كان');
 });
 
-/* ===== المرحلة H (v56.59) — التزامن: اعتماد وإرسال متزامنان للدفعة نفسها ===== */
+/* ===== المرحلة H (v56.60) — التزامن: اعتماد وإرسال متزامنان للدفعة نفسها ===== */
 test('التزامن (H): اعتمادان متزامنان من المالك والمدير العام للدفعة نفسها ⇒ يُقبل واحد و«اعتُمدت سابقًا» للآخر، وسجل اعتماد واحد', async () => {
   const H = harness();
   assert.equal((await H.call('mk', { jobId: 'j1' }, 'submit')).status, 200);
