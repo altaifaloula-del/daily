@@ -1,6 +1,7 @@
 /**
  * v56.62 — إغلاق الحدّين المعلنين م-1 وم-2 في دستور الأمان (tests/security/CONSTITUTION.md) على محاكي Firestore:
- *  • م-1: مدير المنصة لا يُضعف سياسة الخطوتين القائمة، ولا يعدّل قائمة المدراء، ولا يكتب العضويات دون جلسة تجتاز السياسة.
+ *  • م-1: مدير المنصة لا يُضعف سياسة الخطوتين القائمة، ولا يعدّل قائمة المدراء، ولا يكتب العضويات دون جلسة بخطوتين
+ *         متى وُجدت سياسة غير فارغة (تُلزم المدراء أو أي دور) — v56.63 قرار المجلس الخيار أ.
  *         بلا سياسة (أو بسياسة فارغة) يبقى كل شيء كما كان، وتمهيد أول مالك لمنشأة جديدة يعمل.
  *  • م-2: السجلات المحمية fin_docs (فواتير الموردين والمبيعات والسندات) يكتبها من يكتب مصدرها rms8_core فقط:
  *         المركزي غير «العرض فقط» أو المدير. الكاشير ومدير الفرع والإقليمي مرفوضون إنشاءً وسدادًا وحذفًا.
@@ -103,15 +104,32 @@ test('م-1/د المدير بجلسة بخطوتين يفعل كل شيء: ال�
   } finally { await unseed('platform', 'security'); await resetAdmins(); }
 });
 
-test('م-1/هـ سياسة لدور فقط (المدراء غير مُلزمين): تعديلها أو إطفاؤها يتطلب الخطوة الثانية؛ والعضويات بـ mfaOk كما في بقية القواعد', async () => {
+test('م-1/هـ سياسة لدور فقط (المدراء غير مُلزمين): تعديلها أو إطفاؤها يتطلب الخطوة الثانية', async () => {
   await policy({ admins: false, roles: ['finance_department'] });
   try {
     await assertFails(setDoc(doc(as('owner'), 'platform', 'security'), { roles: [], admins: false, at: 5 }), 'إطفاء سياسة دور بلا خطوة ثانية');
     await assertFails(setDoc(doc(as('owner'), 'platform', 'security'), { roles: ['finance_department', 'cashier'], admins: false, at: 5 }), 'حتى التشديد بلا خطوة ثانية');
     await assertSucceeds(setDoc(doc(as2fa('owner'), 'platform', 'security'), { roles: [], admins: false, at: 6 }), 'بالخطوة الثانية');
-    await policy({ admins: false, roles: ['finance_department'] });
-    // mfaOk: المدير غير مشمول بالسياسة ⇒ غير مُلزم (السلوك نفسه في platform/release وclient_errors وfin_periods)
-    await assertSucceeds(setDoc(doc(as('owner'), 'members', U.cash), { at: 6 }, { merge: true }), 'المدير غير المشمول');
+  } finally { await unseed('platform', 'security'); await resetAdmins(); }
+});
+
+test('م-1/هـ2 v56.63 (قرار المجلس الخيار أ) PoC: سياسة لدور فقط ⇒ المدير بلا خطوة ثانية لا يضيف مديرًا ولا يكتب عضوية', async () => {
+  await policy({ admins: false, roles: ['finance_department'] });
+  try {
+    const o = as('owner');
+    await assertFails(updateDoc(doc(o, 'platform', 'admins'), { emails: arrayUnion(U.evil) }), 'إضافة بريد مدير');
+    await assertFails(deleteDoc(doc(o, 'platform', 'admins')), 'حذف قائمة المدراء');
+    await assertFails(setDoc(doc(o, 'members', U.evil), { email: U.evil, active: true, role: 'system_admin', scope: 'all', at: 1 }), 'عضوية جديدة');
+    await assertFails(setDoc(doc(o, 'members', U.cash), { role: 'finance_department', scope: 'all' }, { merge: true }), 'تغيير دور');
+    await assertFails(setDoc(doc(o, 'members', U.cash), { at: 6 }, { merge: true }), 'حتى لمسة بلا تغيير دور (مزامنة الواجهة)');
+    await assertFails(deleteDoc(doc(o, 'members', U.bm)), 'حذف عضوية');
+    // المدير غير المشمول ما زال يقرأ ويعمل بلا خطوة ثانية خارج إدارة الوصول
+    await assertSucceeds(getDoc(doc(o, 'members', U.cash)), 'يقرأ العضويات');
+    await assertSucceeds(getDoc(doc(o, 'platform', 'admins')), 'يقرأ قائمة المدراء');
+    const o2 = as2fa('owner');
+    await assertSucceeds(updateDoc(doc(o2, 'platform', 'admins'), { emails: arrayUnion(U.gm) }), 'بخطوتين: إضافة مدير');
+    await assertSucceeds(setDoc(doc(o2, 'members', 'new3@test.com'), { email: 'new3@test.com', active: true, role: 'cashier', scope: 'branch', branchId: 'A', at: 1 }), 'بخطوتين: عضوية جديدة');
+    await assertSucceeds(setDoc(doc(o2, 'members', U.cash), { role: 'cashier', at: 7 }, { merge: true }), 'بخطوتين: تغيير دور');
   } finally { await unseed('platform', 'security'); await resetAdmins(); }
 });
 
