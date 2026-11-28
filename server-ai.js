@@ -4,13 +4,13 @@
  *  • الهوية قبل قراءة الجسم: طلب بلا هوية بجسم كبير ⇒ 401 دون تشغيل محلّل JSON، ويسبقها حد لكل عنوان IP.
  *  • حد للمنشأة مجتمعة لكل ساعة (AI_TENANT_PER_HOUR، افتراضيًا 120) مشترك بين المسارات الثلاثة — كحد limT في قراءة الفواتير —
  *    فوق حد المستخدم (AI_RATE_LIMIT_PER_HOUR، افتراضيًا 30) — لا تستنزف منشأة واحدة رصيد المزوّد مهما تعدد مستخدموها.
- *  • التحليل المالي ومساعد النمو للأدوار المركزية وحدها (النطاق «all» في ROLES — مثل centralOf في القواعد) أو مدير المنصة (platform/admins)؛
+ *  • التحليل المالي ومساعد النمو للأدوار المركزية وحدها (النطاق «all» في ROLES — مثل centralOf في القواعد — عدا دور العرض فقط) أو مدير المنصة (platform/admins)؛
  *    تحليل التعليقات كما كان (أي عضو).
  * ai({ system, user, maxTokens }) ⇒ كائن JSON (callClaude في server.js) — يُحقن فتُختبر الحراسات بلا نداء Anthropic.
  */
 const ISSUES = ['وقت الخدمة', 'جودة الطعام', 'الأسعار', 'النظافة', 'الخدمة', 'المكان'];
-/** الأدوار المركزية = كل دور نطاقه «all» في ROLES (App.jsx) — اختبار انجراف في tests/ai-routes.test.mjs */
-export const AI_CENTRAL_ROLES = Object.freeze(['head_office', 'system_admin', 'cost_controller', 'general_management', 'finance_department', 'accountant', 'accountant_view']);
+/** الأدوار المركزية = كل دور نطاقه «all» في ROLES (App.jsx) عدا دور العرض فقط readOnly (قرار المجلس: لا إجراء بكلفة لدور العرض) — مطابقة AI_CENTRAL_ROLES في App.jsx، واختبار انجراف في tests/security-59.test.mjs */
+export const AI_CENTRAL_ROLES = Object.freeze(['head_office', 'system_admin', 'cost_controller', 'general_management', 'finance_department', 'accountant']);
 
 export function mountAiRoutes(app, { express, requireMember, requireFeature, rateLimit, ai, tenantOf, adminCheck = async () => false, open = false, env = process.env }) {
   const aiJson = express.json({ limit: '1mb' });

@@ -20,7 +20,7 @@ before(async () => { E = await buildEngine(); });
 const realLimit = () => { const B = new Map(); return ({ max, keyFn }) => (req, res, next) => { const k = (keyFn ? keyFn(req) : '') || req.ip || 'anon'; const n = (B.get(k) || 0) + 1; B.set(k, n); if (n > max) return res.status(429).json({ error: 'طلبات كثيرة' }); next(); }; };
 const USERS = { 'tok-admin': { email: 'admin@example.sa', role: 'system_admin', tenant: 'default' }, 'tok-acc': { email: 'acc@example.sa', role: 'accountant', tenant: 'default' },
   'tok-reg': { email: 'reg@example.sa', role: 'regional_manager', tenant: 'default' }, 'tok-reg2': { email: 'reg2@example.sa', role: 'regional_manager', tenant: 'default' },
-  'tok-bm': { email: 'bm@example.sa', role: 'branch_manager', tenant: 'default' }, 'tok-cash': { email: 'c@example.sa', role: 'cashier', tenant: 'default' } };
+  'tok-bm': { email: 'bm@example.sa', role: 'branch_manager', tenant: 'default' }, 'tok-cash': { email: 'c@example.sa', role: 'cashier', tenant: 'default' }, 'tok-view': { email: 'v@example.sa', role: 'accountant_view', tenant: 'default' } };
 const requireMember = (req, res, next) => { const m = /^Bearer\s+(.+)$/i.exec(String(req.headers.authorization || '')); if (!m) return res.status(401).json({ error: 'يلزم تسجيل الدخول' });
   const u = USERS[m[1]]; if (!u) return res.status(403).json({ error: 'لا صلاحية' }); req.user = u; next(); };
 const T = loadTenants({ FIREBASE_API_KEY: 'AIzaSy' + 'a'.repeat(33), FIREBASE_PROJECT_ID: 'demo-prod' });
@@ -111,10 +111,17 @@ test('كلفة الذكاء الاصطناعي: التحليل المالي وم
   assert.equal((await H.call('/api/ai/analyze', 'tok-acc', {})).status, 400);
 });
 
-test('انجراف: الأدوار المركزية للذكاء الاصطناعي = كل دور نطاقه «all» في ROLES', () => {
-  const central = Object.entries(E.ROLES).filter(([, r]) => r.scope === 'all').map(([k]) => k).sort();
+test('انجراف: الأدوار المركزية للذكاء الاصطناعي = كل دور نطاقه «all» في ROLES عدا العرض فقط — والخادم والواجهة متطابقان', async () => {
+  const central = Object.entries(E.ROLES).filter(([, r]) => r.scope === 'all' && !r.readOnly).map(([k]) => k).sort();
   assert.deepEqual([...AI_CENTRAL_ROLES].sort(), central);
-  assert.ok(!AI_CENTRAL_ROLES.includes('regional_manager') && !AI_CENTRAL_ROLES.includes('branch_manager'));
+  assert.deepEqual([...E.AI_CENTRAL_ROLES].sort(), central, 'الواجهة = الخادم');
+  for (const r of ['regional_manager', 'branch_manager', 'cashier', 'accountant_view']) { assert.ok(!AI_CENTRAL_ROLES.includes(r), r); assert.equal(E.aiCentralOk({ role: r }), false, r); }
+  assert.ok(AI_CENTRAL_ROLES.includes('cost_controller')); assert.equal(E.aiCentralOk({ role: 'head_office' }), true); assert.equal(E.aiCentralOk(null), false);
+  const H = aiHarness(); assert.equal((await H.call('/api/ai/growth', 'tok-view', DIG)).status, 403, 'العرض فقط لا يستهلك');
+  // الواجهة: المساعد الذكي في التسويق والنمو مخفي لغير المركزي؛ ومدخل «المركز الذكي» (تبويب ai) ليس في تبويبات أي دور غير مركزي
+  const fs = await import('node:fs'); const mg = fs.readFileSync(new URL('../mods/mkt/MktGrowth.jsx', import.meta.url), 'utf8');
+  assert.match(mg, /\.filter\(\(\[k\]\) => k !== 'ai' \|\| aiCentralOk\(me\)\)/); assert.match(mg, /view === 'ai' && aiCentralOk\(me\) && <Ai /);
+  for (const [k, r] of Object.entries(E.ROLES)) if (!E.aiCentralOk({ role: k })) assert.ok(!(r.tabs || []).includes('ai'), k + ': لا مدخل للمركز الذكي');
 });
 
 /* ===== فحص الإعدادات ===== */
