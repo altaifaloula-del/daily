@@ -68,3 +68,16 @@ test('ملف السجل من sdkconfig — والسجل المنشور كله ص
   const dir = path.join(root, 'public', 'tenants');
   for (const f of fs.readdirSync(dir).filter(f => f.endsWith('.json'))) { const c = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); assert.equal(c.id + '.json', f); assert.equal(tenantConfigError(c), '', f); assert.ok(!/secret|private|password/i.test(JSON.stringify(c)), f + ': لا أسرار'); }
 });
+
+test('v56.59 — سكربت التهيئة: بريد المالك صارم، والاسم مقتبس اقتباسًا مفردًا في كل أمر', async () => {
+  const { execFileSync } = await import('node:child_process');
+  for (const owner of ['a$(cmd)@x.co', 'a`id`@x.co', "a'b@x.co", 'a;b@x.co', 'a"b@x.co']) {
+    assert.ok(validateArgs({ id: 'client2', name: 'مطعم', plan: 'pro', owner }).some(e => /--owner/.test(e)), owner);
+    assert.throws(() => provisionPlan({ id: 'client2', name: 'مطعم', plan: 'pro', owner }), /--owner/);
+  }
+  const name = `Ev'il "$(id)" \`id\`; rm -rf ~ | x`;
+  const P = provisionPlan({ id: 'client2', name, plan: 'pro', owner: 'o@c.sa' });
+  const reg = P.find(s => /إضافة المنشأة إلى السجل/.test(s.t)).cmd[0];
+  const argv = execFileSync('sh', ['-c', reg.replace(/^node scripts\/tenant-provision\.mjs/, "printf '%s\\0'")], { encoding: 'utf8' }).split('\0').slice(0, -1);
+  assert.equal(argv[argv.indexOf('--name') + 1], name); assert.equal(argv[argv.indexOf('--owner') + 1], 'o@c.sa'); assert.equal(argv.length, 11);
+});

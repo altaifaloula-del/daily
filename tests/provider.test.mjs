@@ -11,12 +11,12 @@ const tok = (claims) => 'Bearer h.' + Buffer.from(JSON.stringify(claims)).toStri
 const MFA = { firebase: { sign_in_second_factor: 'totp' } };
 const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 1024 });
 const SA = JSON.stringify({ client_email: 'ops@mithqal-c2.iam.gserviceaccount.com', private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }), project_id: 'mithqal-c2' });
-const ENV = { FIREBASE_API_KEY: 'AIzaSy' + 'a'.repeat(33), FIREBASE_PROJECT_ID: 'altaif-prod', FB_C2: 'AIzaSy' + 'b'.repeat(33), FB_C3: 'AIzaSy' + 'c'.repeat(33), SA_C2: SA,
+const ENV = { FIREBASE_API_KEY: 'AIzaSy' + 'a'.repeat(33), FIREBASE_PROJECT_ID: 'demo-prod', FB_C2: 'AIzaSy' + 'b'.repeat(33), FB_C3: 'AIzaSy' + 'c'.repeat(33), SA_C2: SA,
   MQ_TENANTS_JSON: JSON.stringify([{ id: 'c2', projectId: 'mithqal-c2', apiKeyEnv: 'FB_C2', plan: 'pro', saEnv: 'SA_C2' }, { id: 'c3', projectId: 'mithqal-c3', apiKeyEnv: 'FB_C3', plan: 'basic' }]) };
 
 function harness({ env = { MQ_PROVIDER_ADMINS: 'boss@mithqal.sa' }, controlReady = true } = {}) {
   const routes = {}; const app = { get: (p, ...h) => (routes['GET ' + p] = h), post: (p, ...h) => (routes['POST ' + p] = h) };
-  const users = { boss: { email: 'boss@mithqal.sa', tenant: 'default', role: 'system_admin' }, bossC2: { email: 'boss@mithqal.sa', tenant: 'c2', role: 'system_admin' }, taif: { email: 'o@altaif.sa', tenant: 'default', role: 'system_admin' } };
+  const users = { boss: { email: 'boss@mithqal.sa', tenant: 'default', role: 'system_admin' }, bossC2: { email: 'boss@mithqal.sa', tenant: 'c2', role: 'system_admin' }, taif: { email: 'o@example.sa', tenant: 'default', role: 'system_admin' } };
   const requireMember = (req, res, next) => { const u = users[req.who]; if (!u) return res.status(401).json({}); req.user = u; next(); };
   const store = memoryStore(), T = loadTenants(ENV), fetched = [];
   const fetchImpl = async (u, i) => { fetched.push(i.method + ' ' + u);
@@ -95,14 +95,38 @@ test('التسجيل العام: تحقق المدخلات، الروبوت لا
   assert.equal((await H.call('POST /api/signup', { body: B })).json.dup, true); assert.equal((await H.store.listSignups()).length, 1);
   assert.equal((await harness({ controlReady: false }).call('POST /api/signup', { body: B })).status, 503);
   const d = (await H.call('POST /api/provider/signups/decide', { who: 'boss', body: { id: 'S00001', status: 'approved' } })).json;
-  assert.equal(d.signup.tenantId, 'burger-house-001'); assert.equal(d.cmd, 'node scripts/tenant-provision.mjs plan --id burger-house-001 --name "Burger House" --plan pro --owner own@bh.sa');
+  assert.equal(d.signup.tenantId, 'burger-house-001'); assert.equal(d.cmd, "node scripts/tenant-provision.mjs plan --id burger-house-001 --name 'Burger House' --plan pro --owner 'own@bh.sa'");
   assert.equal((await H.call('POST /api/provider/signups/decide', { who: 'boss', body: { id: 'S00001', status: 'rejected' } })).status, 409, 'قرار واحد');
   const evil = { ...B, email: 'e@bh.sa', company: 'X"; rm -rf / `id` $(x)' }; const r2 = (await H.call('POST /api/signup', { body: evil })).json;
-  const d2 = (await H.call('POST /api/provider/signups/decide', { who: 'boss', body: { id: r2.id, status: 'approved' } })).json; assert.doesNotMatch(d2.cmd, /[`$]|"; /, 'الأمر المقترح لا يحمل حقنًا');
+  const d2 = (await H.call('POST /api/provider/signups/decide', { who: 'boss', body: { id: r2.id, status: 'approved' } })).json; assert.ok(d2.cmd.includes(" --name 'X\"; rm -rf / `id` $(x)' "), 'الأمر المقترح يقتبس الاسم اقتباسًا مفردًا فلا يُنفَّذ منه شيء (v56.59 — يُشغَّل فعليًا في الاختبار التالي)');
 });
 
 test('حساب الخدمة التشغيلي: يُقبل لمشروعه فقط', () => {
   const T = loadTenants({ ...ENV, SA_C2: JSON.stringify({ client_email: 'x@y', private_key: 'k', project_id: 'other' }) });
   assert.equal(T.byId('c2').sa, null); assert.match(T.errors.join(), /لا يطابق المشروع/);
   assert.equal(isProvider({ admins: ['a@b.sa'], mfa: false }, { user: { email: 'A@b.sa', tenant: 'default' }, headers: {} }), true);
+});
+
+test('v56.59 — التسجيل العام: بريد بصيغة صارمة فقط، والأمر المولَّد مقتبس فلا يُنفَّذ فيه رمز صدفة', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const base = { company: 'مطعم ب', contact: 'أحمد علي', phone: '0501234567' };
+  for (const email of ['a$(cmd)@x.co', 'a`id`@x.co', "a'b@x.co", 'a"b@x.co', 'a;b@x.co', 'a b@x.co', 'a|b@x.co', 'a@x', 'a@x.c0', 'a&b@x.co', 'a>b@x.co'])
+    assert.match(validateSignup({ ...base, email }).error || '', /البريد/, email);
+  assert.equal(validateSignup({ ...base, email: 'First.Last+1%x_y-z@sub.Example-1.co' }).v.email, 'first.last+1%x_y-z@sub.example-1.co');
+  const H = harness();
+  const B = { contact: 'أحمد علي', phone: '0501234567', plan: 'pro', branches: 1 };
+  const evils = ["X'; touch /tmp/pwn; echo '", 'Y"; rm -rf / `id` $(id) ${HOME} \\ ; | & > <', 'Z\n$(id)'];
+  let i = 0;
+  for (const company of evils) {
+    const r = (await H.call('POST /api/signup', { body: { ...B, company, email: 'e' + (i++) + '@bh.sa' } })).json;
+    const d = (await H.call('POST /api/provider/signups/decide', { who: 'boss', body: { id: r.id, status: 'approved' } })).json;
+    assert.match(d.cmd, /^node scripts\/tenant-provision\.mjs plan /);
+    // تشغيل الأمر المولَّد فعليًا في sh مع استبدال البرنامج بطباعة الوسائط: الاسم يصل حرفيًا وسيطًا واحدًا
+    const argv = execFileSync('sh', ['-c', d.cmd.replace(/^node scripts\/tenant-provision\.mjs/, "printf '%s\\0'")], { encoding: 'utf8' }).split('\0').slice(0, -1);
+    assert.equal(argv[argv.indexOf('--name') + 1], company.replace(/[\u0000-\u001f]/g, ' ').slice(0, 120));
+    assert.equal(argv.length, 9, 'لا وسائط إضافية'); assert.equal(argv[argv.indexOf('--owner') + 1], 'e' + (i - 1) + '@bh.sa');
+  }
+  // طلب قديم ببريد لا يطابق الصيغة الصارمة ⇒ لا أمر تهيئة
+  await H.store.putSignup({ id: 'S09999', seq: 9999, company: 'Old', email: 'a$(id)@x.co', plan: 'pro', status: 'new' });
+  assert.equal((await H.call('POST /api/provider/signups/decide', { who: 'boss', body: { id: 'S09999', status: 'approved' } })).status, 409);
 });

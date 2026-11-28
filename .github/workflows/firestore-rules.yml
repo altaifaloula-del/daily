@@ -6,6 +6,10 @@ on:
     paths: ['firestore.rules', 'firestore.indexes.json', 'tests/**']
   workflow_dispatch:
 
+# v56.59 (تدقيق H): أقل صلاحية لرمز GitHub — القراءة فقط (النشر بحساب خدمة Firebase لا برمز GitHub)
+permissions:
+  contents: read
+
 jobs:
   # ===== مانع فعلي: القواعد لا تُنشَر أبداً إن رسبت اختبارات المحاكي =====
   test:

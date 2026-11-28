@@ -13,8 +13,8 @@ const out = path.join(path.dirname(new URL(import.meta.url).pathname), '.cache',
 await buildMcpEngine(out); const E = await import(out); fs.unlinkSync(out);
 
 const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 1024 });
-const SA = JSON.stringify({ client_email: 'ops@altaif-prod.iam.gserviceaccount.com', private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }), project_id: 'altaif-prod' });
-const ENV = { FIREBASE_API_KEY: 'AIzaSy' + 'a'.repeat(33), FIREBASE_PROJECT_ID: 'altaif-prod', FIREBASE_SERVICE_ACCOUNT: SA };
+const SA = JSON.stringify({ client_email: 'ops@demo-prod.iam.gserviceaccount.com', private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }), project_id: 'demo-prod' });
+const ENV = { FIREBASE_API_KEY: 'AIzaSy' + 'a'.repeat(33), FIREBASE_PROJECT_ID: 'demo-prod', FIREBASE_SERVICE_ACCOUNT: SA };
 const ORG = { company: { name: 'شركة الطيف الأولى', taxNumber: '312703692100003' }, taxCfg: { enabled: true, rate: 15 }, branches: [{ id: 'b1', name: 'طيبة' }, { id: 'b2', name: 'النسيم' }],
   suppliers: [{ id: 's1', name: 'مكين' }], accCls: { 5198: 'pur' } };
 const OPS = { invoices: [
@@ -42,7 +42,7 @@ function harness({ env = ENV, role = 'system_admin', memberRole = 'system_admin'
         if (u.includes('exists=true') && !store[col][id]) return J(404, {}); if (u.includes('exists=false') && store[col][id]) return J(409, {}); store[col][id] = { ...(store[col][id] || {}), ...f }; return J(200, {}); }
       return store[col][id] ? J(200, { fields: enc(store[col][id]), updateTime: '2026-01-01T00:00:00Z' }) : J(404, {}); }
     return J(404, {}); };
-  const user = { email: 'o@altaif.sa', role, tenant: 'default' };
+  const user = { email: 'o@example.sa', role, tenant: 'default' };
   const requireMember = (req, res, next) => { req.user = user; next(); };
   let t = 1_800_000_000_000;
   mountMcp(app, { audit, express: { json: () => (q, r, n) => n() }, requireMember, rateLimit: () => (q, r, n) => n(), T: loadTenants(env), fetchImpl, engine: E, now: () => t,
@@ -59,7 +59,7 @@ test('إنشاء رابط: لمسؤول النظام فقط، يُخزَّن ب�
   const r = await H.call('POST /api/mcp/links', { body: { label: 'هاتفي' } });
   assert.equal(r.status, 200); assert.match(r.json.url, /^https:\/\/mithqal\.onrender\.com\/mcp\/mq_default_[A-Za-z0-9_-]{43}$/);
   const tok = r.json.url.split('/mcp/')[1]; const h = hashToken(tok);
-  assert.equal(r.json.id, h); assert.ok(H.store.mcp_tokens[h]); assert.equal(H.store.mcp_tokens[h].email, 'o@altaif.sa');
+  assert.equal(r.json.id, h); assert.ok(H.store.mcp_tokens[h]); assert.equal(H.store.mcp_tokens[h].email, 'o@example.sa');
   assert.ok(!JSON.stringify(H.store).includes(tok), 'الرمز نفسه لا يُخزَّن'); assert.ok(!H.logs.join('\n').includes(tok) && !H.sent.some(s => String(s.body || '').includes(tok)));
   const L = await H.call('GET /api/mcp/links'); assert.equal(L.json.links.length, 1); assert.equal(L.json.links[0].label, 'هاتفي'); assert.equal(L.json.links[0].hint, tok.slice(-4));
   assert.equal((await harness({ role: 'accountant' }).call('POST /api/mcp/links', { body: {} })).status, 403);
@@ -115,8 +115,8 @@ test('الرابط الملغى أو صاحب الدور المتغير أو ا�
 test('v53.6 مشروع البيانات من ملف حساب الخدمة دون FIREBASE_PROJECT_ID — ولا يمس توجيه التحقق من الدخول', () => {
   const T = loadTenants({ ...ENV, FIREBASE_PROJECT_ID: '' });
   assert.equal(T.def.projectId, '', 'التحقق من الدخول كما كان');
-  assert.equal(T.def.dataProject, 'altaif-prod'); assert.ok(T.def.sa && T.def.sa.private_key);
-  const T2 = loadTenants(ENV); assert.equal(T2.def.dataProject, 'altaif-prod');
+  assert.equal(T.def.dataProject, 'demo-prod'); assert.ok(T.def.sa && T.def.sa.private_key);
+  const T2 = loadTenants(ENV); assert.equal(T2.def.dataProject, 'demo-prod');
   const T3 = loadTenants({ ...ENV, FIREBASE_PROJECT_ID: 'other-proj' }); assert.equal(T3.def.sa, null, 'ملف من مشروع آخر يُرفض');
 });
 
@@ -216,6 +216,6 @@ test('v54.6 نطاق الفروع للرابط: يرى فروعه فقط، لا 
   const c = await call('propose_journal_entry', { date: '2026-02-01', title: 'مركزي', lines: [{ code: '5198', debit: 1 }, { code: '1101', credit: 1 }] }); assert.equal(c.json.result.isError, true); assert.match(c.json.result.content[0].text, /مقيّد بفروع/);
   const o = await call('propose_journal_entry', { date: '2026-02-01', title: 'طيبة', branch: 'طيبة', lines: [{ code: '5198', debit: 1 }, { code: '1101', credit: 1 }] }); assert.equal(o.json.result.isError, true, 'فرع خارج النطاق'); assert.match(o.json.result.content[0].text, /فرع غير معروف/);
   assert.ok(A.some(x => x.kind === 'mcp' && x.name === 'search_invoices' && x.ok && /نطاق: 1 فرع/.test(x.detail)));
-  assert.ok(A.some(x => x.kind === 'proposal' && x.ok === false)); assert.ok(A.every(x => x.by === 'o@altaif.sa' && x.tid === 'default'));
+  assert.ok(A.some(x => x.kind === 'proposal' && x.ok === false)); assert.ok(A.every(x => x.by === 'o@example.sa' && x.tid === 'default'));
   const D = { org: ORG, ops: OPS }; assert.equal(mcpScope(D, []), D); const S = mcpScope(D, ['b1']); assert.deepEqual(S.org.branches.map(b => b.id), ['b1']); assert.equal(S.ops.invoices.length, 1); assert.equal(mcpScope(D, ['b1']), S, 'مخبأ');
 });

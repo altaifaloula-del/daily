@@ -11,6 +11,11 @@ export const DEFAULT_TENANT_ID = 'default';
 export const PLANS = ['basic', 'pro', 'enterprise'];
 // المناطق المعتمدة لبيانات العملاء الجدد — الدمام أولًا (نظام حماية البيانات الشخصية)
 export const TENANT_REGIONS = ['me-central2'];
+// v56.59 — بريد صارم لكل ما يدخل أمرًا مولَّدًا (التسجيل العام وسكربت التهيئة): لا مسافة ولا علامة اقتباس ولا رمز صدفة
+export const STRICT_EMAIL = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+export const okStrictEmail = (v) => typeof v === 'string' && v.length <= 254 && STRICT_EMAIL.test(v);
+/** اقتباس صدفة POSIX مفرد: القيمة حرفية بالكامل — لا $() ولا `` ولا ; ولا توسيع داخلها */
+export const shq = (v) => "'" + String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/'/g, "'\\''") + "'";
 
 const S = (v) => (typeof v === 'string' ? v.trim() : '');
 const okId = (v) => /^[a-z0-9][a-z0-9-]{1,39}$/.test(v);

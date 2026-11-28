@@ -5043,6 +5043,34 @@ test('v56.56 قرارات المالك والمجلس: فحص الفجوات ب�
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v56.59 «إبقاء الكل» لتعارضات نقطة البيع: زر واحد لمدير الفرع، سجل لكل تعارض، وفاتورته تُتخطّى بسببها — والمساعد الذكي مخفي لغير المركزي', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/PosApp/bm');
+  const d = await p.evaluate(() => new Date().toISOString().slice(0, 10)), AT = d + 'T10:00:00Z';
+  await p.evaluate(({ d, AT }) => { window.setOrg(g => ({ ...g, posCfg: { branches: ['b1'], autoPrint: false, tables: { b1: 6 }, offline: true }, posPromos: [] }));
+    const o = (id, no, by, x) => ({ id, no, branchId: 'b1', date: d, at: AT, kind: 'sale', status: 'paid', by, total: 50, vat: 6.52, lines: [], payments: [{ m: 'cash', amount: 50 }], ...x });
+    const cf = (orderId, orderNo) => ({ orderId, orderNo, at: AT, total: 50, partId: '', why: 'الحساب لم يعد مفتوحًا', off: true });
+    window.setOps(x => ({ ...x, closings: x.closings.filter(c => c.branchId !== 'b1'), posOrders: [o('cx', 'ف1-X-0001', 'كاشير ب'), o('cy', 'ف1-Y-0001', 'خالد', { byId: 'u3' })],
+      posTabs: [{ id: 'tc', branchId: 'b1', table: '5', status: 'paid', closedAt: AT, conflicts: [cf('cx', 'ف1-X-0001')] }, { id: 'td', branchId: 'b1', table: '6', status: 'paid', closedAt: AT, conflicts: [cf('cy', 'ف1-Y-0001')] }] })); }, { d, AT });
+  await p.waitForTimeout(300);
+  const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); }
+  await p.selectOption('select[aria-label="المزيد"]', 'shifts'); await p.waitForSelector('[data-conflictlist]');
+  assert.equal(await p.locator('[data-conflict]').count(), 2);
+  assert.match(await p.locator('[data-conflictkeepall]').innerText(), /إبقاء الكل \(2\)/);
+  await p.screenshot({ path: path.join(cache, 'v5659-keepall.png') });
+  await p.click('[data-conflictkeepall]'); await p.waitForTimeout(600);
+  const m = await say(p);
+  assert.match(m, /أُبقيت 0/); assert.match(m, /ف1-Y-0001: لا يحسم التعارض من أصدر الفاتورة/, 'فاتورة المدير نفسه تُتخطّى بسببها');
+  assert.match(m, /ف1-X-0001: يتطلب الحسم الاتصال بالسجلات المحمية/, 'بلا السجل المحمي لا يُحسم شيء — ولا يُكتب في مستند الفرع');
+  assert.equal(await p.evaluate(() => window.cur.posTabs.some(t => (t.conflicts || []).some(c => c.resAt))), false);
+  assert.deepEqual(errs, []); await ctx.close();
+  // المساعد الذكي في التسويق والنمو: مخفي لمدير الفرع (غير مركزي) — لا يصل أبدًا إلى 403 من الخادم
+  const G = await open({ viewport: { width: 1300, height: 1000 } }, 'live/MktGrowth/bm'); await G.p.waitForSelector('[data-mkt]');
+  assert.equal(await G.p.locator('[data-mktv="ai"]').count(), 0); assert.ok(await G.p.locator('[data-mktv="dash"]').count());
+  assert.deepEqual(G.errs, []); await G.ctx.close();
+  const A = await open({ viewport: { width: 1300, height: 1000 } }, 'live/MktGrowth/ho'); await A.p.waitForSelector('[data-mkt]');
+  assert.equal(await A.p.locator('[data-mktv="ai"]').count(), 1, 'المكتب الرئيسي يراه'); await A.ctx.close();
+});
+
 test('v56.58 إلغاء فاتورة جزء من تقسيم بالأصناف: الطاولة مفتوحة ⇒ تعود أصنافه للمتبقي ويُوسم ملغى؛ مغلقة ⇒ لا يُعاد فتح شيء مع تنبيه', async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/PosApp/bm');
   const d = await p.evaluate(() => new Date().toISOString().slice(0, 10)), AT = d + 'T10:00:00Z';
