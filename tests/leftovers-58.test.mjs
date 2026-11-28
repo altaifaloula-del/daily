@@ -84,7 +84,7 @@ test('(2) الحساب مفتوح: يُوسم الجزء ملغى ويبقى ف�
   assert.equal(V.tab.split.ver, t.split.ver, 'لا تتغير نسخة التقسيم (دفع الأجزاء الأخرى سارٍ)');
   const re = V.tab.split.parts[3]; assert.deepEqual([V.tab.split.parts.length, re.no, re.re, re.total, re.lines.map(l => [l.name, l.qty]), !!re.orderId, !!re.coupon], [4, 4, [p1.id], 50, [['طبق', 1]], false, false], 'جزء إعادة بتسعير الجزء الملغى');
   assert.deepEqual([E.tabRemain(V.tab).total, E.tabRemain(V.tab).paidParts || 0], [150, 0], 'أصناف الجزء الملغى عادت للمتبقي');
-  assert.equal(E.tabRemainFree(V.tab).total, 100, 'المتبقي الحر بلا أصناف الإعادة'); assert.deepEqual(E.tabRemainPay(V.tab), { block: 4, part: re });
+  assert.equal(E.tabRemainFree(V.tab).total, 100, 'المتبقي الحر بلا أصناف الإعادة'); assert.deepEqual(E.tabRemainPay(V.tab), { block: [2, 3, 4], part: re }, 'الأجزاء غير المدفوعة الفعلية');
   assert.equal(E.tabPaidParts(V.tab).length, 0);
   assert.match(E.tabPayPart(V.tab, p1.id, payO(V.tab, p1, 'oX'), 'ك').err, /مدفوع/, 'الجزء الملغى لا يُدفع ثانية');
   assert.deepEqual(E.tabPartVoid(V.tab, 'o1'), { tab: V.tab, st: '', no: 1 }, 'مكرر التنفيذ لا يغيّر شيئًا');
@@ -113,15 +113,19 @@ test('(2) الحساب مغلق: لا يُعاد فتح شيء (st:closed للت
   assert.deepEqual(E.tabPartVoid(tab(), 'zz'), { tab: tab(), st: '', no: 0 }); assert.equal(E.tabPartVoid(null, 'zz').st, '');
 });
 
-test('(2) الكوبون كما في v56.56: نقل حجز الجزء الملغى إلى أول جزء غير مدفوع يعمل بعد وسم الإلغاء', () => {
+test('(2) الكوبون: إلغاء الجزء الحامل للكوبون ينقل الرمز وحجزه الحي نفسه إلى جزء الإعادة (حصته من الخصم معه) — لا نقل آخر ولا تحرير', () => {
   const ta = tab(); const cp = [{ id: 'cp', name: 'كوبون', type: 'order', mode: 'amt', value: 6, code: 'T6', maxUses: 1 }];
   const S = E.tabSplitItems(ta, { 0: [1, 1, 1] }, 3, E.posPriceCart(cart(ta), [{ id: 'x' }], cp, { now, code: 'T6', uses: {} }));
-  let t = E.tabSplitSet(ta, S.parts, { at: AT }); const [p1, p2] = t.split.parts;
+  let t = E.tabSplitSet(ta, S.parts, { at: AT }); const [p1] = t.split.parts;
   t = E.tabPayPart(t, p1.id, payO(t, p1, 'o1'), 'ك').tab;
-  const V = E.tabPartVoid(t, 'o1', { at: AT }); const M = E.tabCouponMove(V.tab, 'o1', AT, 'o1');
-  assert.equal(M.to, p2.id); assert.deepEqual(M.tab.split.parts.map(p => [!!p.voided, !!p.coupon]), [[true, false], [false, true], [false, false], [false, false]]);
+  const V = E.tabPartVoid(t, 'o1', { at: AT }); const re = V.tab.split.parts[3];
+  assert.equal(V.cpTo, re.id); assert.deepEqual([re.coupon.code, re.cpHeld], ['T6', 'o1']);
+  assert.deepEqual(V.tab.split.parts.map(p => [!!p.voided, !!p.coupon]), [[true, false], [false, false], [false, false], [false, true]]);
+  assert.equal(V.tab.split.parts[0].cpMoved.to, re.id);
+  assert.equal(E.tabCouponMove(V.tab, 'o1', AT, 'o1').to, '', 'لا نقل ثانٍ');
   const src = read('../mods/pos/PosApp.jsx');
   assert.match(src, /const V = tabPartVoid\(t, o\.id, \{ at, by: me\.name, note: vn\.no \}\)/, 'داخل حفظ الإلغاء نفسه على أحدث حالة');
+  assert.match(src, /if \(pv && pv\.cpTo\) \{ \}[^\n]*\n\s*else if \(o\.coupon && o\.tabId && o\.tabPartId\)/, 'لا تحرير حين ينتقل إلى جزء الإعادة');
   assert.match(src, /الطاولة مغلقة — لم تُعد الأصناف إليها/);
 });
 
@@ -140,13 +144,13 @@ test('(1′) A×2@57.50 + B×1@34.50، كوبون 6، ثلاثة أجزاء: د�
   // دفع 1 (يُحجز الكوبون باسم فاتورته) ثم 2
   let o = fin(t, p1, 'o1'); uses.add('o1'); O.push(o); t = E.tabPayPart(t, p1.id, o, 'ك').tab;
   o = fin(t, p2, 'o2'); O.push(o); t = E.tabPayPart(t, p2.id, o, 'ك').tab;
-  // إلغاء 1: الجزء يُوسم وتعود أصنافه بجزء إعادة 55.19، والكوبون ينتقل بحجزه نفسه إلى الجزء 3 (لا تحرير ولا حجز جديد)
-  O[0] = { ...O[0], status: 'void' }; t = E.tabPartVoid(t, 'o1', { at: AT }).tab; const M = E.tabCouponMove(t, 'o1', AT, 'o1'); t = M.tab; assert.equal(M.to, p3.id);
-  // دفع 3 (بالحجز المنقول — لا حجز جديد)
-  const p3n = t.split.parts.find(p => p.id === p3.id); assert.equal(p3n.cpHeld, 'o1'); o = fin(t, p3n, 'o3'); if (!(p3n.cpHeld)) uses.add('o3'); O.push(o); t = E.tabPayPart(t, p3.id, o, 'ك').tab;
-  // دفع المتبقي ⇒ جزء الإعادة بتسعيره المجمّد
+  // إلغاء 1: الجزء يُوسم وتعود أصنافه بجزء إعادة 55.19 يحمل الكوبون بحجزه نفسه (لا تحرير ولا حجز جديد)
+  O[0] = { ...O[0], status: 'void' }; const V = E.tabPartVoid(t, 'o1', { at: AT }); t = V.tab; assert.ok(V.cpTo);
+  // دفع 3 (بلا كوبون)
+  o = fin(t, p3, 'o3'); assert.equal(o.coupon, undefined); O.push(o); t = E.tabPayPart(t, p3.id, o, 'ك').tab;
+  // دفع المتبقي ⇒ جزء الإعادة بتسعيره المجمّد وبالحجز المنقول (couponUse = o1، لا حجز جديد)
   const RP = E.tabRemainPay(t); assert.equal(RP.block, undefined); assert.equal(RP.part.total, 55.19, 'لا 57.50');
-  o = fin(t, RP.part, 'o4'); assert.equal(o.coupon, undefined, 'لا كوبون على جزء الإعادة (لا استخدام ثانٍ)'); O.push(o); t = E.tabPayPart(t, RP.part.id, o, 'ك').tab;
+  o = fin(t, RP.part, 'o4'); assert.deepEqual([o.coupon, o.couponUse], ['T6', 'o1'], 'الحجز نفسه'); if (!RP.part.cpHeld) uses.add('o4'); O.push(o); t = E.tabPayPart(t, RP.part.id, o, 'ك').tab;
   assert.equal(t.status, 'paid');
   const live = O.filter(x => x.status !== 'void'); const H = (v) => E.toHal(v);
   assert.equal(live.reduce((a, x) => a + H(x.total), 0), 14350, 'العميل دفع 143.50');
@@ -160,25 +164,64 @@ test('(1′) A×2@57.50 + B×1@34.50، كوبون 6، ثلاثة أجزاء: د�
   const L = E.posGlLines(g); const dr = L.reduce((a, l) => a + H(l[1]), 0), cr = L.reduce((a, l) => a + H(l[2]), 0); assert.equal(cr - dr, 14350, 'سطور الإيراد = المحصّل');
 });
 
-/* ---------------- (2′) حجز كوبون منقول على جزء غير مدفوع سقط بإعادة التقسيم ---------------- */
-test('(2′) إعادة التقسيم تُسقط جزءًا يحمل cpHeld ⇒ ينتقل الحجز لجزء جديد بالرمز نفسه أو يُعاد للتحرير', () => {
-  const ta = tab(); const cp = [{ id: 'cp', name: 'كوبون', type: 'order', mode: 'amt', value: 6, code: 'T6', maxUses: 1 }];
-  const S = E.tabSplitItems(ta, { 0: [1, 1, 1] }, 3, E.posPriceCart(cart(ta), [{ id: 'x' }], cp, { now, code: 'T6', uses: {} }));
-  let t = E.tabSplitSet(ta, S.parts, { at: AT }); const [p1] = t.split.parts;
-  t = E.tabPayPart(t, p1.id, payO(t, p1, 'o1'), 'ك').tab; t = E.tabPartVoid(t, 'o1', { at: AT }).tab; t = E.tabCouponMove(t, 'o1', AT, 'o1').tab;
-  assert.equal(t.split.parts[1].cpHeld, 'o1');
-  // (أ) إعادة تقسيم بلا كوبون ⇒ يُحرَّر
-  const S1 = E.tabSplitItems(t, { 0: [1, 1] }, 2, null); const n1 = E.tabSplitSet(t, S1.parts, { at: AT });
-  const C1 = E.tabCpHeldCarry(t, n1); assert.deepEqual(C1.rel, [{ code: 'T6', use: 'o1', limited: true }]); assert.deepEqual(C1.tab, n1);
-  // (ب) إعادة تقسيم بالرمز نفسه ⇒ ينتقل الحجز نفسه إلى الجزء الحامل للكوبون (لا حجز جديد عند دفعه)
-  const S2 = E.tabSplitItems(t, { 0: [1, 1] }, 2, E.posPriceCart(cart({ ...t, rounds: [{ at: AT, lines: E.tabRemainFree(t).lines }], split: undefined }), [{ id: 'x' }], cp, { now, code: 'T6', uses: {} }));
-  const n2 = E.tabSplitSet(t, S2.parts, { at: AT }); const C2 = E.tabCpHeldCarry(t, n2);
-  assert.deepEqual(C2.rel, []); assert.deepEqual(C2.tab.split.parts.filter(p => p.cpHeld).map(p => [p.no, p.cpHeld, p.coupon.code]), [[5, 'o1', 'T6']]);
-  // (ج) جولة جديدة (tabSplitReset تُسقط غير المدفوعة) ⇒ يُحرَّر
-  assert.deepEqual(E.tabCpHeldCarry(t, E.tabSplitReset(t)).rel.map(r => r.use), ['o1']);
-  // بلا حجز ساقط ⇒ لا شيء
-  assert.deepEqual(E.tabCpHeldCarry(n1, n1).rel, []);
+/* ---------------- (2′) حجز كوبون على جزء غير مدفوع سقط بإعادة التقسيم أو جولة جديدة ---------------- */
+const cp6 = [{ id: 'cp', name: 'كوبون 6', type: 'order', mode: 'amt', value: 6, code: 'T6', maxUses: 1 }];
+const cpDisc = (t) => (((t.split || {}).parts) || []).filter(p => !p.voided && (p.orderPromo || {}).id === 'cp').reduce((a, p) => a + E.toHal(p.orderDisc), 0);
+const base3 = () => { const ta = tab(); const S = E.tabSplitItems(ta, { 0: [1, 1, 1] }, 3, E.posPriceCart(cart(ta), [{ id: 'x' }], cp6, { now, code: 'T6', uses: {} })); return E.tabSplitSet(ta, S.parts, { at: AT }); };
+const priceFree = (t, code, uses) => E.posPriceCart(E.tabRemainFree(t).lines.map((l, i) => ({ ...l, key: 'r' + i })), [{ id: 'x' }], cp6, { now, code, uses });
+test('(2′) tabCpHeldCarry: نقل إلى جزء جديد بالرمز نفسه، أو إلى جزء إعادة يحمل حصته، ولا تحرير ما دامت فاتورة تحمل حصته؛ ويُحرَّر فقط حين لا يحمله جزء', () => {
+  let t = base3(); const [p1, p2] = t.split.parts;
+  t = E.tabPayPart(t, p1.id, payO(t, p1, 'o1'), 'ك').tab;
+  // حالة قديمة (v56.56): الحجز نُقل إلى الجزء 2 غير المدفوع
+  const legacy = E.tabCouponMove(t, 'o1', AT, 'o1').tab; assert.equal(legacy.split.parts[1].cpHeld, 'o1');
+  // (ج) فاتورة الجزء 1 قائمة (غير موسومة ملغاة) تحمل حصته ⇒ لا تحرير
+  assert.deepEqual(E.tabCpHeldCarry(legacy, E.tabSplitReset(legacy)).rel, []);
+  // (د) الجزء 1 ملغى ولا جزء يحمل حصته ⇒ يُحرَّر
+  const lv = { ...legacy, split: { ...legacy.split, parts: legacy.split.parts.map(p => p.id === p1.id ? { ...p, voided: { at: AT } } : p) } };
+  assert.deepEqual(E.tabCpHeldCarry(lv, E.tabSplitReset(lv)).rel, [{ code: 'T6', use: 'o1', limited: true }]);
+  // (أ) جزء جديد بالرمز نفسه ⇒ الحجز نفسه
+  const S2 = E.tabSplitItems(lv, { 0: [1, 1] }, 2, priceFree(lv, 'T6', {})); const n2 = E.tabSplitSet(lv, S2.parts, { at: AT }); const C2 = E.tabCpHeldCarry(lv, n2);
+  assert.deepEqual(C2.rel, []); assert.deepEqual(C2.tab.split.parts.filter(p => p.cpHeld).map(p => [p.cpHeld, p.coupon.code]), [['o1', 'T6']]);
+  // (ب) جزء إعادة يحمل حصته بلا رمز ⇒ يحمل الرمز والحجز (إلغاء الجزء 2 المدفوع غير الحامل)
+  let tb = E.tabPayPart(lv, p2.id, payO(lv, lv.split.parts[1], 'o2'), 'ك').tab;   // الجزء 2 دُفع بالحجز المنقول
+  tb = { ...tb, split: { ...tb.split, parts: tb.split.parts.map(p => p.id === p2.id ? (({ coupon: _c, ...y }) => y)(p) : p).concat([{ id: 'u', no: 9, lines: [], total: 0, coupon: { id: 'cp', code: 'T6', limited: true }, cpHeld: 'o1' }]) } };
+  const tb2 = E.tabPartVoid(tb, 'o2', { at: AT }).tab; const nb = E.tabSplitReset(tb2); const Cb = E.tabCpHeldCarry(tb2, nb);
+  assert.deepEqual(Cb.rel, []); assert.deepEqual(Cb.tab.split.parts.filter(p => p.re).map(p => [p.coupon && p.coupon.code, p.cpHeld]), [['T6', 'o1']]);
   const src = read('../mods/pos/PosApp.jsx');
   assert.equal((src.match(/tabCpHeldCarry\(/g) || []).length, 3, 'saveSplit وsaveEq والجولة الجديدة');
   assert.equal((src.match(/hRel\.forEach\(h => \{ if \(h\.limited\) cpnRelease\(h\.code, h\.use/g) || []).length, 3);
+});
+
+/* ---------------- سيناريوهات المراجع A–D (دائمة) ---------------- */
+const live1 = { t6: [{ id: 'o1' }] };   // الحجز الحي للكوبون محدود الاستخدام الواحد
+test('(A) إلغاء الجزء الحامل ودفع البقية: حجز واحد، وخصم الكوبون الكلي 6.00', () => {
+  let t = base3(); const P = t.split.parts; t = E.tabPayPart(t, P[0].id, payO(t, P[0], 'o1'), 'ك').tab;
+  const V = E.tabPartVoid(t, 'o1', { at: AT }); t = V.tab; assert.ok(V.cpTo);
+  assert.equal(cpDisc(t), 600, 'الحصص على الأجزاء القائمة (2 و3 وجزء الإعادة) = 6.00');
+  for (const p of t.split.parts.filter(x => !x.orderId)) t = E.tabPayPart(t, p.id, payO(t, p, 'q' + p.no), 'ك').tab;
+  assert.equal(t.status, 'paid'); assert.equal(cpDisc(t), 600);
+});
+test('(B) إلغاء جزء غير حامل بعد دفع الحامل: لا نقل ولا تحرير، وجزء الإعادة بحصته', () => {
+  let t = base3(); const P = t.split.parts; t = E.tabPayPart(t, P[0].id, payO(t, P[0], 'o1'), 'ك').tab; t = E.tabPayPart(t, P[1].id, payO(t, P[1], 'o2'), 'ك').tab;
+  const V = E.tabPartVoid(t, 'o2', { at: AT }); assert.equal(V.cpTo, undefined); t = V.tab;
+  assert.equal(cpDisc(t), 600); assert.deepEqual(E.tabCpHeldCarry(t, E.tabSplitReset(t)).rel, []);
+});
+test('(C) إلغاء الحامل ثم إعادة تقسيم المتبقي الحر مع إدخال الرمز: الرمز مرفوض (الحجز حي على جزء الإعادة)، ولا تحرير، والخصم ≤ 6.00', () => {
+  let t = base3(); const P = t.split.parts; t = E.tabPayPart(t, P[0].id, payO(t, P[0], 'o1'), 'ك').tab; t = E.tabPartVoid(t, 'o1', { at: AT }).tab;
+  const PZ = priceFree(t, 'T6', live1); assert.equal(PZ.coupon, null, 'لا كوبون ثانٍ'); assert.equal(E.toHal(PZ.orderDisc), 0);
+  const S = E.tabSplitItems(t, { 0: [1, 1] }, 2, PZ); const nx = E.tabSplitSet(t, S.parts, { at: AT }); const C = E.tabCpHeldCarry(t, nx);
+  assert.deepEqual(C.rel, []); assert.ok(cpDisc(C.tab) <= 600, 'الخصم الكلي ≤ 6.00');
+  assert.deepEqual(C.tab.split.parts.filter(p => p.cpHeld).map(p => [!!p.re, p.cpHeld]), [[true, 'o1']]);
+});
+test('(D) إلغاء الحامل ثم جولة جديدة ثم إعادة تقسيم: rel فارغ، والخصم الكلي ≤ 6.00، وإعادة إدخال الرمز مرفوضة', () => {
+  let t = base3(); const P = t.split.parts; t = E.tabPayPart(t, P[0].id, payO(t, P[0], 'o1'), 'ك').tab; t = E.tabPartVoid(t, 'o1', { at: AT }).tab;
+  // جولة جديدة: tabSplitReset تُسقط الجزأين 2 و3 غير المدفوعين
+  const r1 = { ...E.tabSplitReset(t), rounds: [...t.rounds, { at: AT, lines: [{ productId: 'x', name: 'طبق', qty: 1, price: 50 }] }] };
+  assert.deepEqual(E.tabCpHeldCarry(t, r1).rel, [], 'جزء الإعادة يحمل الحجز — لا تحرير');
+  // إعادة التقسيم مع إدخال T6 والحجز حي ⇒ مرفوض
+  assert.match(E.couponWhy(cp6, 'T6', { uses: live1, sub: 150 }, now, 'b1'), /استُنفد/);
+  const PZ = priceFree(r1, 'T6', live1); assert.equal(PZ.coupon, null);
+  const S = E.tabSplitItems(r1, { 0: [2, 1] }, 2, PZ); assert.equal(S.err, undefined); const nx = E.tabSplitSet(r1, S.parts, { at: AT });
+  const C = E.tabCpHeldCarry(r1, nx); assert.deepEqual(C.rel, []);
+  assert.ok(cpDisc(C.tab) <= 600, 'الخصم الكلي ≤ 6.00'); assert.equal(cpDisc(C.tab), 400, 'حصتا الجزأين القائمين فقط (جزء الإعادة 2.00 ... وما سقط لا يُحتسب)'.length ? cpDisc(C.tab) : 0);
 });

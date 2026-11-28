@@ -441,12 +441,13 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     // (لا تحرير ثم حجز — لا سباق ولا جزء عالق)، ولا جزء غير مدفوع ⇒ يُحرَّر. التقسيم بالتساوي: الحجز على التقسيم ويُحرَّر بعد إلغاء/إرجاع كل أجزائه فقط.
     const useId = o.couponUse || o.id;
     if (o.tabId) eqCpFree(o.tabId, eqCp);
-    if (o.coupon && o.tabId && o.tabPartId) { let to = '';
+    if (pv && pv.cpTo) { }   // v56.58: الكوبون انتقل بحجزه نفسه إلى جزء الإعادة (حصته من الخصم معه) — لا نقل آخر ولا تحرير
+    else if (o.coupon && o.tabId && o.tabPartId) { let to = '';
       commit(d => { to = ''; return { ...d, posTabs: (d.posTabs || []).map(t => { if (t.id !== o.tabId) return t; const M = tabCouponMove(t, o.id, nowISO(), useId); to = M.to; return M.tab; }) }; },
         () => to ? { actionType: 'update', targetType: 'pos_tab', targetId: o.tabId, branchName: br.name, title: 'نقل كوبون الجزء الملغى ' + o.no + ' إلى جزء آخر', details: o.coupon } : null)
         .then(ok => { if (ok && to) say('الكوبون ' + o.coupon + ' صار صالحًا لجزء آخر من الطاولة'); else if (o.couponLtd) cpnRelease(o.coupon, useId, 'إلغاء الفاتورة'); }).catch(() => { });
     } else if (o.coupon && o.couponLtd) cpnRelease(o.coupon, useId, 'إلغاء الفاتورة');
-    say('أُلغيت الفاتورة ' + o.no + ' — إشعار دائن ' + vn.no + (pv && pv.st === 'open' ? ' · أُعيدت أصناف الجزء ' + pv.no + ' إلى متبقي الطاولة' : pv && pv.st === 'closed' ? ' · الطاولة مغلقة — لم تُعد الأصناف إليها' : '')); flush();
+    say('أُلغيت الفاتورة ' + o.no + ' — إشعار دائن ' + vn.no + (pv && pv.st === 'open' ? ' · أُعيدت أصناف الجزء ' + pv.no + ' إلى متبقي الطاولة' + (pv.cpTo ? ' مع الكوبون ' + o.coupon + ' وحصته من الخصم' : '') : pv && pv.st === 'closed' ? ' · الطاولة مغلقة — لم تُعد الأصناف إليها' : '')); flush();
     posPrint(posReturnHtml(org, { ...vn, cancel: true, refNo: o.no, retLines: C.lines, payments: (o.payments || []).map(p => ({ ...p, amount: -p.amount })), reason: 'other', note: reason.trim() }, br));
   };
 
@@ -844,10 +845,10 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
               <button className="btn" onClick={() => { setTbl(tblSel.no); setChannel('dinein'); setPayTab(null); setTblSel(null); setView('sell'); }}><Plus size={14} />إضافة طلب</button>
               <button className="btn" onClick={() => printBill(tblSel.tab)}><Printer size={14} />طباعة الحساب</button>
               <select className="sel" aria-label="نقل إلى طاولة" value="" onChange={e => e.target.value && moveTab(tblSel.tab, e.target.value)}><option value="">نقل إلى طاولة…</option>{TS.filter(y => y.st === 'free').map(y => <option key={y.no} value={y.no}>{y.no}</option>)}</select>
-              {RP ? <button className="btn pri" data-payrest disabled={!!RP.block} title={RP.block ? 'ادفع أولًا الجزء ' + RP.block + ' (أصناف الفاتورة الملغاة بحصتها من الخصم)' : ''} onClick={() => !RP.block && startPayTab(tl, RP.part)}><Banknote size={14} />{'دفع المتبقي ' + money(RP.block ? posR2(RF.total + RP.part.total) : RP.part.total)}</button>   /* v56.58 (قرار المالك): أصناف الجزء الملغى بتسعيره المجمّد */
+              {RP ? <button className="btn pri" data-payrest disabled={!!RP.block} title={RP.block ? 'ادفع أولًا الأجزاء غير المدفوعة: ' + RP.block.join('، ') : ''} onClick={() => !RP.block && startPayTab(tl, RP.part)}><Banknote size={14} />{'دفع المتبقي ' + money(RP.block ? posR2(RF.total + RP.part.total) : RP.part.total)}</button>   /* v56.58 (قرار المالك): أصناف الجزء الملغى بتسعيره المجمّد */
                 : <button className="btn pri" onClick={() => startPayTab(tl)}><Banknote size={14} />{RM.paidParts ? 'دفع المتبقي ' + money(RM.total) : 'الدفع'}</button>}
             </div>
-            {RP && RP.block ? <div className="note" data-payrestnote style={{ marginTop: 8, fontSize: 12.5 }}>ادفع أولًا الجزء <b className="num">{RP.block}</b> (أصناف الفاتورة الملغاة بحصتها من خصم الطاولة)، ثم المتبقي.</div> : null}
+            {RP && RP.block ? <div className="note" data-payrestnote style={{ marginTop: 8, fontSize: 12.5 }}>ادفع أولًا {RP.block.length > 1 ? 'الأجزاء غير المدفوعة' : 'الجزء'} <b className="num">{RP.block.join('، ')}</b> (منها الجزء <span className="num">{RP.part.no}</span>: أصناف الفاتورة الملغاة بحصتها من خصم الطاولة)، ثم المتبقي.</div> : null}
             {/* v56.52 — المطعم: الأشخاص والنادل والدمج والتقسيم (تظهر بتفعيلها فقط) */}
             {(RC.covers || RC.waiters) && <div className="row" data-tabmeta style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 10 }}>
               {RC.covers && <label className="row" style={{ gap: 6, fontSize: 13, alignItems: 'center' }}>الأشخاص<input className="inp n" style={{ width: 64 }} inputMode="numeric" aria-label="أشخاص الطاولة" defaultValue={tl.covers || ''} key={'cv' + tl.id + (tl.covers || '')} onBlur={e => { const v = e.target.value.trim(); if (v !== String(tl.covers || '')) setTabMeta(tl, { covers: v }); }} /></label>}
